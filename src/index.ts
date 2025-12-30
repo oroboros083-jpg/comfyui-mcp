@@ -104,39 +104,47 @@ const server = new Server(
  * Initialize connection to ComfyUI
  */
 async function initializeComfyUI(): Promise<boolean> {
+  console.error("[init] Starting ComfyUI initialization...");
   config = await loadConfig();
+  console.error(`[init] Config loaded, url from config: ${config.comfyui.url}`);
 
   // Try to detect ComfyUI installation
   const installation = detectInstallation();
   if (installation.installed && installation.path) {
     comfyuiPath = installation.path;
-    console.error(`Found ComfyUI installation at: ${comfyuiPath}`);
+    console.error(`[init] Found ComfyUI installation at: ${comfyuiPath}`);
+  } else {
+    console.error("[init] No ComfyUI installation detected");
   }
 
   // Try to discover running ComfyUI
+  console.error("[init] Attempting to discover running ComfyUI...");
   const discovered = await discoverComfyUI(config.comfyui.url);
 
   if (!discovered) {
     console.error(
-      "ComfyUI is not running. Use get_install_guide or get_status for help."
+      "[init] ComfyUI is not running. Use get_install_guide or get_status for help."
     );
     return false;
   }
 
   discoveredUrl = discovered.url;
   discoverySource = discovered.source;
-  console.error(`Found running ComfyUI at ${discovered.url} (${discovered.source})`);
+  console.error(`[init] Found running ComfyUI at ${discovered.url} (${discovered.source})`);
 
   // Create client
   client = new ComfyUIClient(discovered.url, config.comfyui.apiKey);
+  console.error("[init] Created ComfyUI client");
 
   // Get capabilities
   try {
+    console.error("[init] Getting object info...");
     objectInfo = await client.getObjectInfo();
+    console.error(`[init] Got object info with ${Object.keys(objectInfo).length} nodes`);
     capabilities = detectCapabilities(objectInfo);
-    console.error(`Detected capabilities:\n${getCapabilitySummary(capabilities)}`);
+    console.error(`[init] Detected capabilities:\n${getCapabilitySummary(capabilities)}`);
   } catch (error) {
-    console.error("Failed to get ComfyUI capabilities:", error);
+    console.error(`[init] Failed to get ComfyUI capabilities: ${error}`);
     return false;
   }
 
@@ -144,11 +152,12 @@ async function initializeComfyUI(): Promise<boolean> {
   ws = new ComfyUIWebSocket(client.getWebSocketUrl());
   try {
     await ws.connect();
-    console.error("WebSocket connected");
+    console.error("[init] WebSocket connected");
   } catch (error) {
-    console.error("Failed to connect WebSocket:", error);
+    console.error(`[init] Failed to connect WebSocket: ${error}`);
   }
 
+  console.error("[init] Initialization complete, returning true");
   return true;
 }
 
@@ -404,19 +413,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // === Status & Setup ===
       case "get_status": {
         // Always try to connect/reconnect when checking status
+        console.error("[get_status] Starting status check...");
         const wasConnected = client !== null;
-        await initializeComfyUI();
+        console.error(`[get_status] Was previously connected: ${wasConnected}`);
+
+        const initResult = await initializeComfyUI();
+        console.error(`[get_status] initializeComfyUI returned: ${initResult}`);
+        console.error(`[get_status] client is null: ${client === null}`);
+        console.error(`[get_status] discoveredUrl: ${discoveredUrl}`);
 
         // Test actual connectivity
         let isConnected = false;
         if (client) {
           try {
-            await client.getSystemStats();
+            console.error("[get_status] Testing connectivity with getSystemStats...");
+            const stats = await client.getSystemStats();
+            console.error(`[get_status] Got system stats: ${JSON.stringify(stats).slice(0, 100)}...`);
             isConnected = true;
-          } catch {
+          } catch (err) {
+            console.error(`[get_status] getSystemStats failed: ${err}`);
             isConnected = false;
           }
+        } else {
+          console.error("[get_status] client is null, cannot test connectivity");
         }
+
+        console.error(`[get_status] Final isConnected: ${isConnected}`);
 
         const status = await getStatus(
           isConnected,
