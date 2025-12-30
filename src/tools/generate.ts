@@ -24,6 +24,40 @@ function isRunningInDocker(): boolean {
   return existsSync("/.dockerenv") || process.env.DOCKER === "true";
 }
 
+/**
+ * Generate a human-readable filename from prompt and metadata
+ */
+function generateReadableFilename(
+  prompt: string,
+  workflowType: string,
+  index: number,
+  extension: string
+): string {
+  // Clean and truncate prompt for filename
+  const cleanPrompt = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "") // Remove special chars
+    .replace(/\s+/g, "-") // Spaces to hyphens
+    .substring(0, 50) // Limit length
+    .replace(/-+$/, ""); // Remove trailing hyphens
+
+  // Generate timestamp: YYYYMMDD-HHMMSS
+  const now = new Date();
+  const timestamp = now
+    .toISOString()
+    .replace(/[-:T]/g, "")
+    .substring(0, 15)
+    .replace(/(\d{8})(\d{6})/, "$1-$2");
+
+  // Build filename: prompt-snippet_model_timestamp_index.ext
+  const parts = [cleanPrompt || "image", workflowType, timestamp];
+  if (index > 0) {
+    parts.push(String(index + 1));
+  }
+
+  return `${parts.join("_")}${extension}`;
+}
+
 export const outputModeSchema = z
   .enum(["base64", "file", "auto"])
   .default("auto")
@@ -207,6 +241,7 @@ export async function generateImage(
 
   // Extract image outputs
   const images: GenerateResult["images"] = [];
+  let imageIndex = 0;
 
   for (const [_nodeId, output] of Object.entries(result.outputs)) {
     const nodeOutput = output as {
@@ -230,13 +265,16 @@ export async function generateImage(
           );
 
         if (shouldSaveToFile) {
-          const outputPath = join(outputDir, img.filename);
+          // Generate human-readable filename
+          const ext = img.filename.match(/\.[^.]+$/)?.[0] || ".png";
+          const readableFilename = generateReadableFilename(input.prompt, type, imageIndex, ext);
+          const outputPath = join(outputDir, readableFilename);
           const outputDirPath = dirname(outputPath);
           if (!existsSync(outputDirPath)) {
             await mkdir(outputDirPath, { recursive: true });
           }
           await writeFile(outputPath, imageBuffer);
-          images.push({ filename: img.filename, path: outputPath });
+          images.push({ filename: readableFilename, path: outputPath });
         } else {
           // Build processing options from input or use defaults
           const processingOptions: ImageProcessingOptions = {
@@ -254,14 +292,15 @@ export async function generateImage(
             webp: ".webp",
           };
           const ext = formatExtensions[processingOptions.format || "jpeg"];
-          const outputFilename = img.filename.replace(/\.[^.]+$/, ext);
+          const readableFilename = generateReadableFilename(input.prompt, type, imageIndex, ext);
 
           images.push({
-            filename: outputFilename,
+            filename: readableFilename,
             data: processed.data,
             mimeType: processed.mimeType,
           });
         }
+        imageIndex++;
       }
     }
   }
@@ -333,8 +372,19 @@ export async function runWorkflow(
     };
   }
 
+  // Try to extract a prompt from the workflow for readable naming
+  let workflowPrompt = "custom-workflow";
+  for (const node of Object.values(input.workflow)) {
+    const nodeObj = node as { class_type?: string; inputs?: { text?: string } };
+    if (nodeObj.class_type === "CLIPTextEncode" && nodeObj.inputs?.text) {
+      workflowPrompt = nodeObj.inputs.text;
+      break;
+    }
+  }
+
   // Extract outputs
   const images: RunWorkflowResult["images"] = [];
+  let imageIndex = 0;
 
   for (const [_nodeId, output] of Object.entries(result.outputs)) {
     const nodeOutput = output as {
@@ -358,13 +408,16 @@ export async function runWorkflow(
           );
 
         if (shouldSaveToFile) {
-          const outputPath = join(outputDir, img.filename);
+          // Generate human-readable filename
+          const ext = img.filename.match(/\.[^.]+$/)?.[0] || ".png";
+          const readableFilename = generateReadableFilename(workflowPrompt, "workflow", imageIndex, ext);
+          const outputPath = join(outputDir, readableFilename);
           const outputDirPath = dirname(outputPath);
           if (!existsSync(outputDirPath)) {
             await mkdir(outputDirPath, { recursive: true });
           }
           await writeFile(outputPath, imageBuffer);
-          images.push({ filename: img.filename, path: outputPath });
+          images.push({ filename: readableFilename, path: outputPath });
         } else {
           // Build processing options from input or use defaults
           const processingOptions: ImageProcessingOptions = {
@@ -382,14 +435,15 @@ export async function runWorkflow(
             webp: ".webp",
           };
           const ext = formatExtensions[processingOptions.format || "jpeg"];
-          const outputFilename = img.filename.replace(/\.[^.]+$/, ext);
+          const readableFilename = generateReadableFilename(workflowPrompt, "workflow", imageIndex, ext);
 
           images.push({
-            filename: outputFilename,
+            filename: readableFilename,
             data: processed.data,
             mimeType: processed.mimeType,
           });
         }
+        imageIndex++;
       }
     }
   }
