@@ -43,6 +43,15 @@ export const imageQualitySchema = z
   .default(85)
   .describe("Image quality for JPEG/WebP (1-100, higher = better quality but larger)");
 
+export const timeoutSchema = z
+  .number()
+  .min(30000)
+  .max(3600000)
+  .default(300000)
+  .describe(
+    "Timeout in milliseconds (default: 300000 = 5 min). Increase for complex generations: SD1.5 ~30s, SDXL ~1-2min, Flux on CPU ~10-30min"
+  );
+
 export const generateImageSchema = z.object({
   prompt: z.string().describe("The positive prompt describing what to generate"),
   negativePrompt: z
@@ -81,6 +90,7 @@ export const generateImageSchema = z.object({
   outputMode: outputModeSchema,
   imageFormat: imageFormatSchema.optional(),
   imageQuality: imageQualitySchema.optional(),
+  timeout: timeoutSchema.optional(),
 });
 
 export type GenerateImageInput = z.infer<typeof generateImageSchema>;
@@ -163,7 +173,8 @@ export async function generateImage(
   capabilities: Capabilities,
   objectInfo: ObjectInfo,
   outputDir: string,
-  sizeThreshold: number
+  sizeThreshold: number,
+  timeout: number = 300000
 ): Promise<GenerateResult> {
   // Build workflow based on capabilities
   const { workflow, type } = buildWorkflow(input, capabilities, objectInfo);
@@ -182,7 +193,7 @@ export async function generateImage(
   }
 
   // Wait for completion
-  const result = await ws.waitForPrompt(queueResponse.prompt_id);
+  const result = await ws.waitForPrompt(queueResponse.prompt_id, timeout);
 
   if (!result.success) {
     return {
@@ -270,6 +281,7 @@ export const runWorkflowSchema = z.object({
   outputMode: outputModeSchema,
   imageFormat: imageFormatSchema.optional(),
   imageQuality: imageQualitySchema.optional(),
+  timeout: timeoutSchema.optional(),
 });
 
 export type RunWorkflowInput = z.infer<typeof runWorkflowSchema>;
@@ -292,7 +304,8 @@ export async function runWorkflow(
   ws: ComfyUIWebSocket,
   input: RunWorkflowInput,
   outputDir: string,
-  sizeThreshold: number
+  sizeThreshold: number,
+  timeout: number = 300000
 ): Promise<RunWorkflowResult> {
   // Queue the prompt
   const queueResponse = await client.queuePrompt(input.workflow);
@@ -308,7 +321,7 @@ export async function runWorkflow(
   }
 
   // Wait for completion
-  const result = await ws.waitForPrompt(queueResponse.prompt_id);
+  const result = await ws.waitForPrompt(queueResponse.prompt_id, timeout);
 
   if (!result.success) {
     return {

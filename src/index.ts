@@ -640,7 +640,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           capabilities,
           objectInfo,
           config.outputDir,
-          config.outputSizeThreshold
+          config.outputSizeThreshold,
+          input.timeout || 300000
         );
 
         if (!result.success) {
@@ -683,7 +684,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ws,
           input,
           config.outputDir,
-          config.outputSizeThreshold
+          config.outputSizeThreshold,
+          input.timeout || 300000
         );
 
         if (!result.success) {
