@@ -31,6 +31,18 @@ export const outputModeSchema = z
     "How to return the output: base64 (inline), file (save to disk), or auto (based on size)"
   );
 
+export const imageFormatSchema = z
+  .enum(["jpeg", "png", "webp"])
+  .default("jpeg")
+  .describe("Output image format (jpeg is smallest, png is lossless, webp is modern)");
+
+export const imageQualitySchema = z
+  .number()
+  .min(1)
+  .max(100)
+  .default(85)
+  .describe("Image quality for JPEG/WebP (1-100, higher = better quality but larger)");
+
 export const generateImageSchema = z.object({
   prompt: z.string().describe("The positive prompt describing what to generate"),
   negativePrompt: z
@@ -67,6 +79,8 @@ export const generateImageSchema = z.object({
     .describe("Scheduler (auto-selected if not provided)"),
   batchSize: z.number().optional().default(1).describe("Number of images to generate"),
   outputMode: outputModeSchema,
+  imageFormat: imageFormatSchema.optional(),
+  imageQuality: imageQualitySchema.optional(),
 });
 
 export type GenerateImageInput = z.infer<typeof generateImageSchema>;
@@ -213,10 +227,26 @@ export async function generateImage(
           await writeFile(outputPath, imageBuffer);
           images.push({ filename: img.filename, path: outputPath });
         } else {
-          // Process image for efficient transfer (convert to JPEG, smaller size)
-          const processed = await processImageForTransfer(imageBuffer, DEFAULT_TRANSFER_OPTIONS);
+          // Build processing options from input or use defaults
+          const processingOptions: ImageProcessingOptions = {
+            format: input.imageFormat || DEFAULT_TRANSFER_OPTIONS.format,
+            quality: input.imageQuality || DEFAULT_TRANSFER_OPTIONS.quality,
+          };
+
+          // Process image for efficient transfer
+          const processed = await processImageForTransfer(imageBuffer, processingOptions);
+
+          // Determine output extension based on format
+          const formatExtensions: Record<string, string> = {
+            jpeg: ".jpg",
+            png: ".png",
+            webp: ".webp",
+          };
+          const ext = formatExtensions[processingOptions.format || "jpeg"];
+          const outputFilename = img.filename.replace(/\.[^.]+$/, ext);
+
           images.push({
-            filename: img.filename.replace(/\.png$/i, ".jpg"),
+            filename: outputFilename,
             data: processed.data,
             mimeType: processed.mimeType,
           });
@@ -238,6 +268,8 @@ export const runWorkflowSchema = z.object({
     .record(z.unknown())
     .describe("The ComfyUI workflow JSON (API format)"),
   outputMode: outputModeSchema,
+  imageFormat: imageFormatSchema.optional(),
+  imageQuality: imageQualitySchema.optional(),
 });
 
 export type RunWorkflowInput = z.infer<typeof runWorkflowSchema>;
@@ -321,10 +353,26 @@ export async function runWorkflow(
           await writeFile(outputPath, imageBuffer);
           images.push({ filename: img.filename, path: outputPath });
         } else {
-          // Process image for efficient transfer (convert to JPEG, smaller size)
-          const processed = await processImageForTransfer(imageBuffer, DEFAULT_TRANSFER_OPTIONS);
+          // Build processing options from input or use defaults
+          const processingOptions: ImageProcessingOptions = {
+            format: input.imageFormat || DEFAULT_TRANSFER_OPTIONS.format,
+            quality: input.imageQuality || DEFAULT_TRANSFER_OPTIONS.quality,
+          };
+
+          // Process image for efficient transfer
+          const processed = await processImageForTransfer(imageBuffer, processingOptions);
+
+          // Determine output extension based on format
+          const formatExtensions: Record<string, string> = {
+            jpeg: ".jpg",
+            png: ".png",
+            webp: ".webp",
+          };
+          const ext = formatExtensions[processingOptions.format || "jpeg"];
+          const outputFilename = img.filename.replace(/\.[^.]+$/, ext);
+
           images.push({
-            filename: img.filename.replace(/\.png$/i, ".jpg"),
+            filename: outputFilename,
             data: processed.data,
             mimeType: processed.mimeType,
           });
@@ -355,6 +403,8 @@ export const getImageSchema = z.object({
     .optional()
     .default("output")
     .describe("Type of image location"),
+  imageFormat: imageFormatSchema.optional(),
+  imageQuality: imageQualitySchema.optional(),
 });
 
 export type GetImageInput = z.infer<typeof getImageSchema>;
@@ -382,12 +432,27 @@ export async function getImage(
     );
     const imageBuffer = Buffer.from(imageData);
 
-    // Process image for efficient transfer (convert to JPEG)
-    const processed = await processImageForTransfer(imageBuffer, DEFAULT_TRANSFER_OPTIONS);
+    // Build processing options from input or use defaults
+    const processingOptions: ImageProcessingOptions = {
+      format: input.imageFormat || DEFAULT_TRANSFER_OPTIONS.format,
+      quality: input.imageQuality || DEFAULT_TRANSFER_OPTIONS.quality,
+    };
+
+    // Process image for efficient transfer
+    const processed = await processImageForTransfer(imageBuffer, processingOptions);
+
+    // Determine output extension based on format
+    const formatExtensions: Record<string, string> = {
+      jpeg: ".jpg",
+      png: ".png",
+      webp: ".webp",
+    };
+    const ext = formatExtensions[processingOptions.format || "jpeg"];
+    const outputFilename = input.filename.replace(/\.[^.]+$/, ext);
 
     return {
       success: true,
-      filename: input.filename.replace(/\.png$/i, ".jpg"),
+      filename: outputFilename,
       data: processed.data,
       mimeType: processed.mimeType,
     };

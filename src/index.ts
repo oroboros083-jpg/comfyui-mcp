@@ -80,6 +80,12 @@ import {
   ListExamplesInput,
   GetExampleWorkflowInput,
 } from "./tools/examples.js";
+import {
+  getPromptingGuide,
+  getComprehensiveGuide,
+  formatPromptingGuide,
+  PROMPTING_GUIDES,
+} from "./resources/prompting-guide.js";
 
 // Global state
 let client: ComfyUIClient | null = null;
@@ -324,6 +330,20 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     requiresConnection: false,
   },
 
+  // === Prompting Guides (always available) ===
+  get_prompting_guide: {
+    schema: z.object({
+      modelType: z
+        .enum(["sd15", "sdxl", "sd3", "flux", "all"])
+        .optional()
+        .default("all")
+        .describe("Model type to get prompting guide for (sd15, sdxl, sd3, flux, or all)"),
+    }),
+    description:
+      "Get prompting best practices for AI image generation models (SD1.5, SDXL, SD3, Flux)",
+    requiresConnection: false,
+  },
+
   // === Generation (requires ComfyUI) ===
   get_capabilities: {
     schema: z.object({}),
@@ -533,6 +553,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const input = getExampleWorkflowSchema.parse(args) as GetExampleWorkflowInput;
         const result = await getExampleWorkflow(input);
         return { content: [{ type: "text", text: result }] };
+      }
+
+      // === Prompting Guides ===
+      case "get_prompting_guide": {
+        const input = args as { modelType?: string };
+        const modelType = input.modelType || "all";
+
+        if (modelType === "all") {
+          const guide = getComprehensiveGuide();
+          return { content: [{ type: "text", text: guide }] };
+        }
+
+        const guide = getPromptingGuide(modelType);
+        if (!guide) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Unknown model type: ${modelType}. Available types: ${Object.keys(PROMPTING_GUIDES).join(", ")}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        return { content: [{ type: "text", text: formatPromptingGuide(guide) }] };
       }
 
       // === Generation ===
