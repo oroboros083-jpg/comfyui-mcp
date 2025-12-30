@@ -2,7 +2,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { existsSync, readFileSync } from "fs";
 
-const DEFAULT_PORTS = [8188, 8189, 8190];
+const DEFAULT_PORTS = [8188, 8000, 8189, 8190]; // 8000 is used by ComfyUI Desktop on macOS
 const PROBE_TIMEOUT = 2000; // 2 seconds
 
 export interface DiscoveryResult {
