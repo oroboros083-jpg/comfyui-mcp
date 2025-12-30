@@ -44,8 +44,11 @@ import {
   generateImage,
   runWorkflowSchema,
   runWorkflow,
+  getImageSchema,
+  getImage,
   GenerateImageInput,
   RunWorkflowInput,
+  GetImageInput,
 } from "./tools/generate.js";
 import {
   getInstallGuideSchema,
@@ -340,6 +343,12 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
       "Run a custom ComfyUI workflow (API format JSON). Use get_example_workflow to fetch examples.",
     requiresConnection: true,
   },
+  get_image: {
+    schema: getImageSchema,
+    description:
+      "Retrieve a generated image as base64. Use this to fetch images from ComfyUI's output directory.",
+    requiresConnection: true,
+  },
 
   // === Model Discovery (requires ComfyUI) ===
   list_models: {
@@ -632,6 +641,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         return { content };
+      }
+
+      case "get_image": {
+        const { client } = await ensureConnected();
+        const input = getImageSchema.parse(args) as GetImageInput;
+        const result = await getImage(client, input);
+
+        if (!result.success) {
+          return {
+            content: [{ type: "text", text: `Error: ${result.error}` }],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "image",
+              data: result.data,
+              mimeType: result.mimeType || "image/png",
+            },
+          ],
+        };
       }
 
       // === Model Discovery ===

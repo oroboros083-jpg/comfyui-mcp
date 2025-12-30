@@ -323,3 +323,68 @@ export async function runWorkflow(
     images,
   };
 }
+
+export const getImageSchema = z.object({
+  filename: z
+    .string()
+    .describe("The filename of the image to retrieve (e.g., 'ComfyUI_00001_.png')"),
+  subfolder: z
+    .string()
+    .optional()
+    .default("")
+    .describe("Subfolder within the output directory"),
+  type: z
+    .enum(["output", "input", "temp"])
+    .optional()
+    .default("output")
+    .describe("Type of image location"),
+});
+
+export type GetImageInput = z.infer<typeof getImageSchema>;
+
+export interface GetImageResult {
+  success: boolean;
+  filename: string;
+  data?: string; // base64
+  mimeType?: string;
+  error?: string;
+}
+
+/**
+ * Retrieve a generated image as base64
+ */
+export async function getImage(
+  client: ComfyUIClient,
+  input: GetImageInput
+): Promise<GetImageResult> {
+  try {
+    const imageData = await client.getImage(
+      input.filename,
+      input.subfolder || "",
+      input.type || "output"
+    );
+    const imageBuffer = Buffer.from(imageData);
+    const base64 = imageBuffer.toString("base64");
+
+    // Determine mime type from filename
+    const ext = input.filename.toLowerCase().split(".").pop();
+    const mimeType = ext === "png" ? "image/png"
+      : ext === "jpg" || ext === "jpeg" ? "image/jpeg"
+      : ext === "webp" ? "image/webp"
+      : ext === "gif" ? "image/gif"
+      : "image/png";
+
+    return {
+      success: true,
+      filename: input.filename,
+      data: base64,
+      mimeType,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      filename: input.filename,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
