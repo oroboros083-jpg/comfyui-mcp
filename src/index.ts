@@ -403,6 +403,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       // === Status & Setup ===
       case "get_status": {
+        // Try to connect if not already connected
+        if (!client || !ws?.isConnected()) {
+          await initializeComfyUI();
+        }
         const status = await getStatus(
           client !== null && ws?.isConnected() === true,
           discoveredUrl || undefined,
