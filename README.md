@@ -37,6 +37,82 @@ Fetches real workflow JSON from the [official ComfyUI examples](https://comfyano
 
 ---
 
+## Quick Start Guide
+
+### Step 1: Install ComfyUI
+
+**Option A: Desktop App (Recommended for most users)**
+1. Go to [comfy.org/download](https://www.comfy.org/download)
+2. Download for your platform (macOS, Windows, or Linux)
+3. Install and launch the application
+4. ComfyUI will automatically set up Python and dependencies
+
+**Option B: Manual Installation**
+```bash
+# Clone the repository
+git clone https://github.com/comfyanonymous/ComfyUI.git
+cd ComfyUI
+
+# Install dependencies (use a virtual environment recommended)
+pip install -r requirements.txt
+
+# Run ComfyUI
+python main.py
+```
+
+### Step 2: Download a Model
+
+You need at least one checkpoint model. Here are popular options:
+
+**SDXL (Recommended - high quality, 1024x1024)**
+- Download `sd_xl_base_1.0.safetensors` from [HuggingFace](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0)
+- Place in `ComfyUI/models/checkpoints/`
+
+**Flux (State of the art quality)**
+- Download `flux1-schnell.safetensors` from [HuggingFace](https://huggingface.co/black-forest-labs/FLUX.1-schnell)
+- Place in `ComfyUI/models/unet/`
+- Also need CLIP encoders from [flux_text_encoders](https://huggingface.co/comfyanonymous/flux_text_encoders)
+
+**SD 1.5 (Classic, fast, many LoRAs available)**
+- Download `v1-5-pruned-emaonly.safetensors` from [HuggingFace](https://huggingface.co/runwayml/stable-diffusion-v1-5)
+- Place in `ComfyUI/models/checkpoints/`
+
+### Step 3: Configure Claude Desktop
+
+Add to your Claude Desktop configuration file:
+
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "npx",
+      "args": ["-y", "comfyui-mcp"]
+    }
+  }
+}
+```
+
+### Step 4: Start Generating!
+
+1. Make sure ComfyUI is running (http://localhost:8188 should show the UI)
+2. Restart Claude Desktop
+3. Ask Claude to generate an image:
+
+```
+Generate an image of a sunset over mountains
+```
+
+Claude will automatically:
+- Connect to your ComfyUI instance
+- Detect available models
+- Build an appropriate workflow
+- Generate and display the image
+
+---
+
 ## Installation
 
 ### Prerequisites
