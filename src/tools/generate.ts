@@ -12,6 +12,13 @@ import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
 
+/**
+ * Check if we're running inside a Docker container
+ */
+function isRunningInDocker(): boolean {
+  return existsSync("/.dockerenv") || process.env.DOCKER === "true";
+}
+
 export const outputModeSchema = z
   .enum(["base64", "file", "auto"])
   .default("auto")
@@ -183,9 +190,13 @@ export async function generateImage(
         );
         const imageBuffer = Buffer.from(imageData);
 
+        // In Docker, always use base64 since file paths aren't accessible to the host
+        const inDocker = isRunningInDocker();
         const shouldSaveToFile =
-          input.outputMode === "file" ||
-          (input.outputMode === "auto" && imageBuffer.length > sizeThreshold);
+          !inDocker && (
+            input.outputMode === "file" ||
+            (input.outputMode === "auto" && imageBuffer.length > sizeThreshold)
+          );
 
         if (shouldSaveToFile) {
           const outputPath = join(outputDir, img.filename);
@@ -281,9 +292,13 @@ export async function runWorkflow(
         );
         const imageBuffer = Buffer.from(imageData);
 
+        // In Docker, always use base64 since file paths aren't accessible to the host
+        const inDocker = isRunningInDocker();
         const shouldSaveToFile =
-          input.outputMode === "file" ||
-          (input.outputMode === "auto" && imageBuffer.length > sizeThreshold);
+          !inDocker && (
+            input.outputMode === "file" ||
+            (input.outputMode === "auto" && imageBuffer.length > sizeThreshold)
+          );
 
         if (shouldSaveToFile) {
           const outputPath = join(outputDir, img.filename);
