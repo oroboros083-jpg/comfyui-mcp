@@ -1,8 +1,109 @@
 # ComfyUI MCP Server
 
+- [ComfyUI MCP Server](#comfyui-mcp-server)
+  - [Let Your AI Install This For You](#let-your-ai-install-this-for-you)
+  - [What is This?](#what-is-this)
+  - [Key Features](#key-features)
+    - [Self-Configuring](#self-configuring)
+    - [Works Without ComfyUI Running](#works-without-comfyui-running)
+    - [Dynamic Workflow Generation](#dynamic-workflow-generation)
+    - [Example Workflow Support](#example-workflow-support)
+  - [Quick Start Guide](#quick-start-guide)
+    - [Step 1: Install ComfyUI](#step-1-install-comfyui)
+    - [Step 2: Download a Model](#step-2-download-a-model)
+    - [Step 3: Configure Your AI Assistant](#step-3-configure-your-ai-assistant)
+    - [Step 4: Start Generating!](#step-4-start-generating)
+  - [Installation](#installation)
+    - [Prerequisites](#prerequisites)
+    - [Option 1: Docker (Recommended)](#option-1-docker-recommended)
+      - [Claude Desktop](#claude-desktop)
+      - [Claude Code (CLI)](#claude-code-cli)
+      - [Cursor](#cursor)
+      - [Windsurf](#windsurf)
+      - [Cline (VS Code Extension)](#cline-vs-code-extension)
+      - [Linux (Any Client)](#linux-any-client)
+      - [Port Configuration](#port-configuration)
+    - [Option 2: From Source](#option-2-from-source)
+  - [Tools Reference](#tools-reference)
+    - [Setup \& Status Tools](#setup--status-tools)
+      - [`get_status`](#get_status)
+      - [`get_install_guide`](#get_install_guide)
+      - [`get_model_guide`](#get_model_guide)
+    - [Download Tools](#download-tools)
+      - [`list_downloads`](#list_downloads)
+      - [`download_model`](#download_model)
+      - [`download_huggingface`](#download_huggingface)
+    - [Example Workflow Tools](#example-workflow-tools)
+      - [`list_examples`](#list_examples)
+      - [`get_example_workflow`](#get_example_workflow)
+    - [Generation Tools](#generation-tools)
+      - [`generate_image`](#generate_image)
+      - [`run_workflow`](#run_workflow)
+    - [Discovery Tools](#discovery-tools)
+      - [`get_capabilities`](#get_capabilities)
+      - [`list_models`](#list_models)
+      - [`list_nodes`](#list_nodes)
+    - [Queue Management Tools](#queue-management-tools)
+      - [`get_queue`](#get_queue)
+      - [`cancel_job`](#cancel_job)
+      - [`interrupt`](#interrupt)
+      - [`get_history`](#get_history)
+  - [Configuration](#configuration)
+    - [Environment Variables](#environment-variables)
+    - [Config File](#config-file)
+  - [How It Works](#how-it-works)
+    - [Auto-Discovery](#auto-discovery)
+    - [Capability Detection](#capability-detection)
+    - [Dynamic Workflow Building](#dynamic-workflow-building)
+  - [Example Conversations](#example-conversations)
+    - [First-Time Setup](#first-time-setup)
+    - [Generate Images](#generate-images)
+    - [Advanced Workflow](#advanced-workflow)
+  - [Development](#development)
+    - [Building](#building)
+    - [Running Locally](#running-locally)
+    - [Docker Build](#docker-build)
+    - [Testing with MCP Inspector](#testing-with-mcp-inspector)
+  - [Troubleshooting](#troubleshooting)
+    - [ComfyUI not detected](#comfyui-not-detected)
+    - [Models not found](#models-not-found)
+    - [Generation fails](#generation-fails)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Acknowledgments](#acknowledgments)
+
+
 [![Build and Publish](https://github.com/shawnrushefsky/comfyui-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/shawnrushefsky/comfyui-mcp/actions/workflows/publish.yml)
 
 An MCP (Model Context Protocol) server that enables AI assistants like Claude to interact with [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for generating images, audio, video, and more.
+
+---
+
+## Let Your AI Install This For You
+
+Copy and paste this prompt to your AI assistant (Claude, Cursor, etc.) to have it set everything up:
+
+```
+I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP server.
+
+1. First, add the ComfyUI MCP server to my configuration. The Docker config is:
+   - Command: docker
+   - Args: run -i --rm --pull always -e COMFYUI_URL=http://host.docker.internal:8000 ghcr.io/shawnrushefsky/comfyui-mcp:latest
+
+2. Once configured, use get_status to check if ComfyUI is running and connected.
+
+3. If ComfyUI isn't installed, use get_install_guide to help me install it.
+
+4. If I need models, use list_downloads to show available models and help me download one.
+
+5. Before generating any images, use get_prompting_guide with my model type to learn the correct prompting style.
+
+6. Then generate a test image to verify everything works.
+```
+
+> **Tip**: If you're using the ComfyUI Desktop app, it runs on port 8000. If you installed ComfyUI manually, change the port to 8188.
+
+---
 
 ## What is This?
 
