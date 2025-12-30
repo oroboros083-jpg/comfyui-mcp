@@ -77,23 +77,28 @@ You need at least one checkpoint model. Here are popular options:
 - Download `v1-5-pruned-emaonly.safetensors` from [HuggingFace](https://huggingface.co/runwayml/stable-diffusion-v1-5)
 - Place in `ComfyUI/models/checkpoints/`
 
-### Step 3: Configure Claude Desktop
+### Step 3: Configure Your AI Assistant
 
-Add to your Claude Desktop configuration file:
+Add the ComfyUI MCP server to your AI assistant's configuration.
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+**Claude Desktop** (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "comfyui": {
-      "command": "npx",
-      "args": ["-y", "comfyui-mcp"]
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm", "--pull", "always",
+        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
+        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
+      ]
     }
   }
 }
 ```
+
+> **Note**: The ComfyUI Desktop app uses port 8000. If you're running ComfyUI manually, change the port to 8188.
 
 ### Step 4: Start Generating!
 
@@ -118,26 +123,17 @@ Claude will automatically:
 ### Prerequisites
 - [ComfyUI](https://www.comfy.org/download) (desktop app recommended) or manual installation
 - One or more checkpoint/model files
+- Docker (recommended) or Node.js 18+
 
-### Option 1: Claude Desktop (Recommended)
+### Option 1: Docker (Recommended)
 
-Add to your Claude Desktop configuration:
+Works with any MCP-compatible AI assistant. The Docker image automatically pulls updates.
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+#### Claude Desktop
 
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "npx",
-      "args": ["-y", "comfyui-mcp"]
-    }
-  }
-}
-```
-
-### Option 2: Docker
+Config file location:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -145,7 +141,99 @@ Add to your Claude Desktop configuration:
     "comfyui": {
       "command": "docker",
       "args": [
-        "run", "-i", "--rm",
+        "run", "-i", "--rm", "--pull", "always",
+        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
+        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+#### Claude Code (CLI)
+
+Add to `.mcp.json` in your project root:
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm", "--pull", "always",
+        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
+        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+Or add globally via CLI:
+```bash
+claude mcp add comfyui --transport stdio -- docker run -i --rm --pull always -e COMFYUI_URL=http://host.docker.internal:8000 ghcr.io/shawnrushefsky/comfyui-mcp:latest
+```
+
+#### Cursor
+
+Add to Cursor's MCP settings (Settings → MCP Servers):
+```json
+{
+  "comfyui": {
+    "command": "docker",
+    "args": [
+      "run", "-i", "--rm", "--pull", "always",
+      "-e", "COMFYUI_URL=http://host.docker.internal:8000",
+      "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
+    ]
+  }
+}
+```
+
+#### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm", "--pull", "always",
+        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
+        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+#### Cline (VS Code Extension)
+
+Add to Cline's MCP settings in VS Code:
+```json
+{
+  "comfyui": {
+    "command": "docker",
+    "args": [
+      "run", "-i", "--rm", "--pull", "always",
+      "-e", "COMFYUI_URL=http://host.docker.internal:8000",
+      "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
+    ]
+  }
+}
+```
+
+#### Linux (Any Client)
+
+On Linux, use `--network=host` instead of `host.docker.internal`:
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm", "--pull", "always",
         "--network=host",
         "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
       ]
@@ -154,14 +242,49 @@ Add to your Claude Desktop configuration:
 }
 ```
 
-### Option 3: From Source
+#### Port Configuration
+
+- **ComfyUI Desktop app** (macOS/Windows): Uses port `8000` by default
+- **Manual ComfyUI installation**: Uses port `8188` by default
+
+Adjust the `COMFYUI_URL` environment variable accordingly:
+- Desktop app: `http://host.docker.internal:8000`
+- Manual install: `http://host.docker.internal:8188`
+
+### Option 2: From Source
 
 ```bash
 git clone https://github.com/shawnrushefsky/comfyui-mcp.git
 cd comfyui-mcp
 npm install
 npm run build
-npm start
+```
+
+Then configure your MCP client to use the built server:
+
+**Claude Desktop**:
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "node",
+      "args": ["/path/to/comfyui-mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+**Claude Code** (`.mcp.json`):
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/path/to/comfyui-mcp/dist/index.js"]
+    }
+  }
+}
 ```
 
 ---
