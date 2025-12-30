@@ -20,7 +20,7 @@
     "image-generation",
     "ai"
   ],
-  "author": "",
+  "author": "Shawn Rushefsky",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
