@@ -17,7 +17,8 @@ export interface Config {
 
 const DEFAULT_CONFIG: Config = {
   comfyui: {
-    url: "http://localhost:8188",
+    // Use 127.0.0.1 instead of localhost due to Node 18 fetch IPv6/IPv4 issues
+    url: "http://127.0.0.1:8188",
   },
   outputDir: "./outputs",
   workflowsDir: "./workflows",

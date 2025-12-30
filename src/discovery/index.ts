@@ -3,11 +3,22 @@ import { join } from "path";
 import { existsSync, readFileSync } from "fs";
 
 const DEFAULT_PORTS = [8188, 8000, 8189, 8190]; // 8000 is used by ComfyUI Desktop on macOS
+// Use 127.0.0.1 instead of localhost due to Node 18 fetch IPv6/IPv4 issues
+const LOCALHOST = "127.0.0.1";
+// Docker Desktop (macOS/Windows) uses this to access host services
+const DOCKER_HOST = "host.docker.internal";
+
+/**
+ * Check if we're running inside a Docker container
+ */
+function isRunningInDocker(): boolean {
+  return existsSync("/.dockerenv") || process.env.DOCKER === "true";
+}
 const PROBE_TIMEOUT = 2000; // 2 seconds
 
 export interface DiscoveryResult {
   url: string;
-  source: "desktop" | "port-scan" | "environment" | "config";
+  source: "desktop" | "port-scan" | "environment" | "config" | "docker-host";
 }
 
 /**
@@ -78,6 +89,7 @@ function getDesktopAppPort(): number | null {
  * Probe a URL to check if ComfyUI is running
  */
 async function probeUrl(url: string): Promise<boolean> {
+  console.error(`[discovery] Probing ${url}/system_stats...`);
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
@@ -88,8 +100,10 @@ async function probeUrl(url: string): Promise<boolean> {
     });
 
     clearTimeout(timeout);
+    console.error(`[discovery] ${url} responded with status ${response.status}`);
     return response.ok;
-  } catch {
+  } catch (error) {
+    console.error(`[discovery] ${url} probe failed: ${error}`);
     return false;
   }
 }
@@ -118,17 +132,28 @@ export async function discoverComfyUI(
   // 3. Check Desktop app configuration
   const desktopPort = getDesktopAppPort();
   if (desktopPort) {
-    const desktopUrl = `http://localhost:${desktopPort}`;
+    const desktopUrl = `http://${LOCALHOST}:${desktopPort}`;
     if (await probeUrl(desktopUrl)) {
       return { url: desktopUrl, source: "desktop" };
     }
   }
 
-  // 4. Scan common ports
+  // 4. Scan common ports on localhost
   for (const port of DEFAULT_PORTS) {
-    const url = `http://localhost:${port}`;
+    const url = `http://${LOCALHOST}:${port}`;
     if (await probeUrl(url)) {
       return { url, source: "port-scan" };
+    }
+  }
+
+  // 5. If running in Docker, try host.docker.internal
+  if (isRunningInDocker()) {
+    console.error("[discovery] Running in Docker, trying host.docker.internal...");
+    for (const port of DEFAULT_PORTS) {
+      const url = `http://${DOCKER_HOST}:${port}`;
+      if (await probeUrl(url)) {
+        return { url, source: "docker-host" };
+      }
     }
   }
 
