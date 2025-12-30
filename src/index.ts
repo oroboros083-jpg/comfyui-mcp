@@ -354,7 +354,7 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
   generate_image: {
     schema: generateImageSchema,
     description:
-      "Generate an image using ComfyUI. Automatically selects the appropriate workflow based on available models.",
+      "Generate an image using ComfyUI. IMPORTANT: Before your first generation, call get_prompting_guide with the appropriate model type (sd15, sdxl, sd3, or flux) to learn the correct prompting style. Different models require very different prompting approaches - using the wrong style significantly degrades output quality.",
     requiresConnection: true,
   },
   run_workflow: {
@@ -475,6 +475,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           discoverySource || undefined,
           capabilities ? getCapabilitySummary(capabilities) : undefined
         );
+
+        // Add prompting guide advice when connected
+        if (isConnected && capabilities) {
+          let modelType = "sd15";
+          if (capabilities.hasFlux) modelType = "flux";
+          else if (capabilities.hasSD3) modelType = "sd3";
+          else if (capabilities.hasSDXL) modelType = "sdxl";
+
+          (status as unknown as Record<string, unknown>).promptingAdvice = {
+            detectedModelType: modelType,
+            recommendation: `Before generating images, call get_prompting_guide('${modelType}') to learn the correct prompting style for best results.`,
+          };
+        }
+
         return {
           content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
         };
@@ -584,6 +598,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // === Generation ===
       case "get_capabilities": {
         const { capabilities } = await ensureConnected();
+
+        // Determine primary model type for prompting guidance
+        let promptingAdvice = "";
+        if (capabilities.hasFlux) {
+          promptingAdvice = "Primary model type: FLUX. Use natural language prompts. No negative prompts or weights supported. Call get_prompting_guide('flux') for detailed guidance.";
+        } else if (capabilities.hasSD3) {
+          promptingAdvice = "Primary model type: SD3. Use natural language prompts. No prompt weights. Call get_prompting_guide('sd3') for detailed guidance.";
+        } else if (capabilities.hasSDXL) {
+          promptingAdvice = "Primary model type: SDXL. Supports both natural language and keywords. Weights supported (0.8-1.4). Call get_prompting_guide('sdxl') for detailed guidance.";
+        } else {
+          promptingAdvice = "Primary model type: SD1.5. Use keyword-style prompts with quality boosters. Negative prompts essential. Call get_prompting_guide('sd15') for detailed guidance.";
+        }
+
         return {
           content: [
             {
@@ -591,6 +618,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: JSON.stringify(
                 {
                   summary: getCapabilitySummary(capabilities),
+                  promptingAdvice,
+                  importantNote: "BEFORE generating images, call get_prompting_guide with your model type to learn the correct prompting style. Using the wrong prompting style significantly degrades output quality.",
                   details: capabilities,
                 },
                 null,
