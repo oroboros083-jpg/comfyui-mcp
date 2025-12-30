@@ -24,11 +24,13 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "sharp": "^0.34.5",
     "ws": "^8.18.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/sharp": "^0.31.1",
     "@types/ws": "^8.5.13",
     "typescript": "^5.7.0"
   },

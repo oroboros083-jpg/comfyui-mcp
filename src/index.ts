@@ -587,7 +587,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content.push({
               type: "image",
               data: img.data,
-              mimeType: "image/png",
+              mimeType: img.mimeType || "image/jpeg",
             });
           } else if (img.path) {
             content.push({
@@ -630,7 +630,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content.push({
               type: "image",
               data: img.data,
-              mimeType: "image/png",
+              mimeType: img.mimeType || "image/jpeg",
             });
           } else if (img.path) {
             content.push({

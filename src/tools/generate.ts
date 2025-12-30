@@ -11,6 +11,11 @@ import {
 import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
+import {
+  processImageForTransfer,
+  DEFAULT_TRANSFER_OPTIONS,
+  ImageProcessingOptions,
+} from "../utils/image.js";
 
 /**
  * Check if we're running inside a Docker container
@@ -72,6 +77,7 @@ export interface GenerateResult {
   images: Array<{
     filename: string;
     data?: string; // base64
+    mimeType?: string; // e.g., "image/jpeg"
     path?: string; // file path
   }>;
   workflowType: string;
@@ -207,8 +213,13 @@ export async function generateImage(
           await writeFile(outputPath, imageBuffer);
           images.push({ filename: img.filename, path: outputPath });
         } else {
-          const base64 = imageBuffer.toString("base64");
-          images.push({ filename: img.filename, data: base64 });
+          // Process image for efficient transfer (convert to JPEG, smaller size)
+          const processed = await processImageForTransfer(imageBuffer, DEFAULT_TRANSFER_OPTIONS);
+          images.push({
+            filename: img.filename.replace(/\.png$/i, ".jpg"),
+            data: processed.data,
+            mimeType: processed.mimeType,
+          });
         }
       }
     }
@@ -238,6 +249,7 @@ export interface RunWorkflowResult {
   images: Array<{
     filename: string;
     data?: string;
+    mimeType?: string;
     path?: string;
   }>;
   error?: string;
@@ -309,8 +321,13 @@ export async function runWorkflow(
           await writeFile(outputPath, imageBuffer);
           images.push({ filename: img.filename, path: outputPath });
         } else {
-          const base64 = imageBuffer.toString("base64");
-          images.push({ filename: img.filename, data: base64 });
+          // Process image for efficient transfer (convert to JPEG, smaller size)
+          const processed = await processImageForTransfer(imageBuffer, DEFAULT_TRANSFER_OPTIONS);
+          images.push({
+            filename: img.filename.replace(/\.png$/i, ".jpg"),
+            data: processed.data,
+            mimeType: processed.mimeType,
+          });
         }
       }
     }
@@ -351,7 +368,7 @@ export interface GetImageResult {
 }
 
 /**
- * Retrieve a generated image as base64
+ * Retrieve a generated image as base64 (processed for efficient transfer)
  */
 export async function getImage(
   client: ComfyUIClient,
@@ -364,21 +381,15 @@ export async function getImage(
       input.type || "output"
     );
     const imageBuffer = Buffer.from(imageData);
-    const base64 = imageBuffer.toString("base64");
 
-    // Determine mime type from filename
-    const ext = input.filename.toLowerCase().split(".").pop();
-    const mimeType = ext === "png" ? "image/png"
-      : ext === "jpg" || ext === "jpeg" ? "image/jpeg"
-      : ext === "webp" ? "image/webp"
-      : ext === "gif" ? "image/gif"
-      : "image/png";
+    // Process image for efficient transfer (convert to JPEG)
+    const processed = await processImageForTransfer(imageBuffer, DEFAULT_TRANSFER_OPTIONS);
 
     return {
       success: true,
-      filename: input.filename,
-      data: base64,
-      mimeType,
+      filename: input.filename.replace(/\.png$/i, ".jpg"),
+      data: processed.data,
+      mimeType: processed.mimeType,
     };
   } catch (error) {
     return {
