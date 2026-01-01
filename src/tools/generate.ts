@@ -26,6 +26,16 @@ function isRunningInDocker(): boolean {
 }
 
 /**
+ * Check if file saving should be skipped in Docker
+ * Returns false (allow saving) if OUTPUT_DIR is explicitly set (indicates volume mount)
+ */
+function shouldSkipFileSaving(): boolean {
+  if (!isRunningInDocker()) return false;
+  // If OUTPUT_DIR is set, user has configured a volume mount
+  return !process.env.OUTPUT_DIR;
+}
+
+/**
  * Generate a human-readable filename from prompt and metadata
  */
 function generateReadableFilename(
@@ -63,7 +73,7 @@ export const outputModeSchema = z
   .enum(["base64", "file", "auto"])
   .default("auto")
   .describe(
-    "How to return the output: base64 (inline), file (save to disk), or auto (based on size)"
+    "Images are always saved to disk with absolute paths returned. This controls base64 inclusion: 'file' = path only, 'base64' = path + inline data, 'auto' = path + inline if small"
   );
 
 export const imageFormatSchema = z
@@ -286,48 +296,57 @@ export async function generateImage(
         );
         const imageBuffer = Buffer.from(imageData);
 
-        // In Docker, always use base64 since file paths aren't accessible to the host
-        const inDocker = isRunningInDocker();
-        const shouldSaveToFile =
-          !inDocker && (
-            input.outputMode === "file" ||
-            (input.outputMode === "auto" && imageBuffer.length > sizeThreshold)
-          );
+        const skipFileSave = shouldSkipFileSaving();
 
-        if (shouldSaveToFile) {
-          // Generate human-readable filename
-          const ext = img.filename.match(/\.[^.]+$/)?.[0] || ".png";
-          const readableFilename = generateReadableFilename(input.prompt, type, imageIndex, ext);
+        // Build processing options for format conversion
+        const processingOptions: ImageProcessingOptions = {
+          format: input.imageFormat || DEFAULT_TRANSFER_OPTIONS.format,
+          quality: input.imageQuality || DEFAULT_TRANSFER_OPTIONS.quality,
+        };
+
+        // Determine output extension based on format
+        const formatExtensions: Record<string, string> = {
+          jpeg: ".jpg",
+          png: ".png",
+          webp: ".webp",
+        };
+        const ext = formatExtensions[processingOptions.format || "jpeg"];
+        const readableFilename = generateReadableFilename(input.prompt, type, imageIndex, ext);
+
+        // Always save to disk (unless in Docker without configured volume mount)
+        let absolutePath: string | undefined;
+        if (!skipFileSave) {
           const outputPath = join(outputDir, readableFilename);
           const outputDirPath = dirname(outputPath);
           if (!existsSync(outputDirPath)) {
             await mkdir(outputDirPath, { recursive: true });
           }
-          await writeFile(outputPath, imageBuffer);
-          images.push({ filename: readableFilename, path: outputPath });
-        } else {
-          // Build processing options from input or use defaults
-          const processingOptions: ImageProcessingOptions = {
-            format: input.imageFormat || DEFAULT_TRANSFER_OPTIONS.format,
-            quality: input.imageQuality || DEFAULT_TRANSFER_OPTIONS.quality,
-          };
 
-          // Process image for efficient transfer
+          // Process and save in the requested format
           const processed = await processImageForTransfer(imageBuffer, processingOptions);
+          const processedBuffer = Buffer.from(processed.data, "base64");
+          await writeFile(outputPath, processedBuffer);
+          absolutePath = outputPath;
+        }
 
-          // Determine output extension based on format
-          const formatExtensions: Record<string, string> = {
-            jpeg: ".jpg",
-            png: ".png",
-            webp: ".webp",
-          };
-          const ext = formatExtensions[processingOptions.format || "jpeg"];
-          const readableFilename = generateReadableFilename(input.prompt, type, imageIndex, ext);
+        // Determine if we should include base64 data
+        const includeBase64 =
+          skipFileSave || // Always include if no file saved
+          input.outputMode === "base64" ||
+          (input.outputMode === "auto" && imageBuffer.length <= sizeThreshold);
 
+        if (includeBase64) {
+          const processed = await processImageForTransfer(imageBuffer, processingOptions);
           images.push({
             filename: readableFilename,
+            path: absolutePath,
             data: processed.data,
             mimeType: processed.mimeType,
+          });
+        } else {
+          images.push({
+            filename: readableFilename,
+            path: absolutePath,
           });
         }
         imageIndex++;
@@ -434,48 +453,57 @@ export async function runWorkflow(
         );
         const imageBuffer = Buffer.from(imageData);
 
-        // In Docker, always use base64 since file paths aren't accessible to the host
-        const inDocker = isRunningInDocker();
-        const shouldSaveToFile =
-          !inDocker && (
-            input.outputMode === "file" ||
-            (input.outputMode === "auto" && imageBuffer.length > sizeThreshold)
-          );
+        const skipFileSave = shouldSkipFileSaving();
 
-        if (shouldSaveToFile) {
-          // Generate human-readable filename
-          const ext = img.filename.match(/\.[^.]+$/)?.[0] || ".png";
-          const readableFilename = generateReadableFilename(workflowPrompt, "workflow", imageIndex, ext);
+        // Build processing options for format conversion
+        const processingOptions: ImageProcessingOptions = {
+          format: input.imageFormat || DEFAULT_TRANSFER_OPTIONS.format,
+          quality: input.imageQuality || DEFAULT_TRANSFER_OPTIONS.quality,
+        };
+
+        // Determine output extension based on format
+        const formatExtensions: Record<string, string> = {
+          jpeg: ".jpg",
+          png: ".png",
+          webp: ".webp",
+        };
+        const ext = formatExtensions[processingOptions.format || "jpeg"];
+        const readableFilename = generateReadableFilename(workflowPrompt, "workflow", imageIndex, ext);
+
+        // Always save to disk (unless in Docker without configured volume mount)
+        let absolutePath: string | undefined;
+        if (!skipFileSave) {
           const outputPath = join(outputDir, readableFilename);
           const outputDirPath = dirname(outputPath);
           if (!existsSync(outputDirPath)) {
             await mkdir(outputDirPath, { recursive: true });
           }
-          await writeFile(outputPath, imageBuffer);
-          images.push({ filename: readableFilename, path: outputPath });
-        } else {
-          // Build processing options from input or use defaults
-          const processingOptions: ImageProcessingOptions = {
-            format: input.imageFormat || DEFAULT_TRANSFER_OPTIONS.format,
-            quality: input.imageQuality || DEFAULT_TRANSFER_OPTIONS.quality,
-          };
 
-          // Process image for efficient transfer
+          // Process and save in the requested format
           const processed = await processImageForTransfer(imageBuffer, processingOptions);
+          const processedBuffer = Buffer.from(processed.data, "base64");
+          await writeFile(outputPath, processedBuffer);
+          absolutePath = outputPath;
+        }
 
-          // Determine output extension based on format
-          const formatExtensions: Record<string, string> = {
-            jpeg: ".jpg",
-            png: ".png",
-            webp: ".webp",
-          };
-          const ext = formatExtensions[processingOptions.format || "jpeg"];
-          const readableFilename = generateReadableFilename(workflowPrompt, "workflow", imageIndex, ext);
+        // Determine if we should include base64 data
+        const includeBase64 =
+          skipFileSave || // Always include if no file saved
+          input.outputMode === "base64" ||
+          (input.outputMode === "auto" && imageBuffer.length <= sizeThreshold);
 
+        if (includeBase64) {
+          const processed = await processImageForTransfer(imageBuffer, processingOptions);
           images.push({
             filename: readableFilename,
+            path: absolutePath,
             data: processed.data,
             mimeType: processed.mimeType,
+          });
+        } else {
+          images.push({
+            filename: readableFilename,
+            path: absolutePath,
           });
         }
         imageIndex++;
