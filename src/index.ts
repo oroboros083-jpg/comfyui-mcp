@@ -876,8 +876,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
-        // Prefer prompt (API format) over workflow (UI format)
+        // Prefer prompt (API format) over workflow (UI format) for execution
         const workflow = metadata.prompt || metadata.workflow;
+
+        // Extract notes/documentation from UI format if available
+        const notes: string[] = [];
+        if (metadata.workflow) {
+          const uiWorkflow = metadata.workflow as { nodes?: Array<{ type?: string; widgets_values?: unknown[]; properties?: { text?: string } }> };
+          if (uiWorkflow.nodes && Array.isArray(uiWorkflow.nodes)) {
+            for (const node of uiWorkflow.nodes) {
+              // Note nodes typically have type "Note" or similar
+              if (node.type === "Note" || node.type === "PrimitiveNode") {
+                // Notes often store text in widgets_values[0] or properties.text
+                const noteText = node.widgets_values?.[0] || node.properties?.text;
+                if (typeof noteText === "string" && noteText.trim()) {
+                  notes.push(noteText.trim());
+                }
+              }
+            }
+          }
+        }
 
         return {
           content: [
@@ -888,6 +906,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 hasPrompt: !!metadata.prompt,
                 hasWorkflow: !!metadata.workflow,
                 workflow,
+                notes: notes.length > 0 ? notes : undefined,
                 hint: "Pass the 'workflow' field directly to run_workflow to execute this workflow.",
               }, null, 2),
             },
