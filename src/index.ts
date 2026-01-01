@@ -625,6 +625,24 @@ const TOOLS: Record<string, ToolDefinition> = {
       openWorldHint: false,
     },
   },
+  get_user_preferences: {
+    schema: z.object({
+      includeWorkflows: z.boolean().optional().default(true).describe("Include workflow templates"),
+      includeModels: z.boolean().optional().default(true).describe("Include model usage stats"),
+      includeSettings: z.boolean().optional().default(true).describe("Include common settings"),
+      workflowLimit: z.number().optional().default(20).describe("Max workflow templates to return"),
+      modelLimit: z.number().optional().default(30).describe("Max models to return"),
+    }),
+    description:
+      "Get user preferences extracted from analyzing their ComfyUI output history. Returns commonly used workflows (as reusable templates), frequently used models, and preferred settings.",
+    requiresConnection: true, // Need capabilities which contain the preferences
+    annotations: {
+      title: "Get User Preferences",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 };
 
 // Tool type for list tools response
@@ -1342,6 +1360,81 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   ? "These defaults are applied to generate_image calls unless explicitly overridden."
                   : "No session defaults set. Use set_generation_defaults to configure.",
               }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "get_user_preferences": {
+        const { capabilities } = await ensureConnected();
+        const input = args as {
+          includeWorkflows?: boolean;
+          includeModels?: boolean;
+          includeSettings?: boolean;
+          workflowLimit?: number;
+          modelLimit?: number;
+        };
+
+        const prefs = capabilities.userPreferences;
+        if (!prefs) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  message: "No user preferences available. Output analysis may not have completed or no images with workflow metadata were found.",
+                  hint: "Generate some images first, then restart the server to analyze your output history.",
+                }, null, 2),
+              },
+            ],
+          };
+        }
+
+        const includeWorkflows = input.includeWorkflows !== false;
+        const includeModels = input.includeModels !== false;
+        const includeSettings = input.includeSettings !== false;
+        const workflowLimit = input.workflowLimit || 20;
+        const modelLimit = input.modelLimit || 30;
+
+        const result: Record<string, unknown> = {
+          summary: {
+            totalImagesAnalyzed: prefs.totalImagesAnalyzed,
+            imagesWithWorkflows: prefs.imagesWithWorkflows,
+            uniqueWorkflows: prefs.uniqueWorkflows,
+            analyzedAt: prefs.analyzedAt,
+          },
+        };
+
+        if (includeWorkflows) {
+          // Return workflow templates that can be passed directly to run_workflow
+          result.workflowTemplates = prefs.workflowTemplates.slice(0, workflowLimit).map((wf) => ({
+            // Metadata for selection
+            hash: wf.hash,
+            description: wf.description,
+            usageCount: wf.usageCount,
+            lastUsed: wf.lastUsed,
+            models: wf.models,
+            samplePrompts: wf.samplePrompts,
+            // The actual workflow - pass this to run_workflow
+            workflow: wf.workflow,
+          }));
+          result.workflowHint = "To use a workflow: call run_workflow with the 'workflow' field from any template. Modify prompt text in CLIPTextEncode nodes as needed.";
+        }
+
+        if (includeModels) {
+          result.frequentModels = prefs.modelUsage.slice(0, modelLimit);
+        }
+
+        if (includeSettings) {
+          result.commonSettings = prefs.commonSettings;
+          result.settingsHint = "Use set_generation_defaults to apply these as session defaults.";
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
             },
           ],
         };
