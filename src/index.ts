@@ -84,9 +84,11 @@ import {
   listExamples,
   getExampleWorkflowSchema,
   getExampleWorkflow,
+  extractWorkflowFromPng,
   ListExamplesInput,
   GetExampleWorkflowInput,
 } from "./tools/examples.js";
+import { readFile } from "fs/promises";
 import {
   getPromptingGuide,
   getComprehensiveGuide,
@@ -376,6 +378,20 @@ const TOOLS: Record<string, ToolDefinition> = {
     requiresConnection: false,
     annotations: {
       title: "Get Example Workflow",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  extract_workflow: {
+    schema: z.object({
+      source: z.string().describe("Path to a local PNG file or URL of a PNG image with embedded ComfyUI workflow"),
+    }),
+    description:
+      "Extract the workflow JSON from a ComfyUI-generated PNG image. Works with local file paths or URLs. Returns the workflow in API format that can be passed directly to run_workflow.",
+    requiresConnection: false,
+    annotations: {
+      title: "Extract Workflow from Image",
       readOnlyHint: true,
       idempotentHint: true,
       openWorldHint: true,
@@ -811,6 +827,72 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const input = getExampleWorkflowSchema.parse(args) as GetExampleWorkflowInput;
         const result = await getExampleWorkflow(input);
         return { content: [{ type: "text", text: result }] };
+      }
+
+      case "extract_workflow": {
+        const input = args as { source: string };
+        const source = input.source;
+
+        let imageData: ArrayBuffer;
+
+        // Check if it's a URL or file path
+        if (source.startsWith("http://") || source.startsWith("https://")) {
+          // Fetch from URL
+          try {
+            const response = await fetch(source);
+            if (!response.ok) {
+              return {
+                content: [{ type: "text", text: `Failed to fetch image: ${response.status} ${response.statusText}` }],
+                isError: true,
+              };
+            }
+            imageData = await response.arrayBuffer();
+          } catch (err) {
+            return {
+              content: [{ type: "text", text: `Failed to fetch image: ${err}` }],
+              isError: true,
+            };
+          }
+        } else {
+          // Read from local file
+          try {
+            const buffer = await readFile(source);
+            imageData = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+          } catch (err) {
+            return {
+              content: [{ type: "text", text: `Failed to read file: ${err}` }],
+              isError: true,
+            };
+          }
+        }
+
+        // Extract workflow from PNG
+        const metadata = await extractWorkflowFromPng(imageData);
+
+        if (!metadata) {
+          return {
+            content: [{ type: "text", text: "No workflow metadata found in image. Make sure it's a ComfyUI-generated PNG." }],
+            isError: true,
+          };
+        }
+
+        // Prefer prompt (API format) over workflow (UI format)
+        const workflow = metadata.prompt || metadata.workflow;
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                source,
+                hasPrompt: !!metadata.prompt,
+                hasWorkflow: !!metadata.workflow,
+                workflow,
+                hint: "Pass the 'workflow' field directly to run_workflow to execute this workflow.",
+              }, null, 2),
+            },
+          ],
+        };
       }
 
       // === Prompting Guides ===
