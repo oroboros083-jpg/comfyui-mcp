@@ -86,6 +86,11 @@ import {
   formatPromptingGuide,
   PROMPTING_GUIDES,
 } from "./resources/prompting-guide.js";
+import { getJobManager, JobManager } from "./jobs/manager.js";
+import {
+  generateImageAsync,
+  runWorkflowAsync,
+} from "./tools/generate-async.js";
 
 // Global state
 let client: ComfyUIClient | null = null;
@@ -96,6 +101,7 @@ let objectInfo: ObjectInfo | null = null;
 let discoveredUrl: string | null = null;
 let discoverySource: string | null = null;
 let comfyuiPath: string | null = null;
+const jobManager: JobManager = getJobManager();
 
 const server = new Server(
   {
@@ -354,13 +360,13 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
   generate_image: {
     schema: generateImageSchema,
     description:
-      "Generate an image using ComfyUI. IMPORTANT: Before your first generation, call get_prompting_guide with the appropriate model type (sd15, sdxl, sd3, or flux) to learn the correct prompting style. Different models require very different prompting approaches - using the wrong style significantly degrades output quality.",
+      "Generate an image using ComfyUI. Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve images when complete. Set sync:true to wait for completion (blocking). IMPORTANT: Before your first generation, call get_prompting_guide with the appropriate model type (sd15, sdxl, sd3, or flux) to learn the correct prompting style.",
     requiresConnection: true,
   },
   run_workflow: {
     schema: runWorkflowSchema,
     description:
-      "Run a custom ComfyUI workflow (API format JSON). Use get_example_workflow to fetch examples.",
+      "Run a custom ComfyUI workflow (API format JSON). Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve results when complete. Set sync:true to wait for completion (blocking).",
     requiresConnection: true,
   },
   get_image: {
@@ -404,6 +410,39 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     schema: getHistorySchema,
     description: "Get generation history",
     requiresConnection: true,
+  },
+
+  // === Task Management (for async operations) ===
+  get_task: {
+    schema: z.object({
+      taskId: z.string().describe("The task ID to get status for"),
+    }),
+    description: "Get the current status of an async generation task",
+    requiresConnection: false, // Jobs are tracked locally
+  },
+  get_task_result: {
+    schema: z.object({
+      taskId: z.string().describe("The task ID to get results for"),
+    }),
+    description: "Get the result of a completed generation task (images)",
+    requiresConnection: false,
+  },
+  list_tasks: {
+    schema: z.object({
+      status: z
+        .enum(["working", "completed", "failed", "cancelled"])
+        .optional()
+        .describe("Filter tasks by status"),
+    }),
+    description: "List all generation tasks, optionally filtered by status",
+    requiresConnection: false,
+  },
+  cancel_task: {
+    schema: z.object({
+      taskId: z.string().describe("The task ID to cancel"),
+    }),
+    description: "Cancel a running async generation task. Also cancels the corresponding ComfyUI job.",
+    requiresConnection: true, // Need to cancel in ComfyUI too
   },
 };
 
@@ -633,91 +672,157 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "generate_image": {
         const { client, ws, capabilities, objectInfo } = await ensureConnected();
         const input = generateImageSchema.parse(args) as GenerateImageInput;
-        const result = await generateImage(
+
+        // Check if sync mode is requested
+        if (input.sync) {
+          // Synchronous mode - wait for completion
+          const result = await generateImage(
+            client,
+            ws,
+            input,
+            capabilities,
+            objectInfo,
+            config.outputDir,
+            config.outputSizeThreshold,
+            input.timeout || 300000
+          );
+
+          if (!result.success) {
+            return {
+              content: [{ type: "text", text: `Error: ${result.error}` }],
+              isError: true,
+            };
+          }
+
+          const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
+            {
+              type: "text",
+              text: `Generated ${result.images.length} image(s) using ${result.workflowType} workflow (prompt_id: ${result.promptId})`,
+            },
+          ];
+
+          for (const img of result.images) {
+            if (img.data) {
+              content.push({
+                type: "image",
+                data: img.data,
+                mimeType: img.mimeType || "image/jpeg",
+              });
+            } else if (img.path) {
+              content.push({
+                type: "text",
+                text: `Saved: ${img.path}`,
+              });
+            }
+          }
+
+          return { content };
+        }
+
+        // Async mode (default) - return immediately with task ID
+        const asyncResult = await generateImageAsync(
+          server,
+          jobManager,
           client,
           ws,
           input,
           capabilities,
           objectInfo,
           config.outputDir,
-          config.outputSizeThreshold,
-          input.timeout || 300000
+          config.outputSizeThreshold
         );
 
-        if (!result.success) {
-          return {
-            content: [{ type: "text", text: `Error: ${result.error}` }],
-            isError: true,
-          };
-        }
-
-        const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
-          {
-            type: "text",
-            text: `Generated ${result.images.length} image(s) using ${result.workflowType} workflow (prompt_id: ${result.promptId})`,
-          },
-        ];
-
-        for (const img of result.images) {
-          if (img.data) {
-            content.push({
-              type: "image",
-              data: img.data,
-              mimeType: img.mimeType || "image/jpeg",
-            });
-          } else if (img.path) {
-            content.push({
+        return {
+          content: [
+            {
               type: "text",
-              text: `Saved: ${img.path}`,
-            });
-          }
-        }
-
-        return { content };
+              text: JSON.stringify({
+                taskId: asyncResult.taskId,
+                promptId: asyncResult.promptId,
+                status: asyncResult.status,
+                statusMessage: asyncResult.statusMessage,
+                pollInterval: asyncResult.pollInterval,
+                hint: "Generation started in background. Use get_task to check status, or get_task_result when complete. You will also receive notifications as progress updates.",
+              }, null, 2),
+            },
+          ],
+        };
       }
 
       case "run_workflow": {
         const { client, ws } = await ensureConnected();
         const input = runWorkflowSchema.parse(args) as RunWorkflowInput;
-        const result = await runWorkflow(
+
+        // Check if sync mode is requested
+        if (input.sync) {
+          // Synchronous mode - wait for completion
+          const result = await runWorkflow(
+            client,
+            ws,
+            input,
+            config.outputDir,
+            config.outputSizeThreshold,
+            input.timeout || 300000
+          );
+
+          if (!result.success) {
+            return {
+              content: [{ type: "text", text: `Error: ${result.error}` }],
+              isError: true,
+            };
+          }
+
+          const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
+            {
+              type: "text",
+              text: `Workflow completed (prompt_id: ${result.promptId})`,
+            },
+          ];
+
+          for (const img of result.images) {
+            if (img.data) {
+              content.push({
+                type: "image",
+                data: img.data,
+                mimeType: img.mimeType || "image/jpeg",
+              });
+            } else if (img.path) {
+              content.push({
+                type: "text",
+                text: `Saved: ${img.path}`,
+              });
+            }
+          }
+
+          return { content };
+        }
+
+        // Async mode (default) - return immediately with task ID
+        const asyncResult = await runWorkflowAsync(
+          server,
+          jobManager,
           client,
           ws,
           input,
           config.outputDir,
-          config.outputSizeThreshold,
-          input.timeout || 300000
+          config.outputSizeThreshold
         );
 
-        if (!result.success) {
-          return {
-            content: [{ type: "text", text: `Error: ${result.error}` }],
-            isError: true,
-          };
-        }
-
-        const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
-          {
-            type: "text",
-            text: `Workflow completed (prompt_id: ${result.promptId})`,
-          },
-        ];
-
-        for (const img of result.images) {
-          if (img.data) {
-            content.push({
-              type: "image",
-              data: img.data,
-              mimeType: img.mimeType || "image/jpeg",
-            });
-          } else if (img.path) {
-            content.push({
+        return {
+          content: [
+            {
               type: "text",
-              text: `Saved: ${img.path}`,
-            });
-          }
-        }
-
-        return { content };
+              text: JSON.stringify({
+                taskId: asyncResult.taskId,
+                promptId: asyncResult.promptId,
+                status: asyncResult.status,
+                statusMessage: asyncResult.statusMessage,
+                pollInterval: asyncResult.pollInterval,
+                hint: "Workflow started in background. Use get_task to check status, or get_task_result when complete.",
+              }, null, 2),
+            },
+          ],
+        };
       }
 
       case "get_image": {
@@ -783,6 +888,170 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const input = getHistorySchema.parse(args) as GetHistoryInput;
         const result = await getHistory(client, input);
         return { content: [{ type: "text", text: result }] };
+      }
+
+      // === Task Management ===
+      case "get_task": {
+        const input = args as { taskId: string };
+        const job = jobManager.getJob(input.taskId);
+        if (!job) {
+          return {
+            content: [{ type: "text", text: `Task not found: ${input.taskId}` }],
+            isError: true,
+          };
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                taskId: job.taskId,
+                promptId: job.promptId,
+                status: job.status,
+                statusMessage: job.statusMessage,
+                createdAt: job.createdAt,
+                lastUpdatedAt: job.lastUpdatedAt,
+                error: job.error,
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "get_task_result": {
+        const input = args as { taskId: string };
+        const job = jobManager.getJob(input.taskId);
+        if (!job) {
+          return {
+            content: [{ type: "text", text: `Task not found: ${input.taskId}` }],
+            isError: true,
+          };
+        }
+
+        if (job.status === "working") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  taskId: job.taskId,
+                  status: job.status,
+                  statusMessage: job.statusMessage,
+                  hint: "Task is still in progress. Check again later or wait for completion notification.",
+                }, null, 2),
+              },
+            ],
+          };
+        }
+
+        if (job.status === "failed") {
+          return {
+            content: [{ type: "text", text: `Task failed: ${job.error}` }],
+            isError: true,
+          };
+        }
+
+        if (job.status === "cancelled") {
+          return {
+            content: [{ type: "text", text: "Task was cancelled" }],
+            isError: true,
+          };
+        }
+
+        // Task completed - return the result with images
+        if (!job.result) {
+          return {
+            content: [{ type: "text", text: "No result available" }],
+            isError: true,
+          };
+        }
+
+        const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
+          {
+            type: "text",
+            text: `Task ${job.taskId} completed. Generated ${job.result.images.length} image(s).`,
+          },
+        ];
+
+        for (const img of job.result.images) {
+          if (img.data) {
+            content.push({
+              type: "image",
+              data: img.data,
+              mimeType: img.mimeType || "image/jpeg",
+            });
+          } else if (img.path) {
+            content.push({
+              type: "text",
+              text: `Saved: ${img.path}`,
+            });
+          }
+        }
+
+        return { content };
+      }
+
+      case "list_tasks": {
+        const input = args as { status?: "working" | "completed" | "failed" | "cancelled" };
+        const jobs = jobManager.listJobs(input.status);
+        const counts = jobManager.getJobCounts();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                summary: counts,
+                tasks: jobs.map((j) => ({
+                  taskId: j.taskId,
+                  status: j.status,
+                  statusMessage: j.statusMessage,
+                  createdAt: j.createdAt,
+                  lastUpdatedAt: j.lastUpdatedAt,
+                })),
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "cancel_task": {
+        const { client } = await ensureConnected();
+        const input = args as { taskId: string };
+        const job = jobManager.getJob(input.taskId);
+
+        if (!job) {
+          return {
+            content: [{ type: "text", text: `Task not found: ${input.taskId}` }],
+            isError: true,
+          };
+        }
+
+        if (job.status !== "working") {
+          return {
+            content: [{ type: "text", text: `Task is not running (status: ${job.status})` }],
+            isError: true,
+          };
+        }
+
+        // Cancel in ComfyUI
+        try {
+          await cancelJob(client, { promptId: job.promptId });
+        } catch {
+          // Job might already be done in ComfyUI
+        }
+
+        // Mark as cancelled in job manager
+        jobManager.cancelJob(input.taskId);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Task ${input.taskId} cancelled successfully`,
+            },
+          ],
+        };
       }
 
       default:

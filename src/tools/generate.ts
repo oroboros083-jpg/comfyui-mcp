@@ -125,6 +125,11 @@ export const generateImageSchema = z.object({
   imageFormat: imageFormatSchema.optional(),
   imageQuality: imageQualitySchema.optional(),
   timeout: timeoutSchema.optional(),
+  sync: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("If true, wait for generation to complete and return images directly (blocking). Default is async (non-blocking)."),
 });
 
 export type GenerateImageInput = z.infer<typeof generateImageSchema>;
@@ -321,6 +326,11 @@ export const runWorkflowSchema = z.object({
   imageFormat: imageFormatSchema.optional(),
   imageQuality: imageQualitySchema.optional(),
   timeout: timeoutSchema.optional(),
+  sync: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("If true, wait for workflow to complete and return results directly (blocking). Default is async (non-blocking)."),
 });
 
 export type RunWorkflowInput = z.infer<typeof runWorkflowSchema>;
