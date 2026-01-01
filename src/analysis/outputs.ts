@@ -9,6 +9,7 @@ import {
   extractSettingsFromWorkflow,
   describeWorkflow,
 } from "./hash.js";
+import { debug } from "../utils/logging.js";
 
 /**
  * A workflow template extracted from user outputs
@@ -133,11 +134,11 @@ async function getFileMtime(filePath: string): Promise<Date> {
  * Analyze ComfyUI output directory to extract user preferences
  */
 export async function analyzeUserOutputs(outputPath: string): Promise<UserPreferences> {
-  console.error(`[analysis] Starting output analysis of: ${outputPath}`);
+  debug(`Starting output analysis of: ${outputPath}`, undefined, "analysis");
 
   // Find all PNG files
   const pngFiles = await findPngFiles(outputPath);
-  console.error(`[analysis] Found ${pngFiles.length} PNG files`);
+  debug(`Found ${pngFiles.length} PNG files`, undefined, "analysis");
 
   // Tracking buckets
   const workflowBuckets = new Map<string, WorkflowBucket>();
@@ -242,8 +243,8 @@ export async function analyzeUserOutputs(outputPath: string): Promise<UserPrefer
     }
   }
 
-  console.error(`[analysis] Processed ${imagesWithWorkflows} images with workflow metadata`);
-  console.error(`[analysis] Found ${workflowBuckets.size} unique workflows`);
+  debug(`Processed ${imagesWithWorkflows} images with workflow metadata`, undefined, "analysis");
+  debug(`Found ${workflowBuckets.size} unique workflows`, undefined, "analysis");
 
   // Convert buckets to sorted arrays
   const workflowTemplates: WorkflowTemplate[] = Array.from(workflowBuckets.values())

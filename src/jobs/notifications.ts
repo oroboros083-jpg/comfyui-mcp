@@ -1,5 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { Job } from "./manager.js";
+import { warning } from "../utils/logging.js";
 
 /**
  * Send a task status notification to connected clients.
@@ -24,7 +25,7 @@ export async function sendTaskStatusNotification(
     } as never); // Type assertion needed for experimental notification type
   } catch (error) {
     // Log but don't throw - notifications are best-effort
-    console.error(`[notifications] Failed to send task status notification: ${error}`);
+    warning(`Failed to send task status notification: ${error}`, undefined, "notifications");
   }
 }
 
@@ -55,7 +56,7 @@ export async function sendProgressNotification(
       },
     } as never);
   } catch (error) {
-    console.error(`[notifications] Failed to send progress notification: ${error}`);
+    warning(`Failed to send progress notification: ${error}`, undefined, "notifications");
   }
 }
 
@@ -79,7 +80,7 @@ export async function sendCompletionNotification(
       },
     } as never);
   } catch (error) {
-    console.error(`[notifications] Failed to send completion notification: ${error}`);
+    warning(`Failed to send completion notification: ${error}`, undefined, "notifications");
   }
 }
 
@@ -100,6 +101,6 @@ export async function sendLoggingProgress(
     });
   } catch (error) {
     // Ignore logging errors
-    console.error(`[notifications] Failed to send logging message: ${error}`);
+    warning(`Failed to send logging message: ${error}`, undefined, "notifications");
   }
 }

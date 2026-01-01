@@ -1,6 +1,7 @@
 import { homedir } from "os";
 import { join } from "path";
 import { existsSync, readFileSync } from "fs";
+import { debug } from "../utils/logging.js";
 
 const DEFAULT_PORTS = [8188, 8000, 8189, 8190]; // 8000 is used by ComfyUI Desktop on macOS
 // Use 127.0.0.1 instead of localhost due to Node 18 fetch IPv6/IPv4 issues
@@ -89,7 +90,7 @@ function getDesktopAppPort(): number | null {
  * Probe a URL to check if ComfyUI is running
  */
 async function probeUrl(url: string): Promise<boolean> {
-  console.error(`[discovery] Probing ${url}/system_stats...`);
+  debug(`Probing ${url}/system_stats...`, undefined, "discovery");
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
@@ -100,10 +101,10 @@ async function probeUrl(url: string): Promise<boolean> {
     });
 
     clearTimeout(timeout);
-    console.error(`[discovery] ${url} responded with status ${response.status}`);
+    debug(`${url} responded with status ${response.status}`, undefined, "discovery");
     return response.ok;
   } catch (error) {
-    console.error(`[discovery] ${url} probe failed: ${error}`);
+    debug(`${url} probe failed: ${error}`, undefined, "discovery");
     return false;
   }
 }
@@ -148,7 +149,7 @@ export async function discoverComfyUI(
 
   // 5. If running in Docker, try host.docker.internal
   if (isRunningInDocker()) {
-    console.error("[discovery] Running in Docker, trying host.docker.internal...");
+    debug("Running in Docker, trying host.docker.internal...", undefined, "discovery");
     for (const port of DEFAULT_PORTS) {
       const url = `http://${DOCKER_HOST}:${port}`;
       if (await probeUrl(url)) {

@@ -5,8 +5,14 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+  SetLevelRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { loadConfig, Config } from "./config.js";
 import { discoverComfyUI } from "./discovery/index.js";
@@ -96,17 +102,29 @@ import {
   getUserPreferencesSummary,
 } from "./analysis/outputs.js";
 import { join } from "path";
+import {
+  ServerContext,
+  createContext,
+  getComfyUIPath,
+} from "./context.js";
+import {
+  getStaticResources,
+  getDynamicResources,
+  readResource,
+} from "./handlers/resources.js";
+import { listPrompts, getPrompt } from "./handlers/prompts.js";
+import {
+  initLogging,
+  setLogLevel,
+  LoggingLevel,
+  debug,
+  info,
+  warning,
+  error as logError,
+} from "./utils/logging.js";
 
-// Global state
-let client: ComfyUIClient | null = null;
-let ws: ComfyUIWebSocket | null = null;
-let config: Config;
-let capabilities: Capabilities | null = null;
-let objectInfo: ObjectInfo | null = null;
-let discoveredUrl: string | null = null;
-let discoverySource: string | null = null;
-let comfyuiPath: string | null = null;
-const jobManager: JobManager = getJobManager();
+// Server context - single source of truth for all state
+let ctx: ServerContext;
 
 const server = new Server(
   {
@@ -116,6 +134,9 @@ const server = new Server(
   {
     capabilities: {
       tools: {},
+      resources: {},
+      prompts: {},
+      logging: {},
     },
   }
 );
@@ -124,76 +145,73 @@ const server = new Server(
  * Initialize connection to ComfyUI
  */
 async function initializeComfyUI(): Promise<boolean> {
-  console.error("[init] Starting ComfyUI initialization...");
-  config = await loadConfig();
-  console.error(`[init] Config loaded, url from config: ${config.comfyui.url}`);
+  debug("Starting ComfyUI initialization...", undefined, "init");
+  debug(`Config loaded, url from config: ${ctx.config.comfyui.url}`, undefined, "init");
 
   // Try to detect ComfyUI installation
   const installation = detectInstallation();
   if (installation.installed && installation.path) {
-    comfyuiPath = installation.path;
-    console.error(`[init] Found ComfyUI installation at: ${comfyuiPath}`);
+    ctx.comfyuiPath = installation.path;
+    info(`Found ComfyUI installation at: ${ctx.comfyuiPath}`, undefined, "init");
   } else {
-    console.error("[init] No ComfyUI installation detected");
+    debug("No ComfyUI installation detected", undefined, "init");
   }
 
   // Try to discover running ComfyUI
-  console.error("[init] Attempting to discover running ComfyUI...");
-  const discovered = await discoverComfyUI(config.comfyui.url);
+  debug("Attempting to discover running ComfyUI...", undefined, "init");
+  const discovered = await discoverComfyUI(ctx.config.comfyui.url);
 
   if (!discovered) {
-    console.error(
-      "[init] ComfyUI is not running. Use get_install_guide or get_status for help."
-    );
+    info("ComfyUI is not running. Use get_install_guide or get_status for help.", undefined, "init");
     return false;
   }
 
-  discoveredUrl = discovered.url;
-  discoverySource = discovered.source;
-  console.error(`[init] Found running ComfyUI at ${discovered.url} (${discovered.source})`);
+  ctx.discoveredUrl = discovered.url;
+  ctx.discoverySource = discovered.source;
+  info(`Found running ComfyUI at ${discovered.url} (${discovered.source})`, undefined, "init");
 
   // Create client
-  client = new ComfyUIClient(discovered.url, config.comfyui.apiKey);
-  console.error("[init] Created ComfyUI client");
+  ctx.client = new ComfyUIClient(discovered.url, ctx.config.comfyui.apiKey);
+  debug("Created ComfyUI client", undefined, "init");
 
   // Get capabilities
   try {
-    console.error("[init] Getting object info...");
-    objectInfo = await client.getObjectInfo();
-    console.error(`[init] Got object info with ${Object.keys(objectInfo).length} nodes`);
-    capabilities = detectCapabilities(objectInfo);
-    console.error(`[init] Detected capabilities:\n${getCapabilitySummary(capabilities)}`);
-  } catch (error) {
-    console.error(`[init] Failed to get ComfyUI capabilities: ${error}`);
+    debug("Getting object info...", undefined, "init");
+    ctx.objectInfo = await ctx.client.getObjectInfo();
+    debug(`Got object info with ${Object.keys(ctx.objectInfo).length} nodes`, undefined, "init");
+    ctx.capabilities = detectCapabilities(ctx.objectInfo);
+    info(`Detected capabilities:\n${getCapabilitySummary(ctx.capabilities)}`, undefined, "init");
+  } catch (err) {
+    logError(`Failed to get ComfyUI capabilities: ${err}`, undefined, "init");
     return false;
   }
 
   // Analyze user outputs for preferences (non-blocking)
-  if (comfyuiPath) {
-    const outputDir = join(comfyuiPath, "output");
-    console.error(`[init] Analyzing user outputs in: ${outputDir}`);
+  if (ctx.comfyuiPath) {
+    const outputDir = join(ctx.comfyuiPath, "output");
+    debug(`Analyzing user outputs in: ${outputDir}`, undefined, "init");
     try {
       const userPrefs = await analyzeUserOutputs(outputDir);
-      if (capabilities) {
-        capabilities.userPreferences = userPrefs;
+      if (ctx.capabilities) {
+        ctx.capabilities.userPreferences = userPrefs;
       }
-      console.error(`[init] User preferences:\n${getUserPreferencesSummary(userPrefs)}`);
-    } catch (error) {
-      console.error(`[init] Failed to analyze user outputs: ${error}`);
+      debug(`User preferences:\n${getUserPreferencesSummary(userPrefs)}`, undefined, "init");
+    } catch (err) {
+      warning(`Failed to analyze user outputs: ${err}`, undefined, "init");
       // Non-fatal - continue without preferences
     }
   }
 
   // Connect WebSocket
-  ws = new ComfyUIWebSocket(client.getWebSocketUrl());
+  ctx.ws = new ComfyUIWebSocket(ctx.client.getWebSocketUrl());
   try {
-    await ws.connect();
-    console.error("[init] WebSocket connected");
-  } catch (error) {
-    console.error(`[init] Failed to connect WebSocket: ${error}`);
+    await ctx.ws.connect();
+    debug("WebSocket connected", undefined, "init");
+  } catch (err) {
+    warning(`Failed to connect WebSocket: ${err}`, undefined, "init");
   }
 
-  console.error("[init] Initialization complete, returning true");
+  debug("Initialization complete, returning true", undefined, "init");
   return true;
 }
 
@@ -206,7 +224,7 @@ async function ensureConnected(): Promise<{
   capabilities: Capabilities;
   objectInfo: ObjectInfo;
 }> {
-  if (!client || !ws || !capabilities || !objectInfo) {
+  if (!ctx.client || !ctx.ws || !ctx.capabilities || !ctx.objectInfo) {
     const connected = await initializeComfyUI();
     if (!connected) {
       throw new Error(
@@ -215,112 +233,85 @@ async function ensureConnected(): Promise<{
     }
   }
 
-  if (!client || !ws || !capabilities || !objectInfo) {
+  if (!ctx.client || !ctx.ws || !ctx.capabilities || !ctx.objectInfo) {
     throw new Error(
       "ComfyUI is not available. Make sure it's running and accessible."
     );
   }
 
   // Verify connection is still alive
-  if (!ws.isConnected()) {
+  if (!ctx.ws.isConnected()) {
     try {
-      await ws.connect();
+      await ctx.ws.connect();
     } catch {
       throw new Error("Lost connection to ComfyUI WebSocket");
     }
   }
 
-  return { client, ws, capabilities, objectInfo };
+  return {
+    client: ctx.client,
+    ws: ctx.ws,
+    capabilities: ctx.capabilities,
+    objectInfo: ctx.objectInfo,
+  };
 }
 
-/**
- * Get the ComfyUI installation path for downloads
- */
-function getComfyUIPath(): string {
-  if (comfyuiPath) return comfyuiPath;
-  // Fallback to config output directory's parent
-  return config?.outputDir || "./";
+
+// Tool annotation type
+interface ToolAnnotations {
+  title: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
 }
 
-// Convert Zod schema to JSON Schema for MCP
-function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
-  if (schema instanceof z.ZodObject) {
-    const shape = schema.shape;
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-
-    for (const [key, value] of Object.entries(shape)) {
-      const zodValue = value as z.ZodType;
-      properties[key] = zodToJsonSchema(zodValue);
-
-      if (!(zodValue instanceof z.ZodOptional) && !(zodValue instanceof z.ZodDefault)) {
-        required.push(key);
-      }
-    }
-
-    return {
-      type: "object",
-      properties,
-      required: required.length > 0 ? required : undefined,
-    };
-  }
-
-  if (schema instanceof z.ZodString) {
-    return { type: "string", description: schema.description };
-  }
-
-  if (schema instanceof z.ZodNumber) {
-    return { type: "number", description: schema.description };
-  }
-
-  if (schema instanceof z.ZodBoolean) {
-    return { type: "boolean", description: schema.description };
-  }
-
-  if (schema instanceof z.ZodEnum) {
-    return {
-      type: "string",
-      enum: schema.options,
-      description: schema.description,
-    };
-  }
-
-  if (schema instanceof z.ZodOptional) {
-    return zodToJsonSchema(schema.unwrap());
-  }
-
-  if (schema instanceof z.ZodDefault) {
-    const inner = zodToJsonSchema(schema.removeDefault());
-    return { ...inner, default: schema._def.defaultValue() };
-  }
-
-  if (schema instanceof z.ZodRecord) {
-    return { type: "object", additionalProperties: true };
-  }
-
-  return { type: "string" };
+// Tool definition type
+interface ToolDefinition {
+  schema: z.ZodType;
+  description: string;
+  requiresConnection?: boolean;
+  annotations: ToolAnnotations;
 }
 
 // Tool definitions - organized by category
-const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresConnection?: boolean }> = {
+const TOOLS: Record<string, ToolDefinition> = {
   // === Status & Setup (always available) ===
   get_status: {
     schema: getStatusSchema,
     description:
       "Get the current status of ComfyUI connection and installation",
     requiresConnection: false,
+    annotations: {
+      title: "Get ComfyUI Status",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   get_install_guide: {
     schema: getInstallGuideSchema,
     description:
       "Get installation instructions for ComfyUI (recommends desktop app for most users)",
     requiresConnection: false,
+    annotations: {
+      title: "Get Installation Guide",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   get_model_guide: {
     schema: getModelGuideSchema,
     description:
       "Get guidance on downloading and installing models for ComfyUI",
     requiresConnection: false,
+    annotations: {
+      title: "Get Model Setup Guide",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
 
   // === Downloads (always available) ===
@@ -329,18 +320,38 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     description:
       "List popular models available for direct download",
     requiresConnection: false,
+    annotations: {
+      title: "List Available Downloads",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   download_model: {
     schema: downloadModelSchema,
     description:
       "Download a model directly to the ComfyUI models folder",
     requiresConnection: false,
+    annotations: {
+      title: "Download Model",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   download_huggingface: {
     schema: downloadHuggingFaceSchema,
     description:
       "Download a model file from HuggingFace to ComfyUI",
     requiresConnection: false,
+    annotations: {
+      title: "Download from HuggingFace",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 
   // === Examples (always available) ===
@@ -349,12 +360,24 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     description:
       "List official ComfyUI example workflows from the documentation",
     requiresConnection: false,
+    annotations: {
+      title: "List Example Workflows",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   get_example_workflow: {
     schema: getExampleWorkflowSchema,
     description:
       "Fetch an example workflow (extracts embedded JSON from documentation images)",
     requiresConnection: false,
+    annotations: {
+      title: "Get Example Workflow",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 
   // === Prompting Guides (always available) ===
@@ -369,6 +392,12 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     description:
       "Get prompting best practices for AI image generation models (SD1.5, SDXL, SD3, Flux)",
     requiresConnection: false,
+    annotations: {
+      title: "Get Prompting Guide",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
 
   // === Generation (requires ComfyUI) ===
@@ -377,24 +406,50 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     description:
       "Get the detected capabilities of the connected ComfyUI instance",
     requiresConnection: true,
+    annotations: {
+      title: "Get ComfyUI Capabilities",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   generate_image: {
     schema: generateImageSchema,
     description:
       "Generate an image using ComfyUI. Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve images when complete. Set sync:true to wait for completion (blocking). IMPORTANT: Before your first generation, call get_prompting_guide with the appropriate model type (sd15, sdxl, sd3, or flux) to learn the correct prompting style.",
     requiresConnection: true,
+    annotations: {
+      title: "Generate Image",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
   },
   run_workflow: {
     schema: runWorkflowSchema,
     description:
       "Run a custom ComfyUI workflow (API format JSON). Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve results when complete. Set sync:true to wait for completion (blocking).",
     requiresConnection: true,
+    annotations: {
+      title: "Run Custom Workflow",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
   },
   get_image: {
     schema: getImageSchema,
     description:
       "Retrieve a generated image as base64. Use this to fetch images from ComfyUI's output directory.",
     requiresConnection: true,
+    annotations: {
+      title: "Get Generated Image",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 
   // === Model Discovery (requires ComfyUI) ===
@@ -403,12 +458,24 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     description:
       "List available models (checkpoints, LoRAs, VAEs, etc.) in ComfyUI",
     requiresConnection: true,
+    annotations: {
+      title: "List Installed Models",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   list_nodes: {
     schema: listNodesSchema,
     description:
       "List available ComfyUI nodes, optionally filtered by category or search term",
     requiresConnection: true,
+    annotations: {
+      title: "List Available Nodes",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 
   // === Queue Management (requires ComfyUI) ===
@@ -416,21 +483,47 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     schema: getQueueSchema,
     description: "Get the current ComfyUI queue status",
     requiresConnection: true,
+    annotations: {
+      title: "Get Queue Status",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   cancel_job: {
     schema: cancelJobSchema,
     description: "Cancel a queued or running job",
     requiresConnection: true,
+    annotations: {
+      title: "Cancel Job",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   interrupt: {
     schema: interruptSchema,
     description: "Interrupt the currently running job",
     requiresConnection: true,
+    annotations: {
+      title: "Interrupt Current Job",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   get_history: {
     schema: getHistorySchema,
     description: "Get generation history",
     requiresConnection: true,
+    annotations: {
+      title: "Get Generation History",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 
   // === Task Management (for async operations) ===
@@ -440,6 +533,12 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     }),
     description: "Get the current status of an async generation task",
     requiresConnection: false, // Jobs are tracked locally
+    annotations: {
+      title: "Get Task Status",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   get_task_result: {
     schema: z.object({
@@ -447,6 +546,12 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     }),
     description: "Get the result of a completed generation task (images)",
     requiresConnection: false,
+    annotations: {
+      title: "Get Task Result",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   list_tasks: {
     schema: z.object({
@@ -457,6 +562,12 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     }),
     description: "List all generation tasks, optionally filtered by status",
     requiresConnection: false,
+    annotations: {
+      title: "List Tasks",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   },
   cancel_task: {
     schema: z.object({
@@ -464,6 +575,13 @@ const TOOLS: Record<string, { schema: z.ZodType; description: string; requiresCo
     }),
     description: "Cancel a running async generation task. Also cancels the corresponding ComfyUI job.",
     requiresConnection: true, // Need to cancel in ComfyUI too
+    annotations: {
+      title: "Cancel Task",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 };
 
@@ -476,17 +594,19 @@ interface Tool {
     properties?: Record<string, unknown>;
     required?: string[];
   };
+  annotations?: ToolAnnotations;
 }
 
 // List tools handler
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const tools: Tool[] = [];
 
-  for (const [name, { schema, description }] of Object.entries(TOOLS)) {
+  for (const [name, { schema, description, annotations }] of Object.entries(TOOLS)) {
     tools.push({
       name,
       description,
-      inputSchema: zodToJsonSchema(schema) as Tool["inputSchema"],
+      inputSchema: zodToJsonSchema(schema, { target: "jsonSchema7" }) as Tool["inputSchema"],
+      annotations,
     });
   }
 
@@ -502,46 +622,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // === Status & Setup ===
       case "get_status": {
         // Always try to connect/reconnect when checking status
-        console.error("[get_status] Starting status check...");
-        const wasConnected = client !== null;
-        console.error(`[get_status] Was previously connected: ${wasConnected}`);
+        debug("Starting status check...", undefined, "get_status");
+        const wasConnected = ctx.client !== null;
+        debug(`Was previously connected: ${wasConnected}`, undefined, "get_status");
 
         const initResult = await initializeComfyUI();
-        console.error(`[get_status] initializeComfyUI returned: ${initResult}`);
-        console.error(`[get_status] client is null: ${client === null}`);
-        console.error(`[get_status] discoveredUrl: ${discoveredUrl}`);
+        debug(`initializeComfyUI returned: ${initResult}`, undefined, "get_status");
+        debug(`client is null: ${ctx.client === null}`, undefined, "get_status");
+        debug(`discoveredUrl: ${ctx.discoveredUrl}`, undefined, "get_status");
 
         // Test actual connectivity
         let isConnected = false;
-        if (client) {
+        if (ctx.client) {
           try {
-            console.error("[get_status] Testing connectivity with getSystemStats...");
-            const stats = await client.getSystemStats();
-            console.error(`[get_status] Got system stats: ${JSON.stringify(stats).slice(0, 100)}...`);
+            debug("Testing connectivity with getSystemStats...", undefined, "get_status");
+            const stats = await ctx.client.getSystemStats();
+            debug(`Got system stats: ${JSON.stringify(stats).slice(0, 100)}...`, undefined, "get_status");
             isConnected = true;
           } catch (err) {
-            console.error(`[get_status] getSystemStats failed: ${err}`);
+            debug(`getSystemStats failed: ${err}`, undefined, "get_status");
             isConnected = false;
           }
         } else {
-          console.error("[get_status] client is null, cannot test connectivity");
+          debug("client is null, cannot test connectivity", undefined, "get_status");
         }
 
-        console.error(`[get_status] Final isConnected: ${isConnected}`);
+        debug(`Final isConnected: ${isConnected}`, undefined, "get_status");
 
         const status = await getStatus(
           isConnected,
-          discoveredUrl || undefined,
-          discoverySource || undefined,
-          capabilities ? getCapabilitySummary(capabilities) : undefined
+          ctx.discoveredUrl || undefined,
+          ctx.discoverySource || undefined,
+          ctx.capabilities ? getCapabilitySummary(ctx.capabilities) : undefined
         );
 
         // Add prompting guide advice when connected
-        if (isConnected && capabilities) {
+        if (isConnected && ctx.capabilities) {
           let modelType = "sd15";
-          if (capabilities.hasFlux) modelType = "flux";
-          else if (capabilities.hasSD3) modelType = "sd3";
-          else if (capabilities.hasSDXL) modelType = "sdxl";
+          if (ctx.capabilities.hasFlux) modelType = "flux";
+          else if (ctx.capabilities.hasSD3) modelType = "sd3";
+          else if (ctx.capabilities.hasSDXL) modelType = "sdxl";
 
           (status as unknown as Record<string, unknown>).promptingAdvice = {
             detectedModelType: modelType,
@@ -575,11 +695,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "download_model": {
         const input = downloadModelSchema.parse(args) as DownloadModelInput;
-        const path = input.comfyuiPath || getComfyUIPath();
+        const path = input.comfyuiPath || getComfyUIPath(ctx);
         const result = await downloadModel(input, path, (progress) => {
           // Progress updates could be sent via notifications in future
-          console.error(
-            `Downloading ${progress.filename}: ${progress.percent?.toFixed(1) || "?"}%`
+          info(
+            `Downloading ${progress.filename}: ${progress.percent?.toFixed(1) || "?"}%`,
+            undefined,
+            "download"
           );
         });
         return {
@@ -597,10 +719,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "download_huggingface": {
         const input = downloadHuggingFaceSchema.parse(args) as DownloadHuggingFaceInput;
-        const path = input.comfyuiPath || getComfyUIPath();
+        const path = input.comfyuiPath || getComfyUIPath(ctx);
         const result = await downloadHuggingFace(input, path, (progress) => {
-          console.error(
-            `Downloading ${progress.filename}: ${progress.percent?.toFixed(1) || "?"}%`
+          info(
+            `Downloading ${progress.filename}: ${progress.percent?.toFixed(1) || "?"}%`,
+            undefined,
+            "download"
           );
         });
         return {
@@ -730,8 +854,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             input,
             capabilities,
             objectInfo,
-            config.outputDir,
-            config.outputSizeThreshold,
+            ctx.config.outputDir,
+            ctx.config.outputSizeThreshold,
             input.timeout || 300000
           );
 
@@ -769,15 +893,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Async mode (default) - return immediately with task ID
         const asyncResult = await generateImageAsync(
-          server,
-          jobManager,
+          ctx.server,
+          ctx.jobManager,
           client,
           ws,
           input,
           capabilities,
           objectInfo,
-          config.outputDir,
-          config.outputSizeThreshold
+          ctx.config.outputDir,
+          ctx.config.outputSizeThreshold
         );
 
         return {
@@ -808,8 +932,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             client,
             ws,
             input,
-            config.outputDir,
-            config.outputSizeThreshold,
+            ctx.config.outputDir,
+            ctx.config.outputSizeThreshold,
             input.timeout || 300000
           );
 
@@ -847,13 +971,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Async mode (default) - return immediately with task ID
         const asyncResult = await runWorkflowAsync(
-          server,
-          jobManager,
+          ctx.server,
+          ctx.jobManager,
           client,
           ws,
           input,
-          config.outputDir,
-          config.outputSizeThreshold
+          ctx.config.outputDir,
+          ctx.config.outputSizeThreshold
         );
 
         return {
@@ -941,7 +1065,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // === Task Management ===
       case "get_task": {
         const input = args as { taskId: string };
-        const job = jobManager.getJob(input.taskId);
+        const job = ctx.jobManager.getJob(input.taskId);
         if (!job) {
           return {
             content: [{ type: "text", text: `Task not found: ${input.taskId}` }],
@@ -968,7 +1092,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "get_task_result": {
         const input = args as { taskId: string };
-        const job = jobManager.getJob(input.taskId);
+        const job = ctx.jobManager.getJob(input.taskId);
         if (!job) {
           return {
             content: [{ type: "text", text: `Task not found: ${input.taskId}` }],
@@ -1041,8 +1165,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "list_tasks": {
         const input = args as { status?: "working" | "completed" | "failed" | "cancelled" };
-        const jobs = jobManager.listJobs(input.status);
-        const counts = jobManager.getJobCounts();
+        const jobs = ctx.jobManager.listJobs(input.status);
+        const counts = ctx.jobManager.getJobCounts();
 
         return {
           content: [
@@ -1066,7 +1190,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "cancel_task": {
         const { client } = await ensureConnected();
         const input = args as { taskId: string };
-        const job = jobManager.getJob(input.taskId);
+        const job = ctx.jobManager.getJob(input.taskId);
 
         if (!job) {
           return {
@@ -1090,7 +1214,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // Mark as cancelled in job manager
-        jobManager.cancelJob(input.taskId);
+        ctx.jobManager.cancelJob(input.taskId);
 
         return {
           content: [
@@ -1117,10 +1241,53 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// List resources handler
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  const staticResources = getStaticResources();
+  const dynamicResources = getDynamicResources(ctx);
+
+  return {
+    resources: [...staticResources, ...dynamicResources],
+  };
+});
+
+// Read resource handler
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const { uri } = request.params;
+  return await readResource(ctx, uri);
+});
+
+// List prompts handler
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  return {
+    prompts: listPrompts(),
+  };
+});
+
+// Get prompt handler
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+  return await getPrompt(ctx, name, args || {});
+});
+
+// Set logging level handler
+server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+  const { level } = request.params;
+  setLogLevel(level as LoggingLevel);
+  info(`Logging level set to: ${level}`);
+  return {};
+});
+
 // Main entry point
 async function main() {
   // Load config first
-  config = await loadConfig();
+  const config = await loadConfig();
+
+  // Create server context
+  ctx = createContext(server, config, getJobManager());
+
+  // Initialize logging with the server
+  initLogging(server, "info");
 
   // Try to initialize ComfyUI connection (non-fatal if not available)
   await initializeComfyUI();
@@ -1129,15 +1296,13 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error("ComfyUI MCP server started");
-  if (!client) {
-    console.error(
-      "Note: ComfyUI is not connected. Setup and example tools are still available."
-    );
+  info("ComfyUI MCP server started");
+  if (!ctx.client) {
+    info("ComfyUI is not connected. Setup and example tools are still available.");
   }
 }
 
-main().catch((error) => {
-  console.error("Fatal error:", error);
+main().catch((err) => {
+  logError(`Fatal error: ${err}`);
   process.exit(1);
 });
