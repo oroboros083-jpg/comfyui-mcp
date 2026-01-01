@@ -1,4 +1,5 @@
 import { ObjectInfo } from "../client/comfyui.js";
+import { UserPreferences } from "../analysis/outputs.js";
 
 export interface Capabilities {
   // Core generation
@@ -44,6 +45,9 @@ export interface Capabilities {
   availableLoaders: string[];
   availableSamplers: string[];
   availableSchedulers: string[];
+
+  // User preferences from output analysis (optional, populated if outputs exist)
+  userPreferences?: UserPreferences;
 }
 
 const NODE_CAPABILITY_MAP: Record<string, keyof Capabilities> = {
@@ -234,7 +238,18 @@ export function getCapabilitySummary(capabilities: Capabilities): string {
   if (capabilities.hasDepthEstimation) features.push("Depth estimation");
   if (capabilities.hasSegmentation) features.push("Segmentation");
 
+  if (capabilities.userPreferences) {
+    const prefs = capabilities.userPreferences;
+    features.push(`\nUser history: ${prefs.imagesWithWorkflows} images analyzed, ${prefs.uniqueWorkflows} unique workflows`);
+    if (prefs.modelUsage.length > 0) {
+      features.push(`Preferred models: ${prefs.modelUsage.slice(0, 3).map(m => m.name).join(", ")}`);
+    }
+  }
+
   return features.length > 0
     ? features.join("\n")
     : "Basic ComfyUI (no models detected)";
 }
+
+// Re-export UserPreferences for convenience
+export type { UserPreferences } from "../analysis/outputs.js";

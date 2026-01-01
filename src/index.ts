@@ -91,6 +91,11 @@ import {
   generateImageAsync,
   runWorkflowAsync,
 } from "./tools/generate-async.js";
+import {
+  analyzeUserOutputs,
+  getUserPreferencesSummary,
+} from "./analysis/outputs.js";
+import { join } from "path";
 
 // Global state
 let client: ComfyUIClient | null = null;
@@ -161,6 +166,22 @@ async function initializeComfyUI(): Promise<boolean> {
   } catch (error) {
     console.error(`[init] Failed to get ComfyUI capabilities: ${error}`);
     return false;
+  }
+
+  // Analyze user outputs for preferences (non-blocking)
+  if (comfyuiPath) {
+    const outputDir = join(comfyuiPath, "output");
+    console.error(`[init] Analyzing user outputs in: ${outputDir}`);
+    try {
+      const userPrefs = await analyzeUserOutputs(outputDir);
+      if (capabilities) {
+        capabilities.userPreferences = userPrefs;
+      }
+      console.error(`[init] User preferences:\n${getUserPreferencesSummary(userPrefs)}`);
+    } catch (error) {
+      console.error(`[init] Failed to analyze user outputs: ${error}`);
+      // Non-fatal - continue without preferences
+    }
   }
 
   // Connect WebSocket
@@ -650,6 +671,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           promptingAdvice = "Primary model type: SD1.5. Use keyword-style prompts with quality boosters. Negative prompts essential. Call get_prompting_guide('sd15') for detailed guidance.";
         }
 
+        // Build user preferences summary if available
+        let userPreferencesSummary = null;
+        if (capabilities.userPreferences) {
+          const prefs = capabilities.userPreferences;
+          userPreferencesSummary = {
+            totalImages: prefs.totalImagesAnalyzed,
+            imagesWithWorkflows: prefs.imagesWithWorkflows,
+            uniqueWorkflows: prefs.uniqueWorkflows,
+            topModels: prefs.modelUsage.slice(0, 5).map((m) => ({
+              name: m.name,
+              type: m.type,
+              usageCount: m.usageCount,
+            })),
+            topWorkflows: prefs.workflowTemplates.slice(0, 5).map((wf) => ({
+              description: wf.description,
+              usageCount: wf.usageCount,
+              models: wf.models,
+              samplePrompts: wf.samplePrompts.slice(0, 3),
+            })),
+            preferredSettings: prefs.commonSettings,
+          };
+        }
+
         return {
           content: [
             {
@@ -659,7 +703,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   summary: getCapabilitySummary(capabilities),
                   promptingAdvice,
                   importantNote: "BEFORE generating images, call get_prompting_guide with your model type to learn the correct prompting style. Using the wrong prompting style significantly degrades output quality.",
-                  details: capabilities,
+                  userPreferences: userPreferencesSummary,
+                  details: {
+                    ...capabilities,
+                    userPreferences: undefined, // Already included above in summary form
+                  },
                 },
                 null,
                 2
