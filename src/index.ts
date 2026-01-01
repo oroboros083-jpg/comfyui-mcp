@@ -52,6 +52,7 @@ import {
   runWorkflow,
   getImageSchema,
   getImage,
+  applySessionDefaults,
   GenerateImageInput,
   RunWorkflowInput,
   GetImageInput,
@@ -104,6 +105,7 @@ import {
 import { join } from "path";
 import {
   ServerContext,
+  SessionDefaults,
   createContext,
   getComfyUIPath,
 } from "./context.js";
@@ -583,6 +585,46 @@ const TOOLS: Record<string, ToolDefinition> = {
       openWorldHint: true,
     },
   },
+
+  // === Session Defaults ===
+  set_generation_defaults: {
+    schema: z.object({
+      model: z.string().optional().describe("Default model (checkpoint or UNET)"),
+      sampler: z.string().optional().describe("Default sampler"),
+      scheduler: z.string().optional().describe("Default scheduler"),
+      steps: z.number().optional().describe("Default number of steps"),
+      cfg: z.number().optional().describe("Default CFG/guidance scale"),
+      width: z.number().optional().describe("Default width in pixels"),
+      height: z.number().optional().describe("Default height in pixels"),
+      negativePrompt: z.string().optional().describe("Default negative prompt"),
+      imageFormat: z.enum(["jpeg", "png", "webp"]).optional().describe("Default image format"),
+      imageQuality: z.number().min(1).max(100).optional().describe("Default image quality (1-100)"),
+      outputMode: z.enum(["base64", "file", "auto"]).optional().describe("Default output mode"),
+      clear: z.boolean().optional().describe("Clear all defaults"),
+    }),
+    description:
+      "Set session-level defaults for image generation. These persist until server restart and are applied to all subsequent generate_image calls unless explicitly overridden.",
+    requiresConnection: false,
+    annotations: {
+      title: "Set Generation Defaults",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  get_generation_defaults: {
+    schema: z.object({}),
+    description:
+      "Get the current session-level generation defaults",
+    requiresConnection: false,
+    annotations: {
+      title: "Get Generation Defaults",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 };
 
 // Tool type for list tools response
@@ -843,7 +885,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "generate_image": {
         const { client, ws, capabilities, objectInfo } = await ensureConnected();
-        const input = generateImageSchema.parse(args) as GenerateImageInput;
+        const rawInput = generateImageSchema.parse(args) as GenerateImageInput;
+        // Apply session defaults (explicit params override defaults)
+        const input = applySessionDefaults(rawInput, ctx.sessionDefaults);
 
         // Check if sync mode is requested
         if (input.sync) {
@@ -1221,6 +1265,83 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: `Task ${input.taskId} cancelled successfully`,
+            },
+          ],
+        };
+      }
+
+      // === Session Defaults ===
+      case "set_generation_defaults": {
+        const input = args as Partial<SessionDefaults> & { clear?: boolean };
+
+        if (input.clear) {
+          ctx.sessionDefaults = {};
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  message: "Session defaults cleared",
+                  defaults: {},
+                }, null, 2),
+              },
+            ],
+          };
+        }
+
+        // Update only provided fields
+        const { clear: _, ...newDefaults } = input;
+        for (const [key, value] of Object.entries(newDefaults)) {
+          if (value !== undefined) {
+            (ctx.sessionDefaults as Record<string, unknown>)[key] = value;
+          }
+        }
+
+        // Detect model type if model was set
+        let modelInfo = null;
+        if (ctx.sessionDefaults.model && ctx.capabilities) {
+          const model = ctx.sessionDefaults.model.toLowerCase();
+          if (model.includes("flux")) {
+            modelInfo = { type: "flux", recommendedCfg: 3.5, recommendedScheduler: "simple" };
+          } else if (model.includes("sd3")) {
+            modelInfo = { type: "sd3", recommendedCfg: 5, noNegativePrompt: true };
+          } else if (model.includes("xl") || model.includes("sdxl")) {
+            modelInfo = { type: "sdxl", recommendedCfg: 7 };
+          } else {
+            modelInfo = { type: "sd15", recommendedCfg: 7 };
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                message: "Session defaults updated",
+                defaults: ctx.sessionDefaults,
+                modelInfo,
+                hint: "These defaults will apply to all subsequent generate_image calls unless explicitly overridden.",
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "get_generation_defaults": {
+        // Check if any defaults are set
+        const hasDefaults = Object.keys(ctx.sessionDefaults).length > 0;
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                defaults: ctx.sessionDefaults,
+                hasDefaults,
+                hint: hasDefaults
+                  ? "These defaults are applied to generate_image calls unless explicitly overridden."
+                  : "No session defaults set. Use set_generation_defaults to configure.",
+              }, null, 2),
             },
           ],
         };

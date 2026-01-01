@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
 import { ComfyUIWebSocket } from "../client/websocket.js";
 import { Capabilities } from "../capabilities/index.js";
+import { SessionDefaults } from "../context.js";
 import {
   buildStandardTxt2Img,
   buildFluxWorkflow,
@@ -133,6 +134,30 @@ export const generateImageSchema = z.object({
 });
 
 export type GenerateImageInput = z.infer<typeof generateImageSchema>;
+
+/**
+ * Apply session defaults to generation input
+ * Explicit parameters take priority over session defaults
+ */
+export function applySessionDefaults(
+  input: GenerateImageInput,
+  defaults: SessionDefaults
+): GenerateImageInput {
+  return {
+    ...input,
+    model: input.model ?? defaults.model,
+    sampler: input.sampler ?? defaults.sampler,
+    scheduler: input.scheduler ?? defaults.scheduler,
+    steps: input.steps ?? defaults.steps,
+    cfg: input.cfg ?? defaults.cfg,
+    width: input.width ?? defaults.width,
+    height: input.height ?? defaults.height,
+    negativePrompt: input.negativePrompt ?? defaults.negativePrompt,
+    imageFormat: input.imageFormat ?? defaults.imageFormat,
+    imageQuality: input.imageQuality ?? defaults.imageQuality,
+    outputMode: input.outputMode ?? defaults.outputMode,
+  };
+}
 
 export interface GenerateResult {
   success: boolean;

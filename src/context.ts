@@ -24,6 +24,24 @@ export type LoggingLevel =
   | "emergency";
 
 /**
+ * Session-level defaults for image generation
+ * These persist until the server restarts
+ */
+export interface SessionDefaults {
+  model?: string;
+  sampler?: string;
+  scheduler?: string;
+  steps?: number;
+  cfg?: number;
+  width?: number;
+  height?: number;
+  negativePrompt?: string;
+  imageFormat?: "jpeg" | "png" | "webp";
+  imageQuality?: number;
+  outputMode?: "base64" | "file" | "auto";
+}
+
+/**
  * Server context containing all state needed for MCP operations
  */
 export interface ServerContext {
@@ -49,6 +67,9 @@ export interface ServerContext {
 
   // Logging configuration
   loggingLevel: LoggingLevel;
+
+  // Session defaults for image generation
+  sessionDefaults: SessionDefaults;
 }
 
 /**
@@ -71,6 +92,7 @@ export function createContext(
     comfyuiPath: null,
     jobManager,
     loggingLevel: "info",
+    sessionDefaults: {},
   };
 }
 
