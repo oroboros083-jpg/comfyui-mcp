@@ -39,6 +39,9 @@ export interface SessionDefaults {
   imageFormat?: "jpeg" | "png" | "webp";
   imageQuality?: number;
   outputMode?: "base64" | "file" | "auto";
+  // Custom workflow template (API format) - if set, used instead of auto-generated workflow
+  workflow?: Record<string, unknown>;
+  workflowDescription?: string; // Human-readable description of the workflow
 }
 
 /**

@@ -616,10 +616,13 @@ const TOOLS: Record<string, ToolDefinition> = {
       imageFormat: z.enum(["jpeg", "png", "webp"]).optional().describe("Default image format"),
       imageQuality: z.number().min(1).max(100).optional().describe("Default image quality (1-100)"),
       outputMode: z.enum(["base64", "file", "auto"]).optional().describe("Default output mode"),
+      workflow: z.record(z.unknown()).optional().describe("Custom workflow template (API format JSON). When set, generate_image uses this instead of auto-generating a workflow."),
+      workflowDescription: z.string().optional().describe("Human-readable description of the workflow"),
       clear: z.boolean().optional().describe("Clear all defaults"),
+      clearWorkflow: z.boolean().optional().describe("Clear only the workflow default (keep other settings)"),
     }),
     description:
-      "Set session-level defaults for image generation. These persist until server restart and are applied to all subsequent generate_image calls unless explicitly overridden.",
+      "Set session-level defaults for image generation. These persist until server restart and are applied to all subsequent generate_image calls unless explicitly overridden. You can set a custom workflow template that will be used instead of auto-generated workflows.",
     requiresConnection: false,
     annotations: {
       title: "Set Generation Defaults",
@@ -1008,6 +1011,114 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Apply session defaults (explicit params override defaults)
         const input = applySessionDefaults(rawInput, ctx.sessionDefaults);
 
+        // Check if a custom workflow is set as default
+        if (ctx.sessionDefaults.workflow) {
+          // Use custom workflow - replace prompts in CLIPTextEncode nodes
+          const customWorkflow = JSON.parse(JSON.stringify(ctx.sessionDefaults.workflow));
+          let promptsReplaced = 0;
+
+          for (const node of Object.values(customWorkflow)) {
+            const n = node as { class_type?: string; inputs?: { text?: string } };
+            if (n.class_type === "CLIPTextEncode" && n.inputs) {
+              // Replace first positive prompt with user's prompt
+              // Heuristic: negative prompts often contain negative keywords
+              const currentText = String(n.inputs.text || "").toLowerCase();
+              const isNegative =
+                currentText.includes("ugly") ||
+                currentText.includes("bad quality") ||
+                currentText.includes("deformed") ||
+                currentText.includes("worst quality");
+
+              if (!isNegative && promptsReplaced === 0) {
+                n.inputs.text = input.prompt;
+                promptsReplaced++;
+              } else if (isNegative && input.negativePrompt) {
+                n.inputs.text = input.negativePrompt;
+              }
+            }
+          }
+
+          // Use run_workflow with the modified custom workflow
+          const workflowInput = {
+            workflow: customWorkflow,
+            outputMode: input.outputMode,
+            imageFormat: input.imageFormat,
+            imageQuality: input.imageQuality,
+            timeout: input.timeout,
+            sync: input.sync,
+          };
+
+          if (input.sync) {
+            const result = await runWorkflow(
+              client,
+              ws,
+              workflowInput,
+              ctx.config.outputDir,
+              ctx.config.outputSizeThreshold,
+              input.timeout || 300000
+            );
+
+            if (!result.success) {
+              return {
+                content: [{ type: "text", text: `Error: ${result.error}` }],
+                isError: true,
+              };
+            }
+
+            const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
+              {
+                type: "text",
+                text: `Generated ${result.images.length} image(s) using custom workflow (prompt_id: ${result.promptId})`,
+              },
+            ];
+
+            for (const img of result.images) {
+              if (img.data) {
+                content.push({
+                  type: "image",
+                  data: img.data,
+                  mimeType: img.mimeType || "image/jpeg",
+                });
+              } else if (img.path) {
+                content.push({
+                  type: "text",
+                  text: `Saved: ${img.path}`,
+                });
+              }
+            }
+
+            return { content };
+          }
+
+          // Async mode with custom workflow
+          const asyncResult = await runWorkflowAsync(
+            ctx.server,
+            ctx.jobManager,
+            client,
+            ws,
+            workflowInput,
+            ctx.config.outputDir,
+            ctx.config.outputSizeThreshold
+          );
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  taskId: asyncResult.taskId,
+                  promptId: asyncResult.promptId,
+                  status: asyncResult.status,
+                  statusMessage: asyncResult.statusMessage,
+                  pollInterval: asyncResult.pollInterval,
+                  usingCustomWorkflow: true,
+                  hint: "Generation started using custom workflow. Use get_task to check status, or get_task_result when complete.",
+                }, null, 2),
+              },
+            ],
+          };
+        }
+
         // Check if sync mode is requested
         if (input.sync) {
           // Synchronous mode - wait for completion
@@ -1391,7 +1502,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // === Session Defaults ===
       case "set_generation_defaults": {
-        const input = args as Partial<SessionDefaults> & { clear?: boolean };
+        const input = args as Partial<SessionDefaults> & { clear?: boolean; clearWorkflow?: boolean };
 
         if (input.clear) {
           ctx.sessionDefaults = {};
@@ -1408,8 +1519,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
+        // Handle clearWorkflow separately
+        if (input.clearWorkflow) {
+          delete ctx.sessionDefaults.workflow;
+          delete ctx.sessionDefaults.workflowDescription;
+        }
+
         // Update only provided fields
-        const { clear: _, ...newDefaults } = input;
+        const { clear: _, clearWorkflow: __, ...newDefaults } = input;
         for (const [key, value] of Object.entries(newDefaults)) {
           if (value !== undefined) {
             (ctx.sessionDefaults as Record<string, unknown>)[key] = value;
@@ -1431,15 +1548,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         }
 
+        // Build response - don't include full workflow JSON in response (too large)
+        const displayDefaults = { ...ctx.sessionDefaults };
+        const hasWorkflow = !!displayDefaults.workflow;
+        if (hasWorkflow) {
+          (displayDefaults as Record<string, unknown>).workflow = `[Custom workflow set - ${Object.keys(ctx.sessionDefaults.workflow || {}).length} nodes]`;
+        }
+
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
-                message: "Session defaults updated",
-                defaults: ctx.sessionDefaults,
+                message: input.clearWorkflow ? "Workflow default cleared" : "Session defaults updated",
+                defaults: displayDefaults,
+                hasCustomWorkflow: hasWorkflow,
                 modelInfo,
-                hint: "These defaults will apply to all subsequent generate_image calls unless explicitly overridden.",
+                hint: hasWorkflow
+                  ? "Custom workflow will be used for generate_image. Prompt text in CLIPTextEncode nodes will be replaced with your prompt."
+                  : "These defaults will apply to all subsequent generate_image calls unless explicitly overridden.",
               }, null, 2),
             },
           ],
