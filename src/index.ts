@@ -1008,6 +1008,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "generate_image": {
         const { client, ws, capabilities, objectInfo } = await ensureConnected();
         const rawInput = generateImageSchema.parse(args) as GenerateImageInput;
+        // Track which parameters were explicitly provided (not from schema defaults)
+        const explicitParams = new Set(Object.keys(args as object));
         // Apply session defaults (explicit params override defaults)
         const input = applySessionDefaults(rawInput, ctx.sessionDefaults);
 
@@ -1017,11 +1019,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const customWorkflow = JSON.parse(JSON.stringify(ctx.sessionDefaults.workflow));
           let promptsReplaced = 0;
 
+          // Helper to check if a param should be applied
+          // Only apply if: explicitly provided in this call, OR set as session default
+          const shouldApply = (param: string) =>
+            explicitParams.has(param) ||
+            ctx.sessionDefaults[param as keyof typeof ctx.sessionDefaults] !== undefined;
+
           for (const node of Object.values(customWorkflow)) {
             const n = node as { class_type?: string; inputs?: Record<string, unknown> };
             if (!n.inputs) continue;
 
-            // Replace prompts in CLIPTextEncode nodes
+            // Replace prompts in CLIPTextEncode nodes (prompt is always required)
             if (n.class_type === "CLIPTextEncode") {
               const currentText = String(n.inputs.text || "").toLowerCase();
               const isNegative =
@@ -1033,37 +1041,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               if (!isNegative && promptsReplaced === 0) {
                 n.inputs.text = input.prompt;
                 promptsReplaced++;
-              } else if (isNegative && input.negativePrompt) {
+              } else if (isNegative && shouldApply("negativePrompt") && input.negativePrompt) {
                 n.inputs.text = input.negativePrompt;
               }
             }
 
             // Apply dimensions to EmptyLatentImage nodes
             if (n.class_type?.includes("EmptyLatent") || n.class_type?.includes("LatentImage")) {
-              if (input.width && n.inputs.width !== undefined) {
+              if (shouldApply("width") && n.inputs.width !== undefined) {
                 n.inputs.width = input.width;
               }
-              if (input.height && n.inputs.height !== undefined) {
+              if (shouldApply("height") && n.inputs.height !== undefined) {
                 n.inputs.height = input.height;
               }
             }
 
             // Apply sampler settings to KSampler nodes
             if (n.class_type === "KSampler" || n.class_type === "KSamplerAdvanced") {
-              if (input.steps && n.inputs.steps !== undefined) {
+              if (shouldApply("steps") && n.inputs.steps !== undefined) {
                 n.inputs.steps = input.steps;
               }
-              if (input.cfg && n.inputs.cfg !== undefined) {
+              if (shouldApply("cfg") && n.inputs.cfg !== undefined) {
                 n.inputs.cfg = input.cfg;
               }
-              if (input.sampler && n.inputs.sampler_name !== undefined) {
+              if (shouldApply("sampler") && n.inputs.sampler_name !== undefined) {
                 n.inputs.sampler_name = input.sampler;
               }
-              if (input.scheduler && n.inputs.scheduler !== undefined) {
+              if (shouldApply("scheduler") && n.inputs.scheduler !== undefined) {
                 n.inputs.scheduler = input.scheduler;
               }
               // Apply seed if explicitly provided (not -1)
-              if (input.seed !== undefined && input.seed !== -1 && n.inputs.seed !== undefined) {
+              if (explicitParams.has("seed") && input.seed !== -1 && n.inputs.seed !== undefined) {
                 n.inputs.seed = input.seed;
               }
             }

@@ -144,6 +144,211 @@ export const PROMPTING_GUIDES: Record<string, ModelPromptingGuide> = {
     ],
     examplePrompt: "A photorealistic portrait of an elderly Japanese craftsman in his traditional woodworking workshop. He wears a worn indigo happi coat and focuses intently on carving an intricate wooden dragon. Warm afternoon light filters through rice paper screens, creating soft shadows. Tools hang organized on pegboard walls. The scene conveys decades of mastery and quiet dedication. Shot on Hasselblad X2D 100C, 85mm lens, f/2.8, natural window lighting",
   },
+
+  "qwen": {
+    modelType: "Qwen Image",
+    description: "Alibaba's 20B MMDiT model with excellent text rendering and image editing. Uses an LLM as CLIP encoder, making it highly flexible with natural language.",
+    promptingStyle: "natural_language",
+    supportsNegativePrompt: false,
+    supportsPromptWeights: false,
+    recommendedSettings: {
+      steps: "8 with Lightning LoRA, 25-40 for native quality",
+      cfg: "1 for Lightning, 3-5 for native",
+      resolution: "1024x1024, supports various aspect ratios",
+    },
+    tips: [
+      "Uses an LLM as CLIP - extremely flexible with natural language, just describe what you want",
+      "Prompt formula: Subject + Scene + Style + Lens Language + Atmosphere + Details",
+      "Keep prompts simple and clear: 1-3 sentences work well",
+      "Describe main subject first, then environment, then finer details",
+      "For text in images: use double quotes for exact text, specify font style/color if needed",
+      "Supports both English and Chinese prompts with high fidelity",
+      "Use seed for reproducibility - same seed + prompt = identical output",
+      "Excels at complex text rendering and precise image editing",
+    ],
+    commonMistakes: [
+      "Using keyword-style prompts instead of natural descriptions",
+      "Overloading prompts - keep it focused and clear",
+      "Not using quotes for text you want rendered in the image",
+      "Expecting prompt weights to work (they don't)",
+    ],
+    examplePrompt: "On a pure white background is the text \"Hello World\" rendered in elegant gold calligraphy. The letters have a subtle metallic sheen with soft shadows beneath them. The style is minimalist and premium, like luxury brand typography.",
+  },
+
+  "hunyuan": {
+    modelType: "Hunyuan DiT",
+    description: "Tencent's powerful diffusion transformer with fine-grained understanding of both English and Chinese. Excels at cinematic, detailed imagery.",
+    promptingStyle: "natural_language",
+    supportsNegativePrompt: true,
+    supportsPromptWeights: false,
+    recommendedSettings: {
+      steps: "20-50",
+      cfg: "4-7",
+      resolution: "1024x1024, auto-resolution based on prompt available",
+    },
+    tips: [
+      "Supports 1000+ character prompts - be detailed and comprehensive",
+      "Structure: Main subject/scene + Image quality/style + Composition + Lighting + Technical params",
+      "Cinematic prompts work exceptionally well - describe like a film scene",
+      "Use professional terminology: 'wide-angle view', 'soft focus', 'lens flare'",
+      "Include environmental cues: weather, time of day, lighting effects",
+      "For text in images: put exact text in quotation marks",
+      "Explicitly define spatial relationships for multi-subject scenes",
+      "Consider using PromptEnhancer for improved results",
+    ],
+    commonMistakes: [
+      "Writing short, vague prompts (Hunyuan thrives on detail)",
+      "Not leveraging the large context window",
+      "Forgetting to describe lighting and atmosphere",
+      "Using keyword-style prompts from older models",
+    ],
+    examplePrompt: "A sweeping cinematic shot of an ancient temple complex nestled in misty mountains at dawn. Shafts of golden sunlight pierce through the fog, illuminating ornate stone carvings covered in moss. A solitary monk in saffron robes walks along a weathered stone path. The atmosphere is serene and mystical. Wide-angle view, volumetric lighting, soft morning haze, shot on ARRI Alexa 65, anamorphic lens flare.",
+  },
+
+  "auraflow": {
+    modelType: "AuraFlow",
+    description: "The largest (6.8B) open-source text-to-image model with Apache 2.0 license. Exceptional prompt following and flexibility.",
+    promptingStyle: "hybrid",
+    supportsNegativePrompt: true,
+    supportsPromptWeights: true,
+    recommendedSettings: {
+      steps: "20 for iteration, 50 for final quality",
+      cfg: "3.5",
+      resolution: "1024x1024",
+    },
+    tips: [
+      "Exceptionally good at following long, detailed prompts",
+      "Supports both natural language and Danbooru-style tags",
+      "Quality modifiers and rating modifiers can influence aesthetic style",
+      "Has built-in natural language enhancement for simpler prompts",
+      "Can understand complex multi-element descriptions",
+      "For Pony V7 finetunes: focus on descriptive language over quality tags",
+      "Experiment with both prompting styles to find what works best",
+    ],
+    commonMistakes: [
+      "Not taking advantage of detailed prompt capabilities",
+      "Using incompatible prompting styles from other models",
+      "Setting CFG too high (3.5 is the recommended default)",
+      "Not iterating with lower steps before final render",
+    ],
+    examplePrompt: "Extreme close-up of an iguana with vibrant blue-green scales, intricate textures and details visible on scaly skin. Wrapped in a dark hood giving a regal appearance. Dramatic side lighting emphasizing scale patterns, shallow depth of field, dark moody background.",
+  },
+
+  "kolors": {
+    modelType: "Kolors",
+    description: "Kwai's bilingual (Chinese/English) text-to-image model trained on billions of pairs. Excels at photorealistic images.",
+    promptingStyle: "natural_language",
+    supportsNegativePrompt: true,
+    supportsPromptWeights: false,
+    recommendedSettings: {
+      steps: "50",
+      cfg: "5",
+      resolution: "1024x1024, various aspect ratios",
+    },
+    tips: [
+      "Great at photorealistic images with simple prompts",
+      "Supports 256 token context length",
+      "Bilingual - works with both English and Chinese prompts",
+      "Chinese prompts may sometimes produce better results",
+      "Uses EulerDiscreteScheduler by default for best results",
+      "Complex prompts are understood but keep expectations reasonable",
+      "Focus on clear subject and scene descriptions",
+    ],
+    commonMistakes: [
+      "Expecting SDXL-level prompt adherence on complex scenes",
+      "Using schedulers other than Euler without adjusting CFG",
+      "Overly long prompts (256 token limit)",
+      "Not trying Chinese translation for difficult prompts",
+    ],
+    examplePrompt: "Portrait of a young woman in a traditional Chinese hanfu dress, standing in a bamboo forest. Soft natural lighting filters through the leaves, creating dappled shadows. Her expression is serene and contemplative. Photorealistic, highly detailed fabric textures.",
+  },
+
+  "pixart": {
+    modelType: "PixArt (Alpha/Sigma)",
+    description: "Efficient DiT model (0.6B params) capable of generating up to 4K images. Good prompt adherence with detailed descriptions.",
+    promptingStyle: "natural_language",
+    supportsNegativePrompt: true,
+    supportsPromptWeights: false,
+    recommendedSettings: {
+      steps: "20-30",
+      cfg: "4.5",
+      resolution: "512x512, 1024x1024, 2K, 4K supported",
+    },
+    tips: [
+      "Detailed, descriptive prompts produce best results",
+      "Structure prompts like describing a photograph or painting",
+      "Include cinematic details: lighting, camera specs, film style",
+      "Can be refined with SDXL refiner for improved quality",
+      "Sigma version has better prompt understanding than Alpha",
+      "Describe spatial relationships for complex compositions",
+      "Use torch.compile for 20-30% faster inference",
+    ],
+    commonMistakes: [
+      "Expecting good text rendering (PixArt struggles with text)",
+      "Compositional prompts like 'X on top of Y' may not work well",
+      "Using prompts that are too short or vague",
+      "Not leveraging the multi-resolution capabilities",
+    ],
+    examplePrompt: "An extreme close-up of a gray-haired man with a beard in his 60s, deep in thought pondering the history of the universe as he sits at a cafe in Paris. His eyes focus on people offscreen. He wears a wool suit coat with a button-down shirt, a brown beret and glasses, with a professorial appearance. Cinematic golden hour lighting, Parisian streets in background, depth of field, 35mm film.",
+  },
+
+  "playground": {
+    modelType: "Playground v2.5",
+    description: "State-of-the-art open-source model for aesthetic quality. Outperforms SDXL and competes with DALL-E 3 and Midjourney in user studies.",
+    promptingStyle: "hybrid",
+    supportsNegativePrompt: true,
+    supportsPromptWeights: true,
+    recommendedSettings: {
+      steps: "25-50",
+      cfg: "3.0 for EDM scheduler, 5.0 for DPM++, 7.0 for Euler/Heun",
+      resolution: "1024x1024, multiple aspect ratios supported",
+    },
+    tips: [
+      "Excels at vibrant colors and high contrast images",
+      "Quality modifiers still work: 'detailed', '8k', 'muted colors'",
+      "Subject + color/mood descriptors + quality modifiers formula works well",
+      "Uses EDMDPMSolverMultistepScheduler by default for crisp details",
+      "No offset noise needed - handles contrast naturally",
+      "Multiple aspect ratios are well-supported",
+      "Focus on aesthetic descriptions for best results",
+    ],
+    commonMistakes: [
+      "Expecting photorealistic human skin and hair (not its strength)",
+      "Using wrong CFG for the scheduler (varies by scheduler type)",
+      "Not leveraging the aesthetic focus of the model",
+      "Expecting one-shot perfection - iteration is part of the process",
+    ],
+    examplePrompt: "Astronaut floating in a bioluminescent jungle on an alien planet, cold color palette, muted greens and blues, detailed spacesuit with glowing elements, mysterious atmosphere, 8k, highly detailed, cinematic composition",
+  },
+
+  "cascade": {
+    modelType: "Stable Cascade",
+    description: "Three-stage model with 42x compression factor. Fast inference, good prompt adherence, and text rendering capabilities.",
+    promptingStyle: "natural_language",
+    supportsNegativePrompt: true,
+    supportsPromptWeights: false,
+    recommendedSettings: {
+      steps: "30+20 (prior + decoder)",
+      cfg: "4-7",
+      resolution: "1024x1024, efficient at high resolutions",
+    },
+    tips: [
+      "Natural language prompts work well, but old keyword prompts are also understood",
+      "Faster than SDXL - about 2x speed improvement",
+      "Can render text in generated images",
+      "Supports image variations from embeddings without prompts",
+      "ControlNets available: inpainting, outpainting, canny edge",
+      "Describe subject, action, camera specs, quality, and style",
+      "Negative prompts help avoid undesired elements",
+    ],
+    commonMistakes: [
+      "Expecting perfect faces (the autoencoder is lossy)",
+      "Not using appropriate negative prompts for quality control",
+      "Underestimating the value of detailed descriptions",
+      "Not taking advantage of the speed for iteration",
+    ],
+    examplePrompt: "A majestic snow leopard perched on a rocky mountain outcrop at sunset. The golden light catches its spotted fur and piercing blue eyes. Snow-capped peaks stretch into the distance under a gradient sky of orange and purple. Highly detailed fur texture, cinematic composition, National Geographic photography style.",
+  },
 };
 
 /**
@@ -169,6 +374,27 @@ export function getPromptingGuide(modelType: string): ModelPromptingGuide | null
   }
   if (normalizedType.includes("sd1") || normalizedType.includes("1.5") || normalizedType.includes("sd 1")) {
     return PROMPTING_GUIDES["sd15"];
+  }
+  if (normalizedType.includes("qwen")) {
+    return PROMPTING_GUIDES["qwen"];
+  }
+  if (normalizedType.includes("hunyuan")) {
+    return PROMPTING_GUIDES["hunyuan"];
+  }
+  if (normalizedType.includes("aura") || normalizedType.includes("pony")) {
+    return PROMPTING_GUIDES["auraflow"];
+  }
+  if (normalizedType.includes("kolors")) {
+    return PROMPTING_GUIDES["kolors"];
+  }
+  if (normalizedType.includes("pixart")) {
+    return PROMPTING_GUIDES["pixart"];
+  }
+  if (normalizedType.includes("playground")) {
+    return PROMPTING_GUIDES["playground"];
+  }
+  if (normalizedType.includes("cascade")) {
+    return PROMPTING_GUIDES["cascade"];
   }
 
   return null;
@@ -240,6 +466,13 @@ export function getComprehensiveGuide(): string {
     "| SDXL | Hybrid | Optional | Yes (0.8-1.4) | 5-7 |",
     "| SD3/3.5 | Natural | Optional | No | 4-7 |",
     "| Flux | Natural | No | No | 1-4 |",
+    "| Qwen Image | Natural | No | No | 1-5 |",
+    "| Hunyuan | Natural | Optional | No | 4-7 |",
+    "| AuraFlow | Hybrid | Optional | Yes | 3.5 |",
+    "| Kolors | Natural | Optional | No | 5 |",
+    "| PixArt | Natural | Optional | No | 4.5 |",
+    "| Playground | Hybrid | Optional | Yes | 3-7 |",
+    "| Cascade | Natural | Optional | No | 4-7 |",
     "",
     "## Model Evolution",
     "",
@@ -249,6 +482,7 @@ export function getComprehensiveGuide(): string {
     "2. **SDXL**: Hybrid approach, better composition, less reliant on negative prompts",
     "3. **SD3**: Natural language, excellent text rendering, positioning matters",
     "4. **Flux**: Pure natural language, best prompt adherence, no weights/negatives",
+    "5. **Qwen/Hunyuan**: LLM-based encoders, extremely flexible natural language",
     "",
   ];
 
@@ -277,6 +511,13 @@ export function getComprehensiveGuide(): string {
     "- [getimg.ai - Flux Prompt Guide](https://getimg.ai/blog/flux-1-prompt-guide-pro-tips-and-common-mistakes-to-avoid/)",
     "- [Civitai - Model Comparison](https://civitai.com/articles/7058/comparative-study-sd15-sdxl-sd3-pony-flux)",
     "- [Black Forest Labs - Flux Prompting Guide](https://docs.bfl.ml/guides/prompting_guide_flux2)",
+    "- [Segmind - Qwen Image Guide](https://blog.segmind.com/qwen-image-prompt-parameter-guide/)",
+    "- [Hunyuan Image 3.0 Prompt Guide](https://yuanic.com/blog/hunyuan-image-3-advanced-prompt-engineering-guide)",
+    "- [fal.ai - AuraFlow](https://blog.fal.ai/auraflow/)",
+    "- [Kwai-Kolors GitHub](https://github.com/Kwai-Kolors/Kolors)",
+    "- [PixArt-Sigma Project](https://pixart-alpha.github.io/PixArt-sigma-project/)",
+    "- [Playground Prompt Guide](https://playground.com/prompt-guide)",
+    "- [Stability AI - Stable Cascade](https://stability.ai/news/introducing-stable-cascade)",
   );
 
   return lines.join("\n");
