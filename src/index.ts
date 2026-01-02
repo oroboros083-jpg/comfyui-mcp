@@ -30,8 +30,14 @@ import {
   listModels,
   listNodesSchema,
   listNodes,
+  getNodeInfoSchema,
+  getNodeInfo,
+  findNodesByTypeSchema,
+  findNodesByType,
   ListModelsInput,
   ListNodesInput,
+  GetNodeInfoInput,
+  FindNodesByTypeInput,
 } from "./tools/models.js";
 import {
   getQueueSchema,
@@ -490,6 +496,30 @@ const TOOLS: Record<string, ToolDefinition> = {
     requiresConnection: true,
     annotations: {
       title: "List Available Nodes",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  get_node_info: {
+    schema: getNodeInfoSchema,
+    description:
+      "Get detailed information about a specific ComfyUI node, including its inputs (with types, defaults, and valid options) and outputs. Essential for understanding how to wire nodes together in workflows.",
+    requiresConnection: true,
+    annotations: {
+      title: "Get Node Info",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  find_nodes_by_type: {
+    schema: findNodesByTypeSchema,
+    description:
+      "Find ComfyUI nodes by their input or output types. Use this to discover which nodes can produce a specific type (e.g., MODEL, LATENT, IMAGE) or which nodes can consume a type. Essential for workflow composition.",
+    requiresConnection: true,
+    annotations: {
+      title: "Find Nodes by Type",
       readOnlyHint: true,
       idempotentHint: true,
       openWorldHint: true,
@@ -1345,6 +1375,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { client } = await ensureConnected();
         const input = listNodesSchema.parse(args) as ListNodesInput;
         const result = await listNodes(client, input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      case "get_node_info": {
+        const { client } = await ensureConnected();
+        const input = getNodeInfoSchema.parse(args) as GetNodeInfoInput;
+        const result = await getNodeInfo(client, input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      case "find_nodes_by_type": {
+        const { client } = await ensureConnected();
+        const input = findNodesByTypeSchema.parse(args) as FindNodesByTypeInput;
+        const result = await findNodesByType(client, input);
         return { content: [{ type: "text", text: result }] };
       }
 
