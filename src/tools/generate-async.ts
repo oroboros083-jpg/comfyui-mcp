@@ -39,6 +39,7 @@ export interface AsyncGenerateResult {
   status: "working";
   statusMessage: string;
   pollInterval: number; // suggested polling interval in ms
+  name?: string; // optional user-assigned name
 }
 
 /**
@@ -265,7 +266,7 @@ export async function generateImageAsync(
   const job = jobManager.createJob(promptId, {
     type: "generate_image",
     input,
-  });
+  }, input.name);
 
   // Send initial notification
   await sendTaskStatusNotification(server, job);
@@ -337,6 +338,7 @@ export async function generateImageAsync(
     status: "working",
     statusMessage: "Generation started",
     pollInterval: 1000, // Suggest 1 second polling
+    name: input.name,
   };
 }
 
@@ -366,7 +368,7 @@ export async function runWorkflowAsync(
   const job = jobManager.createJob(promptId, {
     type: "run_workflow",
     input,
-  });
+  }, input.name);
 
   // Send initial notification
   await sendTaskStatusNotification(server, job);
@@ -431,6 +433,7 @@ export async function runWorkflowAsync(
     status: "working",
     statusMessage: "Workflow started",
     pollInterval: 1000,
+    name: input.name,
   };
 }
 

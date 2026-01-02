@@ -141,6 +141,10 @@ export const generateImageSchema = z.object({
     .optional()
     .default(false)
     .describe("If true, wait for generation to complete and return images directly (blocking). Default is async (non-blocking)."),
+  name: z
+    .string()
+    .optional()
+    .describe("Optional name to identify this generation for later retrieval by name"),
 });
 
 export type GenerateImageInput = z.infer<typeof generateImageSchema>;
@@ -375,6 +379,10 @@ export const runWorkflowSchema = z.object({
     .optional()
     .default(false)
     .describe("If true, wait for workflow to complete and return results directly (blocking). Default is async (non-blocking)."),
+  name: z
+    .string()
+    .optional()
+    .describe("Optional name to identify this workflow run for later retrieval by name"),
 });
 
 export type RunWorkflowInput = z.infer<typeof runWorkflowSchema>;

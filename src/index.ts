@@ -104,6 +104,7 @@ import {
   getUserPreferencesSummary,
 } from "./analysis/outputs.js";
 import { join } from "path";
+import * as db from "./db/index.js";
 import {
   ServerContext,
   SessionDefaults,
@@ -594,6 +595,103 @@ const TOOLS: Record<string, ToolDefinition> = {
       destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
+    },
+  },
+  get_generation_by_name: {
+    schema: z.object({
+      name: z.string().describe("The name assigned to the generation"),
+    }),
+    description: "Retrieve a generation by its user-assigned name. Returns the same format as get_task_result.",
+    requiresConnection: false,
+    annotations: {
+      title: "Get Generation by Name",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  name_generation: {
+    schema: z.object({
+      taskId: z.string().describe("The task ID to name"),
+      name: z.string().describe("The name to assign to this generation"),
+    }),
+    description: "Assign a name to an existing generation task for later retrieval by name.",
+    requiresConnection: false,
+    annotations: {
+      title: "Name Generation",
+      readOnlyHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+
+  // === Notes (for agent memory/learning) ===
+  save_note: {
+    schema: z.object({
+      topic: z.string().describe("The topic/category of the note (e.g., 'flux-models', 'prompting-tips', 'workflow-patterns')"),
+      content: z.string().describe("The content of the note"),
+      tags: z.array(z.string()).optional().describe("Optional tags for categorization"),
+    }),
+    description: "Save a note about something learned during image generation. Useful for remembering model behaviors, prompting techniques, workflow patterns, etc.",
+    requiresConnection: false,
+    annotations: {
+      title: "Save Note",
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  get_notes: {
+    schema: z.object({
+      topic: z.string().optional().describe("Filter notes by topic"),
+      limit: z.number().optional().default(50).describe("Maximum number of notes to return"),
+    }),
+    description: "Retrieve saved notes, optionally filtered by topic.",
+    requiresConnection: false,
+    annotations: {
+      title: "Get Notes",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  search_notes: {
+    schema: z.object({
+      query: z.string().describe("Search query (searches topic, content, and tags)"),
+      limit: z.number().optional().default(50).describe("Maximum number of notes to return"),
+    }),
+    description: "Search notes using full-text search.",
+    requiresConnection: false,
+    annotations: {
+      title: "Search Notes",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  delete_note: {
+    schema: z.object({
+      id: z.number().describe("The ID of the note to delete"),
+    }),
+    description: "Delete a note by its ID.",
+    requiresConnection: false,
+    annotations: {
+      title: "Delete Note",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  list_topics: {
+    schema: z.object({}),
+    description: "List all unique topics that have notes.",
+    requiresConnection: false,
+    annotations: {
+      title: "List Note Topics",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
     },
   },
 
@@ -1364,6 +1462,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 createdAt: job.createdAt,
                 lastUpdatedAt: job.lastUpdatedAt,
                 error: job.error,
+                name: job.name,
               }, null, 2),
             },
           ],
@@ -1460,6 +1559,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   statusMessage: j.statusMessage,
                   createdAt: j.createdAt,
                   lastUpdatedAt: j.lastUpdatedAt,
+                  name: j.name,
                 })),
               }, null, 2),
             },
@@ -1501,6 +1601,224 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: `Task ${input.taskId} cancelled successfully`,
+            },
+          ],
+        };
+      }
+
+      case "get_generation_by_name": {
+        const input = args as { name: string };
+        const job = ctx.jobManager.getJobByName(input.name);
+        if (!job) {
+          return {
+            content: [{ type: "text", text: `No generation found with name: ${input.name}` }],
+            isError: true,
+          };
+        }
+
+        if (job.status === "working") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  name: job.name,
+                  taskId: job.taskId,
+                  status: job.status,
+                  statusMessage: job.statusMessage,
+                  hint: "Generation is still in progress. Check again later.",
+                }, null, 2),
+              },
+            ],
+          };
+        }
+
+        if (job.status === "failed") {
+          return {
+            content: [{ type: "text", text: `Generation "${input.name}" failed: ${job.error}` }],
+            isError: true,
+          };
+        }
+
+        if (job.status === "cancelled") {
+          return {
+            content: [{ type: "text", text: `Generation "${input.name}" was cancelled` }],
+            isError: true,
+          };
+        }
+
+        if (!job.result) {
+          return {
+            content: [{ type: "text", text: "No result available" }],
+            isError: true,
+          };
+        }
+
+        const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
+          {
+            type: "text",
+            text: `Generation "${input.name}" (task ${job.taskId}) completed. ${job.result.images.length} image(s).`,
+          },
+        ];
+
+        for (const img of job.result.images) {
+          if (img.data) {
+            content.push({
+              type: "image",
+              data: img.data,
+              mimeType: img.mimeType || "image/jpeg",
+            });
+          } else if (img.path) {
+            content.push({
+              type: "text",
+              text: `Saved: ${img.path}`,
+            });
+          }
+        }
+
+        return { content };
+      }
+
+      case "name_generation": {
+        const input = args as { taskId: string; name: string };
+        const job = ctx.jobManager.getJob(input.taskId);
+
+        if (!job) {
+          return {
+            content: [{ type: "text", text: `Task not found: ${input.taskId}` }],
+            isError: true,
+          };
+        }
+
+        const success = ctx.jobManager.setName(input.taskId, input.name);
+        if (!success) {
+          return {
+            content: [{ type: "text", text: `Failed to set name for task: ${input.taskId}` }],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                message: `Generation named "${input.name}"`,
+                taskId: input.taskId,
+                name: input.name,
+                hint: `You can now retrieve this generation using get_generation_by_name with name "${input.name}"`,
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      // === Notes ===
+      case "save_note": {
+        const input = args as { topic: string; content: string; tags?: string[] };
+        const note = db.saveNote(input.topic, input.content, input.tags || []);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                message: "Note saved",
+                note: {
+                  id: note.id,
+                  topic: note.topic,
+                  tags: note.tags,
+                  createdAt: note.createdAt,
+                },
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "get_notes": {
+        const input = args as { topic?: string; limit?: number };
+        const notes = input.topic
+          ? db.getNotesByTopic(input.topic)
+          : db.getAllNotes(input.limit || 50);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                count: notes.length,
+                notes: notes.map(n => ({
+                  id: n.id,
+                  topic: n.topic,
+                  content: n.content,
+                  tags: n.tags,
+                  createdAt: n.createdAt,
+                  updatedAt: n.updatedAt,
+                })),
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "search_notes": {
+        const input = args as { query: string; limit?: number };
+        const notes = db.searchNotes(input.query, input.limit || 50);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                query: input.query,
+                count: notes.length,
+                notes: notes.map(n => ({
+                  id: n.id,
+                  topic: n.topic,
+                  content: n.content,
+                  tags: n.tags,
+                  createdAt: n.createdAt,
+                  updatedAt: n.updatedAt,
+                })),
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "delete_note": {
+        const input = args as { id: number };
+        const success = db.deleteNote(input.id);
+
+        if (!success) {
+          return {
+            content: [{ type: "text", text: `Note not found: ${input.id}` }],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Note ${input.id} deleted successfully`,
+            },
+          ],
+        };
+      }
+
+      case "list_topics": {
+        const topics = db.getTopics();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                count: topics.length,
+                topics,
+              }, null, 2),
             },
           ],
         };
