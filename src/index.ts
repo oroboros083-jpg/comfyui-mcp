@@ -1013,15 +1013,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Check if a custom workflow is set as default
         if (ctx.sessionDefaults.workflow) {
-          // Use custom workflow - replace prompts in CLIPTextEncode nodes
+          // Use custom workflow - apply user parameters to appropriate nodes
           const customWorkflow = JSON.parse(JSON.stringify(ctx.sessionDefaults.workflow));
           let promptsReplaced = 0;
 
           for (const node of Object.values(customWorkflow)) {
-            const n = node as { class_type?: string; inputs?: { text?: string } };
-            if (n.class_type === "CLIPTextEncode" && n.inputs) {
-              // Replace first positive prompt with user's prompt
-              // Heuristic: negative prompts often contain negative keywords
+            const n = node as { class_type?: string; inputs?: Record<string, unknown> };
+            if (!n.inputs) continue;
+
+            // Replace prompts in CLIPTextEncode nodes
+            if (n.class_type === "CLIPTextEncode") {
               const currentText = String(n.inputs.text || "").toLowerCase();
               const isNegative =
                 currentText.includes("ugly") ||
@@ -1034,6 +1035,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 promptsReplaced++;
               } else if (isNegative && input.negativePrompt) {
                 n.inputs.text = input.negativePrompt;
+              }
+            }
+
+            // Apply dimensions to EmptyLatentImage nodes
+            if (n.class_type?.includes("EmptyLatent") || n.class_type?.includes("LatentImage")) {
+              if (input.width && n.inputs.width !== undefined) {
+                n.inputs.width = input.width;
+              }
+              if (input.height && n.inputs.height !== undefined) {
+                n.inputs.height = input.height;
+              }
+            }
+
+            // Apply sampler settings to KSampler nodes
+            if (n.class_type === "KSampler" || n.class_type === "KSamplerAdvanced") {
+              if (input.steps && n.inputs.steps !== undefined) {
+                n.inputs.steps = input.steps;
+              }
+              if (input.cfg && n.inputs.cfg !== undefined) {
+                n.inputs.cfg = input.cfg;
+              }
+              if (input.sampler && n.inputs.sampler_name !== undefined) {
+                n.inputs.sampler_name = input.sampler;
+              }
+              if (input.scheduler && n.inputs.scheduler !== undefined) {
+                n.inputs.scheduler = input.scheduler;
+              }
+              // Apply seed if explicitly provided (not -1)
+              if (input.seed !== undefined && input.seed !== -1 && n.inputs.seed !== undefined) {
+                n.inputs.seed = input.seed;
               }
             }
           }
