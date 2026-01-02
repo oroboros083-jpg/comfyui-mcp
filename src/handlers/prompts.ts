@@ -193,7 +193,7 @@ export async function getPrompt(
       if (example) {
         contextInfo = `\n\nExample info:\n- Category: ${example.category}\n- Description: ${example.description}`;
         if (example.requiredModels && example.requiredModels.length > 0) {
-          contextInfo += `\n- Required models: ${example.requiredModels.map((m) => `${m.type} (${m.suggestions.join(", ")})`).join(", ")}`;
+          contextInfo += `\n- Required models: ${example.requiredModels.map((m) => `${m.type}: ${m.name}`).join(", ")}`;
         }
       }
 

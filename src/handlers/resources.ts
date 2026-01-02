@@ -11,7 +11,6 @@ import {
   getComprehensiveGuide,
 } from "../resources/prompting-guide.js";
 import { EXAMPLE_WORKFLOWS, fetchExampleWorkflow } from "../tools/examples.js";
-import { KNOWN_MODELS } from "../tools/download.js";
 import { getCapabilitySummary } from "../capabilities/index.js";
 
 /**
@@ -75,15 +74,6 @@ export function getStaticResources(): Resource[] {
       });
     }
   }
-
-  // Downloads catalog
-  resources.push({
-    uri: "comfyui://downloads/catalog",
-    name: "downloads-catalog",
-    title: "Model Downloads Catalog",
-    description: "List of popular models available for direct download",
-    mimeType: "application/json",
-  });
 
   return resources;
 }
@@ -209,19 +199,6 @@ export async function readResource(
             null,
             2
           ),
-          mimeType: "application/json",
-        },
-      ],
-    };
-  }
-
-  // Downloads catalog
-  if (uri === "comfyui://downloads/catalog") {
-    return {
-      contents: [
-        {
-          uri,
-          text: JSON.stringify(KNOWN_MODELS, null, 2),
           mimeType: "application/json",
         },
       ],

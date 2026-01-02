@@ -75,17 +75,6 @@ import {
   GetModelGuideInput,
 } from "./tools/install.js";
 import {
-  listDownloadsSchema,
-  listDownloads,
-  downloadModelSchema,
-  downloadModel,
-  downloadHuggingFaceSchema,
-  downloadHuggingFace,
-  ListDownloadsInput,
-  DownloadModelInput,
-  DownloadHuggingFaceInput,
-} from "./tools/download.js";
-import {
   listExamplesSchema,
   listExamples,
   getExampleWorkflowSchema,
@@ -321,46 +310,6 @@ const TOOLS: Record<string, ToolDefinition> = {
       readOnlyHint: true,
       idempotentHint: true,
       openWorldHint: false,
-    },
-  },
-
-  // === Downloads (always available) ===
-  list_downloads: {
-    schema: listDownloadsSchema,
-    description:
-      "List popular models available for direct download",
-    requiresConnection: false,
-    annotations: {
-      title: "List Available Downloads",
-      readOnlyHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  download_model: {
-    schema: downloadModelSchema,
-    description:
-      "Download a model directly to the ComfyUI models folder",
-    requiresConnection: false,
-    annotations: {
-      title: "Download Model",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
-    },
-  },
-  download_huggingface: {
-    schema: downloadHuggingFaceSchema,
-    description:
-      "Download a model file from HuggingFace to ComfyUI",
-    requiresConnection: false,
-    annotations: {
-      title: "Download from HuggingFace",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
     },
   },
 
@@ -793,60 +742,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const input = getModelGuideSchema.parse(args) as GetModelGuideInput;
         const guide = getModelGuide(input);
         return { content: [{ type: "text", text: guide }] };
-      }
-
-      // === Downloads ===
-      case "list_downloads": {
-        const input = listDownloadsSchema.parse(args) as ListDownloadsInput;
-        const result = listDownloads(input);
-        return { content: [{ type: "text", text: result }] };
-      }
-
-      case "download_model": {
-        const input = downloadModelSchema.parse(args) as DownloadModelInput;
-        const path = input.comfyuiPath || getComfyUIPath(ctx);
-        const result = await downloadModel(input, path, (progress) => {
-          // Progress updates could be sent via notifications in future
-          info(
-            `Downloading ${progress.filename}: ${progress.percent?.toFixed(1) || "?"}%`,
-            undefined,
-            "download"
-          );
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: result.success
-                ? `Downloaded to: ${result.path}${result.error ? ` (${result.error})` : ""}`
-                : `Failed: ${result.error}`,
-            },
-          ],
-          isError: !result.success,
-        };
-      }
-
-      case "download_huggingface": {
-        const input = downloadHuggingFaceSchema.parse(args) as DownloadHuggingFaceInput;
-        const path = input.comfyuiPath || getComfyUIPath(ctx);
-        const result = await downloadHuggingFace(input, path, (progress) => {
-          info(
-            `Downloading ${progress.filename}: ${progress.percent?.toFixed(1) || "?"}%`,
-            undefined,
-            "download"
-          );
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: result.success
-                ? `Downloaded to: ${result.path}${result.error ? ` (${result.error})` : ""}`
-                : `Failed: ${result.error}`,
-            },
-          ],
-          isError: !result.success,
-        };
       }
 
       // === Examples ===
