@@ -80,8 +80,12 @@ import {
   getExampleWorkflowSchema,
   getExampleWorkflow,
   extractWorkflowFromPng,
+  recommendWorkflowSchema,
+  recommendWorkflow,
+  formatWorkflowRecommendation,
   ListExamplesInput,
   GetExampleWorkflowInput,
+  RecommendWorkflowInput,
 } from "./tools/examples.js";
 import { readFile } from "fs/promises";
 import {
@@ -352,6 +356,18 @@ const TOOLS: Record<string, ToolDefinition> = {
       openWorldHint: true,
     },
   },
+  recommend_workflow: {
+    schema: recommendWorkflowSchema,
+    description:
+      "IMPORTANT: Call this BEFORE generating images to get the correct workflow and settings for a model. Given a model filename, returns the recommended workflow, optimal settings (steps, CFG, resolution), and prompting guide. Essential for matching checkpoint vs UNET models to the right workflow.",
+    requiresConnection: false,
+    annotations: {
+      title: "Recommend Workflow for Model",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 
   // === Prompting Guides (always available) ===
   get_prompting_guide: {
@@ -389,7 +405,7 @@ const TOOLS: Record<string, ToolDefinition> = {
   generate_image: {
     schema: generateImageSchema,
     description:
-      "Generate an image using ComfyUI. Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve images when complete. Set sync:true to wait for completion (blocking). IMPORTANT: Before your first generation, call get_prompting_guide with the appropriate model type (sd15, sdxl, sd3, or flux) to learn the correct prompting style.",
+      "Generate an image using ComfyUI. Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve images when complete. Set sync:true to wait for completion (blocking). IMPORTANT: Before generating, call list_models to see available models, then call recommend_workflow with the model name to get the correct workflow and settings. Finally, call get_prompting_guide for prompting best practices.",
     requiresConnection: true,
     annotations: {
       title: "Generate Image",
@@ -838,6 +854,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 hint: "Pass the 'workflow' field directly to run_workflow to execute this workflow.",
               }, null, 2),
             },
+          ],
+        };
+      }
+
+      case "recommend_workflow": {
+        const input = recommendWorkflowSchema.parse(args) as RecommendWorkflowInput;
+        const recommendation = recommendWorkflow(input);
+        const formatted = formatWorkflowRecommendation(recommendation);
+        return {
+          content: [
+            { type: "text", text: formatted },
+            { type: "text", text: "\n---\n\n**Raw recommendation data:**\n```json\n" + JSON.stringify(recommendation, null, 2) + "\n```" },
           ],
         };
       }
