@@ -341,7 +341,7 @@ const TOOLS: Record<string, ToolDefinition> = {
   list_examples: {
     schema: listExamplesSchema,
     description:
-      "List official ComfyUI example workflows from the documentation",
+      "List official ComfyUI example workflows from the documentation. RECOMMENDED: Always check examples first before building custom workflows - they provide tested, working templates for common use cases like txt2img, img2img, ControlNet, LoRA, regional prompting, and more.",
     requiresConnection: false,
     annotations: {
       title: "List Example Workflows",
@@ -353,7 +353,7 @@ const TOOLS: Record<string, ToolDefinition> = {
   get_example_workflow: {
     schema: getExampleWorkflowSchema,
     description:
-      "Fetch an example workflow (extracts embedded JSON from documentation images)",
+      "Fetch an example workflow (extracts embedded JSON from documentation images). Returns ready-to-use workflow JSON that can be passed directly to run_workflow. Use this as a starting point and modify prompts, models, or parameters as needed.",
     requiresConnection: false,
     annotations: {
       title: "Get Example Workflow",
@@ -425,7 +425,7 @@ const TOOLS: Record<string, ToolDefinition> = {
   run_workflow: {
     schema: runWorkflowSchema,
     description:
-      "Run a custom ComfyUI workflow (API format JSON). Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve results when complete. Set sync:true to wait for completion (blocking). IMPORTANT: Use the 'name' parameter with descriptive names like 'sunset_portrait_v2' or 'logo_design_red' to make generations easy to find later.",
+      "Run a custom ComfyUI workflow (API format JSON). Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve results when complete. Set sync:true to wait for completion (blocking). IMPORTANT: Use the 'name' parameter with descriptive names like 'sunset_portrait_v2' or 'logo_design_red' to make generations easy to find later. BEST PRACTICE: Always start from example workflows (list_examples/get_example_workflow) or templates (search_templates/get_template) rather than building workflows from scratch.",
     requiresConnection: true,
     annotations: {
       title: "Run Custom Workflow",
@@ -638,7 +638,7 @@ const TOOLS: Record<string, ToolDefinition> = {
     schema: z.object({
       taskId: z.string().describe("The task ID to get status for"),
     }),
-    description: "Get the current status of an async generation task",
+    description: "Get the current status of an async generation task. Returns progress info including current step, total steps, average step time, estimated remaining time, and a suggested poll interval based on generation speed.",
     requiresConnection: false, // Jobs are tracked locally
     annotations: {
       title: "Get Task Status",
@@ -1123,6 +1123,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             input.timeout || 300000
           );
 
+          // Store the job in the database so named generations work
+          if (result.promptId) {
+            ctx.jobManager.createJob(result.promptId, {
+              type: "run_workflow",
+              input,
+            }, input.name);
+
+            if (result.success) {
+              ctx.jobManager.completeJob(result.promptId, result);
+            } else {
+              ctx.jobManager.failJob(result.promptId, result.error || "Unknown error");
+            }
+          }
+
           if (!result.success) {
             return {
               content: [{ type: "text", text: `Error: ${result.error}` }],
@@ -1318,20 +1332,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true,
           };
         }
+
+        // Build response with optional timing stats
+        const response: Record<string, unknown> = {
+          taskId: job.taskId,
+          promptId: job.promptId,
+          status: job.status,
+          statusMessage: job.statusMessage,
+          createdAt: job.createdAt,
+          lastUpdatedAt: job.lastUpdatedAt,
+          error: job.error,
+          name: job.name,
+        };
+
+        // Include timing stats if available
+        if (job.progressStats) {
+          response.progress = {
+            currentStep: job.progressStats.currentStep,
+            totalSteps: job.progressStats.totalSteps,
+            currentNode: job.progressStats.currentNode,
+            avgStepTimeMs: job.progressStats.avgStepTimeMs,
+            estimatedRemainingMs: job.progressStats.estimatedRemainingMs,
+          };
+
+          // Add suggested poll interval based on timing
+          if (job.progressStats.avgStepTimeMs) {
+            // Suggest polling at half the average step time, min 500ms, max 10s
+            const suggestedPollMs = Math.max(500, Math.min(10000, Math.round(job.progressStats.avgStepTimeMs / 2)));
+            response.suggestedPollIntervalMs = suggestedPollMs;
+          }
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify({
-                taskId: job.taskId,
-                promptId: job.promptId,
-                status: job.status,
-                statusMessage: job.statusMessage,
-                createdAt: job.createdAt,
-                lastUpdatedAt: job.lastUpdatedAt,
-                error: job.error,
-                name: job.name,
-              }, null, 2),
+              text: JSON.stringify(response, null, 2),
             },
           ],
         };

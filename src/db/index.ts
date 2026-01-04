@@ -54,13 +54,21 @@ function initializeSchema(database: Database.Database): void {
       result TEXT,
       error TEXT,
       request TEXT NOT NULL,
-      name TEXT UNIQUE
+      name TEXT UNIQUE,
+      progress_stats TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
     CREATE INDEX IF NOT EXISTS idx_jobs_name ON jobs(name) WHERE name IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_jobs_prompt_id ON jobs(prompt_id);
   `);
+
+  // Migration: Add progress_stats column if it doesn't exist
+  try {
+    database.exec(`ALTER TABLE jobs ADD COLUMN progress_stats TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
 
   // Notes table for agent learning/memory
   database.exec(`
@@ -125,6 +133,17 @@ export interface JobRow {
   error: string | null;
   request: string;
   name: string | null;
+  progress_stats: string | null;
+}
+
+export interface ProgressStats {
+  currentStep: number;
+  totalSteps: number;
+  currentNode: string | null;
+  stepTimestamps: number[]; // Unix timestamps when each step completed
+  avgStepTimeMs: number | null;
+  estimatedRemainingMs: number | null;
+  startedAt: number | null; // Unix timestamp when generation started
 }
 
 export function insertJob(job: {
@@ -166,6 +185,7 @@ export function updateJob(
     result?: unknown;
     error?: string;
     name?: string | null;
+    progressStats?: ProgressStats;
   }
 ): JobRow | null {
   const database = getDatabase();
@@ -194,6 +214,10 @@ export function updateJob(
     setClauses.push("name = ?");
     values.push(updates.name);
   }
+  if (updates.progressStats !== undefined) {
+    setClauses.push("progress_stats = ?");
+    values.push(JSON.stringify(updates.progressStats));
+  }
 
   values.push(taskId);
 
@@ -203,6 +227,80 @@ export function updateJob(
   stmt.run(...values);
 
   return getJobById(taskId);
+}
+
+/**
+ * Update progress stats for a job with timing information.
+ * Calculates average step time and estimated remaining time.
+ */
+export function updateJobProgress(
+  taskId: string,
+  currentStep: number,
+  totalSteps: number,
+  nodeName?: string
+): JobRow | null {
+  const now = Date.now();
+
+  // Get existing progress stats
+  const job = getJobById(taskId);
+  if (!job) return null;
+
+  let stats: ProgressStats;
+  if (job.progress_stats) {
+    stats = JSON.parse(job.progress_stats);
+  } else {
+    stats = {
+      currentStep: 0,
+      totalSteps,
+      currentNode: null,
+      stepTimestamps: [],
+      avgStepTimeMs: null,
+      estimatedRemainingMs: null,
+      startedAt: now,
+    };
+  }
+
+  // Update stats
+  stats.currentStep = currentStep;
+  stats.totalSteps = totalSteps;
+  stats.currentNode = nodeName ?? null;
+
+  // Record this step's timestamp (only if we advanced)
+  if (currentStep > stats.stepTimestamps.length) {
+    stats.stepTimestamps.push(now);
+  }
+
+  // Calculate average step time if we have at least 2 timestamps
+  if (stats.stepTimestamps.length >= 2) {
+    const firstTime = stats.startedAt ?? stats.stepTimestamps[0];
+    const lastTime = stats.stepTimestamps[stats.stepTimestamps.length - 1];
+    const elapsedMs = lastTime - firstTime;
+    const completedSteps = stats.stepTimestamps.length;
+    stats.avgStepTimeMs = Math.round(elapsedMs / completedSteps);
+
+    // Estimate remaining time
+    const remainingSteps = totalSteps - currentStep;
+    stats.estimatedRemainingMs = Math.round(stats.avgStepTimeMs * remainingSteps);
+  }
+
+  // Update the job
+  const statusMessage = nodeName
+    ? `Step ${currentStep}/${totalSteps} (${nodeName})`
+    : `Step ${currentStep}/${totalSteps}`;
+
+  return updateJob(taskId, {
+    statusMessage,
+    progressStats: stats,
+  });
+}
+
+/**
+ * Get progress stats for a job.
+ */
+export function getJobProgressStats(taskId: string): ProgressStats | null {
+  const job = getJobById(taskId);
+  if (!job || !job.progress_stats) return null;
+  return JSON.parse(job.progress_stats);
 }
 
 export function getJobById(taskId: string): JobRow | null {

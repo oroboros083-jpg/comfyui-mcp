@@ -1,5 +1,6 @@
 import { RunWorkflowInput, RunWorkflowResult } from "../tools/generate.js";
 import * as db from "../db/index.js";
+import { ProgressStats } from "../db/index.js";
 
 export type JobStatus = "working" | "completed" | "failed" | "cancelled";
 
@@ -19,6 +20,7 @@ export interface Job {
   error?: string;
   request: JobRequest;
   name?: string;
+  progressStats?: ProgressStats;
 }
 
 /**
@@ -36,6 +38,7 @@ function rowToJob(row: db.JobRow): Job {
     error: row.error ?? undefined,
     request: JSON.parse(row.request),
     name: row.name ?? undefined,
+    progressStats: row.progress_stats ? JSON.parse(row.progress_stats) : undefined,
   };
 }
 
@@ -175,15 +178,11 @@ export class JobManager {
   }
 
   /**
-   * Update job progress during generation.
+   * Update job progress during generation with timing stats.
    */
   updateProgress(taskId: string, value: number, max: number, nodeName?: string): Job | undefined {
-    const message = nodeName
-      ? `Step ${value}/${max} (${nodeName})`
-      : `Step ${value}/${max}`;
-    return this.updateJob(taskId, {
-      statusMessage: message,
-    });
+    const row = db.updateJobProgress(taskId, value, max, nodeName);
+    return row ? rowToJob(row) : undefined;
   }
 
   /**
