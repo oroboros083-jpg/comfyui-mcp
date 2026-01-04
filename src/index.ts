@@ -52,17 +52,23 @@ import {
   GetHistoryInput,
 } from "./tools/queue.js";
 import {
-  generateImageSchema,
-  generateImage,
   runWorkflowSchema,
   runWorkflow,
   getImageSchema,
   getImage,
-  applySessionDefaults,
-  GenerateImageInput,
   RunWorkflowInput,
   GetImageInput,
 } from "./tools/generate.js";
+import {
+  validateWorkflowSchema,
+  validateWorkflow,
+  ValidateWorkflowInput,
+} from "./tools/validation.js";
+import {
+  buildNodeSchema,
+  buildNode,
+  BuildNodeInput,
+} from "./tools/models.js";
 import {
   getInstallGuideSchema,
   getInstallGuide,
@@ -83,9 +89,24 @@ import {
   recommendWorkflowSchema,
   recommendWorkflow,
   formatWorkflowRecommendation,
+  searchTemplatesSchema,
+  searchTemplates,
+  getTemplateSchema,
+  getTemplate,
+  saveTemplateSchema,
+  saveCustomTemplate,
+  deleteTemplateSchema,
+  deleteCustomTemplate,
+  getDownloadUrlSchema,
+  getDownloadUrl,
   ListExamplesInput,
   GetExampleWorkflowInput,
   RecommendWorkflowInput,
+  SearchTemplatesInput,
+  GetTemplateInput,
+  SaveTemplateInput,
+  DeleteTemplateInput,
+  GetDownloadUrlInput,
 } from "./tools/examples.js";
 import { readFile } from "fs/promises";
 import {
@@ -96,7 +117,6 @@ import {
 } from "./resources/prompting-guide.js";
 import { getJobManager, JobManager } from "./jobs/manager.js";
 import {
-  generateImageAsync,
   runWorkflowAsync,
 } from "./tools/generate-async.js";
 import {
@@ -107,7 +127,6 @@ import { join } from "path";
 import * as db from "./db/index.js";
 import {
   ServerContext,
-  SessionDefaults,
   createContext,
   getComfyUIPath,
 } from "./context.js";
@@ -403,23 +422,10 @@ const TOOLS: Record<string, ToolDefinition> = {
       openWorldHint: true,
     },
   },
-  generate_image: {
-    schema: generateImageSchema,
-    description:
-      "Generate an image using ComfyUI. Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve images when complete. Set sync:true to wait for completion (blocking). IMPORTANT: Before generating, call list_models to see available models, then call recommend_workflow with the model name to get the correct workflow and settings. Finally, call get_prompting_guide for prompting best practices.",
-    requiresConnection: true,
-    annotations: {
-      title: "Generate Image",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-      openWorldHint: true,
-    },
-  },
   run_workflow: {
     schema: runWorkflowSchema,
     description:
-      "Run a custom ComfyUI workflow (API format JSON). Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve results when complete. Set sync:true to wait for completion (blocking).",
+      "Run a custom ComfyUI workflow (API format JSON). Returns immediately with a task ID (async by default). Use get_task to check progress, get_task_result to retrieve results when complete. Set sync:true to wait for completion (blocking). IMPORTANT: Use the 'name' parameter with descriptive names like 'sunset_portrait_v2' or 'logo_design_red' to make generations easy to find later.",
     requiresConnection: true,
     annotations: {
       title: "Run Custom Workflow",
@@ -489,6 +495,93 @@ const TOOLS: Record<string, ToolDefinition> = {
       readOnlyHint: true,
       idempotentHint: true,
       openWorldHint: true,
+    },
+  },
+  build_node: {
+    schema: buildNodeSchema,
+    description:
+      "Generate valid node JSON with proper inputs/outputs that can be assembled into a workflow. Provide inputs to override defaults, or leave empty to get a node with default values and placeholders for connections.",
+    requiresConnection: true,
+    annotations: {
+      title: "Build Node JSON",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  validate_workflow: {
+    schema: validateWorkflowSchema,
+    description:
+      "Validate a workflow before running it. Checks that all node types exist, connections are valid, required inputs are provided, and types match. Returns errors and warnings.",
+    requiresConnection: true,
+    annotations: {
+      title: "Validate Workflow",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+
+  // === Template System ===
+  search_templates: {
+    schema: searchTemplatesSchema,
+    description:
+      "Search for workflow templates by model type, task type, category, or text. Returns templates from built-in workflows, ComfyUI examples, and custom saved templates. Use get_template to generate workflow JSON from a template.",
+    requiresConnection: false,
+    annotations: {
+      title: "Search Workflow Templates",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  get_template: {
+    schema: getTemplateSchema,
+    description:
+      "Generate workflow JSON from a template with provided parameters. Returns a complete workflow that can be passed to run_workflow. Works with built-in and custom saved templates.",
+    requiresConnection: true,
+    annotations: {
+      title: "Get Workflow from Template",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  save_template: {
+    schema: saveTemplateSchema,
+    description:
+      "Save a workflow as a reusable template. Use descriptive names that indicate the purpose (e.g., 'portrait_lighting_studio', 'product_photo_white_bg'). Templates are stored persistently and can be searched and retrieved later.",
+    requiresConnection: false,
+    annotations: {
+      title: "Save Custom Template",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  delete_template: {
+    schema: deleteTemplateSchema,
+    description: "Delete a custom saved template. Built-in templates cannot be deleted.",
+    requiresConnection: false,
+    annotations: {
+      title: "Delete Custom Template",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  get_download_url: {
+    schema: getDownloadUrlSchema,
+    description:
+      "Get the download URL for a model by name. Searches common model names and returns download URLs, destinations, and wget commands. Useful for helping users download missing models.",
+    requiresConnection: false,
+    annotations: {
+      title: "Get Model Download URL",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
     },
   },
 
@@ -613,9 +706,9 @@ const TOOLS: Record<string, ToolDefinition> = {
   name_generation: {
     schema: z.object({
       taskId: z.string().describe("The task ID to name"),
-      name: z.string().describe("The name to assign to this generation"),
+      name: z.string().describe("The name to assign - use descriptive names like 'hero_banner_blue' or 'product_shot_v3' that clearly identify the content"),
     }),
-    description: "Assign a name to an existing generation task for later retrieval by name.",
+    description: "Assign a descriptive name to an existing generation for easy retrieval. Use clear, searchable names that describe the content (e.g., 'landscape_sunset_warm', 'logo_draft_2', 'character_portrait_final').",
     requiresConnection: false,
     annotations: {
       title: "Name Generation",
@@ -695,48 +788,6 @@ const TOOLS: Record<string, ToolDefinition> = {
     },
   },
 
-  // === Session Defaults ===
-  set_generation_defaults: {
-    schema: z.object({
-      model: z.string().optional().describe("Default model (checkpoint or UNET)"),
-      sampler: z.string().optional().describe("Default sampler"),
-      scheduler: z.string().optional().describe("Default scheduler"),
-      steps: z.number().optional().describe("Default number of steps"),
-      cfg: z.number().optional().describe("Default CFG/guidance scale"),
-      width: z.number().optional().describe("Default width in pixels"),
-      height: z.number().optional().describe("Default height in pixels"),
-      negativePrompt: z.string().optional().describe("Default negative prompt"),
-      imageFormat: z.enum(["jpeg", "png", "webp"]).optional().describe("Default image format"),
-      imageQuality: z.number().min(1).max(100).optional().describe("Default image quality (1-100)"),
-      outputMode: z.enum(["base64", "file", "auto"]).optional().describe("Default output mode"),
-      workflow: z.record(z.unknown()).optional().describe("Custom workflow template (API format JSON). When set, generate_image uses this instead of auto-generating a workflow."),
-      workflowDescription: z.string().optional().describe("Human-readable description of the workflow"),
-      clear: z.boolean().optional().describe("Clear all defaults"),
-      clearWorkflow: z.boolean().optional().describe("Clear only the workflow default (keep other settings)"),
-    }),
-    description:
-      "Set session-level defaults for image generation. These persist until server restart and are applied to all subsequent generate_image calls unless explicitly overridden. You can set a custom workflow template that will be used instead of auto-generated workflows.",
-    requiresConnection: false,
-    annotations: {
-      title: "Set Generation Defaults",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  get_generation_defaults: {
-    schema: z.object({}),
-    description:
-      "Get the current session-level generation defaults",
-    requiresConnection: false,
-    annotations: {
-      title: "Get Generation Defaults",
-      readOnlyHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
   get_user_preferences: {
     schema: z.object({
       includeWorkflows: z.boolean().optional().default(true).describe("Include workflow templates"),
@@ -1056,235 +1107,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "generate_image": {
-        const { client, ws, capabilities, objectInfo } = await ensureConnected();
-        const rawInput = generateImageSchema.parse(args) as GenerateImageInput;
-        // Track which parameters were explicitly provided (not from schema defaults)
-        const explicitParams = new Set(Object.keys(args as object));
-        // Apply session defaults (explicit params override defaults)
-        const input = applySessionDefaults(rawInput, ctx.sessionDefaults);
-
-        // Check if a custom workflow is set as default
-        if (ctx.sessionDefaults.workflow) {
-          // Use custom workflow - apply user parameters to appropriate nodes
-          const customWorkflow = JSON.parse(JSON.stringify(ctx.sessionDefaults.workflow));
-          let promptsReplaced = 0;
-
-          // Helper to check if a param should be applied
-          // Only apply if: explicitly provided in this call, OR set as session default
-          const shouldApply = (param: string) =>
-            explicitParams.has(param) ||
-            ctx.sessionDefaults[param as keyof typeof ctx.sessionDefaults] !== undefined;
-
-          for (const node of Object.values(customWorkflow)) {
-            const n = node as { class_type?: string; inputs?: Record<string, unknown> };
-            if (!n.inputs) continue;
-
-            // Replace prompts in CLIPTextEncode nodes (prompt is always required)
-            if (n.class_type === "CLIPTextEncode") {
-              const currentText = String(n.inputs.text || "").toLowerCase();
-              const isNegative =
-                currentText.includes("ugly") ||
-                currentText.includes("bad quality") ||
-                currentText.includes("deformed") ||
-                currentText.includes("worst quality");
-
-              if (!isNegative && promptsReplaced === 0) {
-                n.inputs.text = input.prompt;
-                promptsReplaced++;
-              } else if (isNegative && shouldApply("negativePrompt") && input.negativePrompt) {
-                n.inputs.text = input.negativePrompt;
-              }
-            }
-
-            // Apply dimensions to EmptyLatentImage nodes
-            if (n.class_type?.includes("EmptyLatent") || n.class_type?.includes("LatentImage")) {
-              if (shouldApply("width") && n.inputs.width !== undefined) {
-                n.inputs.width = input.width;
-              }
-              if (shouldApply("height") && n.inputs.height !== undefined) {
-                n.inputs.height = input.height;
-              }
-            }
-
-            // Apply sampler settings to KSampler nodes
-            if (n.class_type === "KSampler" || n.class_type === "KSamplerAdvanced") {
-              if (shouldApply("steps") && n.inputs.steps !== undefined) {
-                n.inputs.steps = input.steps;
-              }
-              if (shouldApply("cfg") && n.inputs.cfg !== undefined) {
-                n.inputs.cfg = input.cfg;
-              }
-              if (shouldApply("sampler") && n.inputs.sampler_name !== undefined) {
-                n.inputs.sampler_name = input.sampler;
-              }
-              if (shouldApply("scheduler") && n.inputs.scheduler !== undefined) {
-                n.inputs.scheduler = input.scheduler;
-              }
-              // Apply seed if explicitly provided (not -1)
-              if (explicitParams.has("seed") && input.seed !== -1 && n.inputs.seed !== undefined) {
-                n.inputs.seed = input.seed;
-              }
-            }
-          }
-
-          // Use run_workflow with the modified custom workflow
-          const workflowInput = {
-            workflow: customWorkflow,
-            outputMode: input.outputMode,
-            imageFormat: input.imageFormat,
-            imageQuality: input.imageQuality,
-            timeout: input.timeout,
-            sync: input.sync,
-          };
-
-          if (input.sync) {
-            const result = await runWorkflow(
-              client,
-              ws,
-              workflowInput,
-              ctx.config.outputDir,
-              ctx.config.outputSizeThreshold,
-              input.timeout || 300000
-            );
-
-            if (!result.success) {
-              return {
-                content: [{ type: "text", text: `Error: ${result.error}` }],
-                isError: true,
-              };
-            }
-
-            const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
-              {
-                type: "text",
-                text: `Generated ${result.images.length} image(s) using custom workflow (prompt_id: ${result.promptId})`,
-              },
-            ];
-
-            for (const img of result.images) {
-              if (img.data) {
-                content.push({
-                  type: "image",
-                  data: img.data,
-                  mimeType: img.mimeType || "image/jpeg",
-                });
-              } else if (img.path) {
-                content.push({
-                  type: "text",
-                  text: `Saved: ${img.path}`,
-                });
-              }
-            }
-
-            return { content };
-          }
-
-          // Async mode with custom workflow
-          const asyncResult = await runWorkflowAsync(
-            ctx.server,
-            ctx.jobManager,
-            client,
-            ws,
-            workflowInput,
-            ctx.config.outputDir,
-            ctx.config.outputSizeThreshold
-          );
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  taskId: asyncResult.taskId,
-                  promptId: asyncResult.promptId,
-                  status: asyncResult.status,
-                  statusMessage: asyncResult.statusMessage,
-                  pollInterval: asyncResult.pollInterval,
-                  usingCustomWorkflow: true,
-                  hint: "Generation started using custom workflow. Use get_task to check status, or get_task_result when complete.",
-                }, null, 2),
-              },
-            ],
-          };
-        }
-
-        // Check if sync mode is requested
-        if (input.sync) {
-          // Synchronous mode - wait for completion
-          const result = await generateImage(
-            client,
-            ws,
-            input,
-            capabilities,
-            objectInfo,
-            ctx.config.outputDir,
-            ctx.config.outputSizeThreshold,
-            input.timeout || 300000
-          );
-
-          if (!result.success) {
-            return {
-              content: [{ type: "text", text: `Error: ${result.error}` }],
-              isError: true,
-            };
-          }
-
-          const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
-            {
-              type: "text",
-              text: `Generated ${result.images.length} image(s) using ${result.workflowType} workflow (prompt_id: ${result.promptId})`,
-            },
-          ];
-
-          for (const img of result.images) {
-            if (img.data) {
-              content.push({
-                type: "image",
-                data: img.data,
-                mimeType: img.mimeType || "image/jpeg",
-              });
-            } else if (img.path) {
-              content.push({
-                type: "text",
-                text: `Saved: ${img.path}`,
-              });
-            }
-          }
-
-          return { content };
-        }
-
-        // Async mode (default) - return immediately with task ID
-        const asyncResult = await generateImageAsync(
-          ctx.server,
-          ctx.jobManager,
-          client,
-          ws,
-          input,
-          capabilities,
-          objectInfo,
-          ctx.config.outputDir,
-          ctx.config.outputSizeThreshold
-        );
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                taskId: asyncResult.taskId,
-                promptId: asyncResult.promptId,
-                status: asyncResult.status,
-                statusMessage: asyncResult.statusMessage,
-                pollInterval: asyncResult.pollInterval,
-                hint: "Generation started in background. Use get_task to check status, or get_task_result when complete. You will also receive notifications as progress updates.",
-              }, null, 2),
-            },
-          ],
-        };
-      }
-
       case "run_workflow": {
         const { client, ws } = await ensureConnected();
         const input = runWorkflowSchema.parse(args) as RunWorkflowInput;
@@ -1410,6 +1232,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { client } = await ensureConnected();
         const input = findNodesByTypeSchema.parse(args) as FindNodesByTypeInput;
         const result = await findNodesByType(client, input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      case "build_node": {
+        const { client } = await ensureConnected();
+        const input = buildNodeSchema.parse(args) as BuildNodeInput;
+        const result = await buildNode(client, input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      case "validate_workflow": {
+        const { client } = await ensureConnected();
+        const input = validateWorkflowSchema.parse(args) as ValidateWorkflowInput;
+        const result = await validateWorkflow(client, input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      // === Template System ===
+      case "search_templates": {
+        const input = searchTemplatesSchema.parse(args) as SearchTemplatesInput;
+        const result = searchTemplates(input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      case "get_template": {
+        const { client } = await ensureConnected();
+        const input = getTemplateSchema.parse(args) as GetTemplateInput;
+        const result = await getTemplate(client, input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      case "save_template": {
+        const input = saveTemplateSchema.parse(args) as SaveTemplateInput;
+        const result = saveCustomTemplate(input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      case "delete_template": {
+        const input = deleteTemplateSchema.parse(args) as DeleteTemplateInput;
+        const result = deleteCustomTemplate(input);
+        return { content: [{ type: "text", text: result }] };
+      }
+
+      case "get_download_url": {
+        const input = getDownloadUrlSchema.parse(args) as GetDownloadUrlInput;
+        const result = getDownloadUrl(input);
         return { content: [{ type: "text", text: result }] };
       }
 
@@ -1824,99 +1692,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      // === Session Defaults ===
-      case "set_generation_defaults": {
-        const input = args as Partial<SessionDefaults> & { clear?: boolean; clearWorkflow?: boolean };
-
-        if (input.clear) {
-          ctx.sessionDefaults = {};
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  message: "Session defaults cleared",
-                  defaults: {},
-                }, null, 2),
-              },
-            ],
-          };
-        }
-
-        // Handle clearWorkflow separately
-        if (input.clearWorkflow) {
-          delete ctx.sessionDefaults.workflow;
-          delete ctx.sessionDefaults.workflowDescription;
-        }
-
-        // Update only provided fields
-        const { clear: _, clearWorkflow: __, ...newDefaults } = input;
-        for (const [key, value] of Object.entries(newDefaults)) {
-          if (value !== undefined) {
-            (ctx.sessionDefaults as Record<string, unknown>)[key] = value;
-          }
-        }
-
-        // Detect model type if model was set
-        let modelInfo = null;
-        if (ctx.sessionDefaults.model && ctx.capabilities) {
-          const model = ctx.sessionDefaults.model.toLowerCase();
-          if (model.includes("flux")) {
-            modelInfo = { type: "flux", recommendedCfg: 3.5, recommendedScheduler: "simple" };
-          } else if (model.includes("sd3")) {
-            modelInfo = { type: "sd3", recommendedCfg: 5, noNegativePrompt: true };
-          } else if (model.includes("xl") || model.includes("sdxl")) {
-            modelInfo = { type: "sdxl", recommendedCfg: 7 };
-          } else {
-            modelInfo = { type: "sd15", recommendedCfg: 7 };
-          }
-        }
-
-        // Build response - don't include full workflow JSON in response (too large)
-        const displayDefaults = { ...ctx.sessionDefaults };
-        const hasWorkflow = !!displayDefaults.workflow;
-        if (hasWorkflow) {
-          (displayDefaults as Record<string, unknown>).workflow = `[Custom workflow set - ${Object.keys(ctx.sessionDefaults.workflow || {}).length} nodes]`;
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                message: input.clearWorkflow ? "Workflow default cleared" : "Session defaults updated",
-                defaults: displayDefaults,
-                hasCustomWorkflow: hasWorkflow,
-                modelInfo,
-                hint: hasWorkflow
-                  ? "Custom workflow will be used for generate_image. Prompt text in CLIPTextEncode nodes will be replaced with your prompt."
-                  : "These defaults will apply to all subsequent generate_image calls unless explicitly overridden.",
-              }, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "get_generation_defaults": {
-        // Check if any defaults are set
-        const hasDefaults = Object.keys(ctx.sessionDefaults).length > 0;
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                defaults: ctx.sessionDefaults,
-                hasDefaults,
-                hint: hasDefaults
-                  ? "These defaults are applied to generate_image calls unless explicitly overridden."
-                  : "No session defaults set. Use set_generation_defaults to configure.",
-              }, null, 2),
-            },
-          ],
-        };
-      }
-
       case "get_user_preferences": {
         const { capabilities } = await ensureConnected();
         const input = args as {
@@ -1979,7 +1754,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         if (includeSettings) {
           result.commonSettings = prefs.commonSettings;
-          result.settingsHint = "Use set_generation_defaults to apply these as session defaults.";
         }
 
         return {

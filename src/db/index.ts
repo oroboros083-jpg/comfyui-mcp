@@ -431,3 +431,249 @@ export function getNotesByTag(tag: string): Note[] {
   const rows = stmt.all(`%"${tag}"%`) as NoteRow[];
   return rows.map(rowToNote);
 }
+
+// ============================================================================
+// Custom Templates Operations
+// ============================================================================
+
+export interface TemplateRow {
+  id: string;
+  name: string;
+  description: string;
+  model_type: string;
+  task_type: string;
+  category: string;
+  workflow: string;
+  parameters: string | null;
+  default_settings: string | null;
+  required_nodes: string | null;
+  tags: string | null;
+  created_at: string;
+  updated_at: string;
+  use_count: number;
+}
+
+export interface CustomTemplate {
+  id: string;
+  name: string;
+  description: string;
+  modelType: string;
+  taskType: string;
+  category: string;
+  workflow: Record<string, unknown>;
+  parameters?: Array<{ name: string; type: string; required: boolean; default?: unknown; description: string }>;
+  defaultSettings?: Record<string, unknown>;
+  requiredNodes?: string[];
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+  useCount: number;
+}
+
+function rowToTemplate(row: TemplateRow): CustomTemplate {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    modelType: row.model_type,
+    taskType: row.task_type,
+    category: row.category,
+    workflow: JSON.parse(row.workflow),
+    parameters: row.parameters ? JSON.parse(row.parameters) : undefined,
+    defaultSettings: row.default_settings ? JSON.parse(row.default_settings) : undefined,
+    requiredNodes: row.required_nodes ? JSON.parse(row.required_nodes) : undefined,
+    tags: row.tags ? JSON.parse(row.tags) : [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    useCount: row.use_count,
+  };
+}
+
+export function initializeTemplatesTable(): void {
+  const database = getDatabase();
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      model_type TEXT NOT NULL DEFAULT 'any',
+      task_type TEXT NOT NULL DEFAULT 'txt2img',
+      category TEXT NOT NULL DEFAULT 'custom',
+      workflow TEXT NOT NULL,
+      parameters TEXT,
+      default_settings TEXT,
+      required_nodes TEXT,
+      tags TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      use_count INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_templates_category ON templates(category);
+    CREATE INDEX IF NOT EXISTS idx_templates_model_type ON templates(model_type);
+    CREATE INDEX IF NOT EXISTS idx_templates_task_type ON templates(task_type);
+    CREATE INDEX IF NOT EXISTS idx_templates_use_count ON templates(use_count DESC);
+  `);
+}
+
+// Initialize templates table when module loads
+try {
+  initializeTemplatesTable();
+} catch {
+  // Table will be created on first use
+}
+
+export function saveTemplate(template: {
+  id: string;
+  name: string;
+  description: string;
+  modelType?: string;
+  taskType?: string;
+  category?: string;
+  workflow: Record<string, unknown>;
+  parameters?: Array<{ name: string; type: string; required: boolean; default?: unknown; description: string }>;
+  defaultSettings?: Record<string, unknown>;
+  requiredNodes?: string[];
+  tags?: string[];
+}): CustomTemplate {
+  const database = getDatabase();
+  initializeTemplatesTable();
+
+  const now = new Date().toISOString();
+
+  // Check if template with this ID exists
+  const existingStmt = database.prepare("SELECT id FROM templates WHERE id = ?");
+  const existing = existingStmt.get(template.id);
+
+  if (existing) {
+    // Update existing template
+    const stmt = database.prepare(`
+      UPDATE templates SET
+        name = ?, description = ?, model_type = ?, task_type = ?, category = ?,
+        workflow = ?, parameters = ?, default_settings = ?, required_nodes = ?,
+        tags = ?, updated_at = ?
+      WHERE id = ?
+    `);
+    stmt.run(
+      template.name,
+      template.description,
+      template.modelType ?? "any",
+      template.taskType ?? "txt2img",
+      template.category ?? "custom",
+      JSON.stringify(template.workflow),
+      template.parameters ? JSON.stringify(template.parameters) : null,
+      template.defaultSettings ? JSON.stringify(template.defaultSettings) : null,
+      template.requiredNodes ? JSON.stringify(template.requiredNodes) : null,
+      template.tags ? JSON.stringify(template.tags) : null,
+      now,
+      template.id
+    );
+  } else {
+    // Insert new template
+    const stmt = database.prepare(`
+      INSERT INTO templates (id, name, description, model_type, task_type, category, workflow, parameters, default_settings, required_nodes, tags, created_at, updated_at, use_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    `);
+    stmt.run(
+      template.id,
+      template.name,
+      template.description,
+      template.modelType ?? "any",
+      template.taskType ?? "txt2img",
+      template.category ?? "custom",
+      JSON.stringify(template.workflow),
+      template.parameters ? JSON.stringify(template.parameters) : null,
+      template.defaultSettings ? JSON.stringify(template.defaultSettings) : null,
+      template.requiredNodes ? JSON.stringify(template.requiredNodes) : null,
+      template.tags ? JSON.stringify(template.tags) : null,
+      now,
+      now
+    );
+  }
+
+  return getTemplateById(template.id)!;
+}
+
+export function getTemplateById(id: string): CustomTemplate | null {
+  const database = getDatabase();
+  initializeTemplatesTable();
+  const stmt = database.prepare("SELECT * FROM templates WHERE id = ?");
+  const row = stmt.get(id) as TemplateRow | undefined;
+  return row ? rowToTemplate(row) : null;
+}
+
+export function listTemplates(options?: {
+  modelType?: string;
+  taskType?: string;
+  category?: string;
+  limit?: number;
+}): CustomTemplate[] {
+  const database = getDatabase();
+  initializeTemplatesTable();
+
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (options?.modelType && options.modelType !== "any") {
+    conditions.push("(model_type = ? OR model_type = 'any')");
+    values.push(options.modelType);
+  }
+  if (options?.taskType && options.taskType !== "any") {
+    conditions.push("task_type = ?");
+    values.push(options.taskType);
+  }
+  if (options?.category) {
+    conditions.push("category LIKE ?");
+    values.push(`%${options.category}%`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const limit = options?.limit ?? 50;
+  values.push(limit);
+
+  const stmt = database.prepare(`
+    SELECT * FROM templates ${whereClause}
+    ORDER BY use_count DESC, updated_at DESC
+    LIMIT ?
+  `);
+  const rows = stmt.all(...values) as TemplateRow[];
+  return rows.map(rowToTemplate);
+}
+
+export function searchTemplatesInDb(query: string, limit = 50): CustomTemplate[] {
+  const database = getDatabase();
+  initializeTemplatesTable();
+
+  const searchPattern = `%${query}%`;
+  const stmt = database.prepare(`
+    SELECT * FROM templates
+    WHERE name LIKE ? OR description LIKE ? OR category LIKE ? OR tags LIKE ?
+    ORDER BY use_count DESC, updated_at DESC
+    LIMIT ?
+  `);
+  const rows = stmt.all(searchPattern, searchPattern, searchPattern, searchPattern, limit) as TemplateRow[];
+  return rows.map(rowToTemplate);
+}
+
+export function incrementTemplateUseCount(id: string): void {
+  const database = getDatabase();
+  initializeTemplatesTable();
+  const stmt = database.prepare("UPDATE templates SET use_count = use_count + 1, updated_at = ? WHERE id = ?");
+  stmt.run(new Date().toISOString(), id);
+}
+
+export function deleteTemplate(id: string): boolean {
+  const database = getDatabase();
+  initializeTemplatesTable();
+  const stmt = database.prepare("DELETE FROM templates WHERE id = ?");
+  const result = stmt.run(id);
+  return result.changes > 0;
+}
+
+export function getTemplateCategories(): string[] {
+  const database = getDatabase();
+  initializeTemplatesTable();
+  const stmt = database.prepare("SELECT DISTINCT category FROM templates ORDER BY category");
+  const rows = stmt.all() as Array<{ category: string }>;
+  return rows.map(r => r.category);
+}

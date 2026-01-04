@@ -1,11 +1,11 @@
-import { GenerateImageInput, RunWorkflowInput, GenerateResult, RunWorkflowResult } from "../tools/generate.js";
+import { RunWorkflowInput, RunWorkflowResult } from "../tools/generate.js";
 import * as db from "../db/index.js";
 
 export type JobStatus = "working" | "completed" | "failed" | "cancelled";
 
 export interface JobRequest {
-  type: "generate_image" | "run_workflow";
-  input: GenerateImageInput | RunWorkflowInput;
+  type: "run_workflow";
+  input: RunWorkflowInput;
 }
 
 export interface Job {
@@ -15,7 +15,7 @@ export interface Job {
   statusMessage?: string;
   createdAt: string;
   lastUpdatedAt: string;
-  result?: GenerateResult | RunWorkflowResult;
+  result?: RunWorkflowResult;
   error?: string;
   request: JobRequest;
   name?: string;
@@ -145,10 +145,10 @@ export class JobManager {
   /**
    * Mark a job as completed with its result.
    */
-  completeJob(taskId: string, result: GenerateResult | RunWorkflowResult): Job | undefined {
+  completeJob(taskId: string, result: RunWorkflowResult): Job | undefined {
     return this.updateJob(taskId, {
       status: "completed",
-      statusMessage: "Generation complete",
+      statusMessage: "Workflow complete",
       result,
     });
   }
