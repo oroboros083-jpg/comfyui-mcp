@@ -6,9 +6,10 @@
   - [Key Features](#key-features)
     - [Self-Configuring](#self-configuring)
     - [Works Without ComfyUI Running](#works-without-comfyui-running)
-    - [Dynamic Workflow Generation](#dynamic-workflow-generation)
+    - [Workflow-First Architecture](#workflow-first-architecture)
     - [70+ Example Workflows](#70-example-workflows)
-    - [Smart Workflow Recommendation](#smart-workflow-recommendation)
+    - [Template System](#template-system)
+    - [Workflow Composition Tools](#workflow-composition-tools)
   - [Quick Start Guide](#quick-start-guide)
     - [Step 1: Install ComfyUI](#step-1-install-comfyui)
     - [Step 2: Download a Model](#step-2-download-a-model)
@@ -30,38 +31,53 @@
       - [`get_status`](#get_status)
       - [`get_install_guide`](#get_install_guide)
       - [`get_model_guide`](#get_model_guide)
-    - [Example \& Workflow Tools](#example--workflow-tools)
+    - [Template \& Workflow Tools](#template--workflow-tools)
+      - [`search_templates`](#search_templates)
+      - [`get_template`](#get_template)
+      - [`save_template`](#save_template)
+      - [`delete_template`](#delete_template)
       - [`list_examples`](#list_examples)
       - [`get_example_workflow`](#get_example_workflow)
-      - [`recommend_workflow`](#recommend_workflow)
       - [`extract_workflow`](#extract_workflow)
+      - [`get_download_url`](#get_download_url)
     - [Prompting Guide Tools](#prompting-guide-tools)
       - [`get_prompting_guide`](#get_prompting_guide)
     - [Generation Tools](#generation-tools)
-      - [`generate_image`](#generate_image)
       - [`run_workflow`](#run_workflow)
+      - [`validate_workflow`](#validate_workflow)
+    - [Workflow Composition Tools](#workflow-composition-tools-1)
+      - [`build_node`](#build_node)
+      - [`get_node_info`](#get_node_info)
+      - [`find_nodes_by_type`](#find_nodes_by_type)
+      - [`list_nodes`](#list_nodes)
     - [Discovery Tools](#discovery-tools)
       - [`get_capabilities`](#get_capabilities)
       - [`list_models`](#list_models)
-      - [`list_nodes`](#list_nodes)
-      - [`get_node_info`](#get_node_info)
-      - [`find_nodes_by_type`](#find_nodes_by_type)
-    - [Queue Management Tools](#queue-management-tools)
+    - [Task \& Queue Management](#task--queue-management)
+      - [`get_task`](#get_task)
+      - [`get_task_result`](#get_task_result)
+      - [`list_tasks`](#list_tasks)
+      - [`name_generation`](#name_generation)
+      - [`get_generation_by_name`](#get_generation_by_name)
       - [`get_queue`](#get_queue)
       - [`cancel_job`](#cancel_job)
       - [`interrupt`](#interrupt)
       - [`get_history`](#get_history)
+    - [Agent Memory Tools](#agent-memory-tools)
+      - [`save_note`](#save_note)
+      - [`get_notes`](#get_notes)
+      - [`search_notes`](#search_notes)
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
     - [Config File](#config-file)
   - [How It Works](#how-it-works)
     - [Auto-Discovery](#auto-discovery)
     - [Capability Detection](#capability-detection)
-    - [Dynamic Workflow Building](#dynamic-workflow-building)
+    - [Workflow Execution](#workflow-execution)
   - [Example Conversations](#example-conversations)
     - [First-Time Setup](#first-time-setup)
-    - [Generate Images](#generate-images)
-    - [Advanced Workflow](#advanced-workflow)
+    - [Generate Images with Templates](#generate-images-with-templates)
+    - [Custom Workflow Composition](#custom-workflow-composition)
   - [Development](#development)
     - [Building](#building)
     - [Running Locally](#running-locally)
@@ -99,11 +115,11 @@ I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP s
 
 4. Use list_models to see what models I have available.
 
-5. Use recommend_workflow with my model name to get the correct workflow and settings.
+5. Use search_templates to find the right workflow for my model.
 
 6. Use get_prompting_guide to learn the correct prompting style for my model.
 
-7. Then generate a test image to verify everything works.
+7. Use get_template to build a workflow and run_workflow to generate a test image.
 ```
 
 > **Tip**: If you're using the ComfyUI Desktop app, it runs on port 8000. If you installed ComfyUI manually, change the port to 8188.
@@ -114,8 +130,8 @@ I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP s
 
 This MCP server acts as a bridge between AI assistants and ComfyUI, the powerful node-based interface for Stable Diffusion and other generative AI models. It allows Claude and other MCP-compatible AI assistants to:
 
-- **Generate images** from text prompts using any model you have installed
-- **Run complex workflows** with multiple models, LoRAs, ControlNets, and more
+- **Run complex workflows** with full control over every node and parameter
+- **Compose custom workflows** using node discovery and building tools
 - **Create videos** using AnimateDiff, Stable Video Diffusion, and other video models
 - **Generate audio** using Stable Audio and other audio models
 - **Manage your queue** - view, cancel, and interrupt jobs
@@ -132,11 +148,11 @@ Even if ComfyUI isn't installed or running, the server provides tools to:
 - Download models directly
 - Fetch example workflows from documentation
 
-### Dynamic Workflow Generation
-Instead of requiring you to build ComfyUI workflows, the server dynamically generates appropriate workflows based on:
-- What models you have installed (SD 1.5, SDXL, Flux, etc.)
-- What nodes are available
-- What parameters you specify
+### Workflow-First Architecture
+All generation happens through `run_workflow`, giving you full control over the ComfyUI workflow. The server provides comprehensive tools for:
+- **Templates**: Pre-built workflows for common tasks
+- **Node composition**: Build custom workflows node by node
+- **Validation**: Check workflows before running
 
 ### 70+ Example Workflows
 Comprehensive library of example workflows from the [official ComfyUI documentation](https://comfyanonymous.github.io/ComfyUI_examples/), split into easily discoverable entries:
@@ -148,12 +164,18 @@ Comprehensive library of example workflows from the [official ComfyUI documentat
 - **Video**: SVD, Mochi, LTX-Video, Hunyuan Video, Cosmos, Wan
 - **And more**: Stable Cascade, HiDream, Qwen Image, Audio generation
 
-### Smart Workflow Recommendation
-The `recommend_workflow` tool matches your model files to the correct workflow:
-- Distinguishes between checkpoint files and UNET files
-- Returns optimal settings (steps, CFG, resolution, sampler)
-- Suggests the right prompting guide for each model type
-- Prevents common mistakes like using wrong loaders
+### Template System
+Three sources of workflow templates:
+- **Built-in templates**: Standard txt2img for SD1.5, SDXL, and Flux
+- **Example workflows**: 70+ from official ComfyUI docs
+- **Custom templates**: Save and reuse your successful workflows
+
+### Workflow Composition Tools
+Build custom workflows programmatically:
+- **`build_node`**: Generate valid node JSON with proper defaults
+- **`get_node_info`**: Detailed node inputs/outputs with examples
+- **`find_nodes_by_type`**: Discover nodes by what they accept/produce
+- **`validate_workflow`**: Check validity before running
 
 ---
 
@@ -227,14 +249,14 @@ Add the ComfyUI MCP server to your AI assistant's configuration.
 3. Ask Claude to generate an image:
 
 ```
-Generate an image of a sunset over mountains
+Generate an image of a sunset over mountains using Flux
 ```
 
 Claude will automatically:
 - Connect to your ComfyUI instance
-- Detect available models
-- Build an appropriate workflow
-- Generate and display the image
+- Search for the right template
+- Build and validate a workflow
+- Execute and display the result
 
 ---
 
@@ -442,7 +464,60 @@ Get detailed guidance on downloading and installing models.
 How do I set up Flux models?
 ```
 
-### Example & Workflow Tools
+### Template & Workflow Tools
+
+#### `search_templates`
+Search for workflow templates across built-in, example, and custom sources.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `modelType` | `"sd15" \| "sdxl" \| "sd3" \| "flux" \| "any"` | Filter by model type |
+| `taskType` | `"txt2img" \| "img2img" \| "inpaint" \| ...` | Filter by task type |
+| `category` | `string?` | Filter by category |
+| `query` | `string?` | Free text search |
+| `includeBuiltIn` | `boolean?` | Include built-in templates (default: true) |
+| `includeExamples` | `boolean?` | Include example workflows (default: true) |
+| `includeCustom` | `boolean?` | Include saved custom templates (default: true) |
+
+```
+Find templates for Flux txt2img
+```
+
+#### `get_template`
+Build a workflow from a template with your parameters.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `templateId` | `string` | Template ID from search_templates |
+| `parameters` | `object?` | Parameters to apply (prompt, model, etc.) |
+
+```
+Get the flux_schnell_txt2img template with prompt "a sunset over mountains"
+```
+
+#### `save_template`
+Save a workflow as a reusable custom template. Use descriptive names!
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `string` | Descriptive template name |
+| `description` | `string` | What this template does |
+| `workflow` | `object` | The workflow JSON |
+| `modelType` | `string?` | Model type (sd15, sdxl, flux, etc.) |
+| `taskType` | `string?` | Task type (txt2img, img2img, etc.) |
+| `category` | `string?` | Category for organization |
+| `tags` | `string[]?` | Tags for searching |
+
+```
+Save this workflow as "portrait_lighting_studio"
+```
+
+#### `delete_template`
+Delete a custom saved template.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `string` | Template ID to delete |
 
 #### `list_examples`
 List official ComfyUI example workflows. Over 70 workflows organized by model and use case.
@@ -456,7 +531,7 @@ Show me example workflows for Flux
 ```
 
 #### `get_example_workflow`
-Fetch an example workflow from the ComfyUI documentation. Extracts the embedded JSON from documentation images.
+Fetch an example workflow from the ComfyUI documentation.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -465,28 +540,6 @@ Fetch an example workflow from the ComfyUI documentation. Extracts the embedded 
 
 ```
 Get the Flux Schnell Checkpoint workflow
-```
-
-#### `recommend_workflow`
-**Call this before generating!** Matches a model filename to the correct workflow and optimal settings.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `modelName` | `string` | Model filename (e.g., "flux1-schnell-fp8.safetensors") |
-| `availableCheckpoints` | `string[]?` | List of checkpoint files (from list_models) |
-| `availableUnets` | `string[]?` | List of UNET files (from list_models) |
-| `taskType` | `"txt2img" \| "img2img" \| "inpaint" \| "edit" \| "video"` | Task type (default: txt2img) |
-
-Returns:
-- Recommended workflow name
-- Model type (sd15, sdxl, sd3, flux)
-- Loader type (CheckpointLoaderSimple vs UNETLoader)
-- Optimal settings (steps, CFG, resolution, sampler, scheduler)
-- Prompting guide reference
-- Alternative workflows for the task
-
-```
-Which workflow should I use for flux1-schnell-fp8.safetensors?
 ```
 
 #### `extract_workflow`
@@ -498,6 +551,17 @@ Extract workflow JSON from a ComfyUI-generated PNG image.
 
 ```
 Extract the workflow from this image: /path/to/comfyui_output.png
+```
+
+#### `get_download_url`
+Get download URL for a model by name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `modelName` | `string` | Model name to look up |
+
+```
+Where can I download flux1-schnell?
 ```
 
 ### Prompting Guide Tools
@@ -521,38 +585,99 @@ How should I write prompts for Flux?
 
 ### Generation Tools
 
-#### `generate_image`
-Generate an image using ComfyUI. Automatically selects the appropriate workflow.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `prompt` | `string` | (required) | What to generate |
-| `negativePrompt` | `string?` | `""` | What to avoid |
-| `model` | `string?` | auto | Checkpoint or UNET name |
-| `width` | `number?` | `1024` | Image width |
-| `height` | `number?` | `1024` | Image height |
-| `steps` | `number?` | `20` | Sampling steps |
-| `cfg` | `number?` | `7` | CFG/guidance scale |
-| `seed` | `number?` | `-1` | Seed (-1 = random) |
-| `sampler` | `string?` | auto | Sampler name |
-| `scheduler` | `string?` | auto | Scheduler |
-| `batchSize` | `number?` | `1` | Number of images |
-| `outputMode` | `"base64" \| "file" \| "auto"` | `"auto"` | How to return output |
-
-```
-Generate an image of a sunset over mountains, 1920x1080, using 30 steps
-```
-
 #### `run_workflow`
-Run a custom ComfyUI workflow (API format JSON).
+Run a ComfyUI workflow (API format JSON). This is the primary generation tool.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `workflow` | `object` | ComfyUI workflow JSON |
 | `outputMode` | `"base64" \| "file" \| "auto"` | Output mode |
+| `name` | `string?` | Descriptive name for later retrieval (e.g., "sunset_portrait_v2") |
+| `sync` | `boolean?` | Wait for completion (default: false, async) |
+| `timeout` | `number?` | Timeout in ms (default: 300000) |
 
 ```
 Run this workflow: [paste JSON]
+```
+
+#### `validate_workflow`
+Validate a workflow before running. Checks node types, connections, and required inputs.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `workflow` | `object` | The workflow to validate |
+
+Returns:
+- `valid`: Whether the workflow is valid
+- `errors`: Critical issues that will cause failures
+- `warnings`: Non-critical issues to be aware of
+- `info`: Helpful information about the workflow
+
+```
+Check if this workflow is valid before I run it
+```
+
+### Workflow Composition Tools
+
+#### `build_node`
+Generate valid node JSON with proper defaults. Includes tips for certain nodes (e.g., SaveImage filename guidance).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `nodeType` | `string` | Node class_type (e.g., "KSampler") |
+| `nodeId` | `string` | ID for this node in the workflow |
+| `inputs` | `object?` | Input values to set |
+
+Returns:
+- `node`: The node JSON to add to your workflow
+- `outputs`: Output references for connecting to other nodes
+- `missingConnections`: Inputs that need to be connected
+- `tips`: Best practices for this node type
+
+```
+Build a SaveImage node with ID "9"
+```
+
+#### `get_node_info`
+Get detailed information about a node including inputs, outputs, example JSON, and tips.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `node` | `string` | Node class_type (e.g., "KSampler", "CheckpointLoaderSimple") |
+
+Returns:
+- Input specifications with types, defaults, and valid options
+- Output types and slot indices
+- Example JSON showing how to use the node
+- Connection guide for each input type
+- Tips for certain node types
+
+```
+What are the inputs for KSampler?
+```
+
+#### `find_nodes_by_type`
+Find nodes by their input or output types. Useful for workflow composition.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `inputType` | `string?` | Find nodes that accept this type (e.g., "MODEL", "LATENT") |
+| `outputType` | `string?` | Find nodes that produce this type |
+
+```
+What nodes can output a MODEL?
+```
+
+#### `list_nodes`
+List available ComfyUI nodes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `category` | `string?` | Filter by category |
+| `search` | `string?` | Search term |
+
+```
+What ControlNet nodes are available?
 ```
 
 ### Discovery Tools
@@ -575,42 +700,43 @@ List available models in ComfyUI.
 What checkpoints do I have installed?
 ```
 
-#### `list_nodes`
-List available ComfyUI nodes.
+### Task & Queue Management
+
+#### `get_task`
+Get the status of an async generation task.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `category` | `string?` | Filter by category |
-| `search` | `string?` | Search term |
+| `taskId` | `string` | The task ID |
 
-```
-What ControlNet nodes are available?
-```
-
-#### `get_node_info`
-Get detailed information about a specific node including inputs, outputs, and valid options.
+#### `get_task_result`
+Get the result of a completed generation task.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `node` | `string` | Node class_type (e.g., "KSampler", "CheckpointLoaderSimple") |
+| `taskId` | `string` | The task ID |
 
-```
-What are the inputs for KSampler?
-```
-
-#### `find_nodes_by_type`
-Find nodes by their input or output types. Useful for workflow composition.
+#### `list_tasks`
+List all generation tasks, optionally filtered by status.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `inputType` | `string?` | Find nodes that accept this type (e.g., "MODEL", "LATENT") |
-| `outputType` | `string?` | Find nodes that produce this type |
+| `status` | `"working" \| "completed" \| "failed" \| "cancelled"?` | Filter by status |
 
-```
-What nodes can output a MODEL?
-```
+#### `name_generation`
+Assign a descriptive name to a generation for easy retrieval.
 
-### Queue Management Tools
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `taskId` | `string` | The task ID to name |
+| `name` | `string` | Descriptive name (e.g., "landscape_sunset_warm") |
+
+#### `get_generation_by_name`
+Retrieve a generation by its assigned name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `string` | The name assigned to the generation |
 
 #### `get_queue`
 Get the current ComfyUI queue status.
@@ -648,6 +774,39 @@ Get generation history.
 ```
 Show recent generations
 ```
+
+### Agent Memory Tools
+
+These tools help AI agents remember learnings across sessions.
+
+#### `save_note`
+Save a note about something learned during image generation.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `topic` | `string` | Topic/category (e.g., "flux-models", "prompting-tips") |
+| `content` | `string` | The note content |
+| `tags` | `string[]?` | Optional tags for searching |
+
+```
+Remember that Flux works best with natural language prompts
+```
+
+#### `get_notes`
+Retrieve saved notes, optionally filtered by topic.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `topic` | `string?` | Filter by topic |
+| `limit` | `number?` | Max notes to return |
+
+#### `search_notes`
+Search notes using full-text search.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | `string` | Search query |
+| `limit` | `number?` | Max notes to return |
 
 ---
 
@@ -699,14 +858,13 @@ On connection, the server queries ComfyUI's `/object_info` endpoint to detect:
 - **Features**: Video generation, audio generation, upscaling, inpainting
 - **Samplers & Schedulers**: Reads available options from KSampler node
 
-### Dynamic Workflow Building
+### Workflow Execution
 
-When you call `generate_image`, the server:
-1. Checks what model type you're using (or auto-detects from available models)
-2. Builds an appropriate workflow for that model type
-3. Uses available samplers/schedulers
-4. Queues the workflow via WebSocket for real-time progress
-5. Retrieves and returns the output
+When you call `run_workflow`, the server:
+1. Validates the workflow structure
+2. Queues the workflow via WebSocket for real-time progress
+3. Tracks the task (async by default, or waits if sync=true)
+4. Retrieves and returns the output images
 
 ---
 
@@ -719,30 +877,25 @@ Claude: [Uses get_install_guide] Here's how to install ComfyUI...
 Claude: [Uses get_model_guide] Here's how to download and set up models...
 ```
 
-### Generate Images with Correct Settings
+### Generate Images with Templates
 ```
-User: Generate a pirate husky with flux schnell
-Claude: [Uses list_models] Found flux1-schnell-fp8.safetensors in checkpoints...
-Claude: [Uses recommend_workflow] Recommending "Flux Schnell Checkpoint" workflow
-        - Steps: 4, CFG: 1, Sampler: euler, Scheduler: simple
+User: Generate a pirate husky with Flux
+Claude: [Uses list_models] Found flux1-schnell-fp8.safetensors...
+Claude: [Uses search_templates] Found "flux_schnell_txt2img" template...
 Claude: [Uses get_prompting_guide('flux')] Flux uses natural language prompts...
-Claude: [Uses generate_image with correct settings] Generated image!
+Claude: [Uses get_template with parameters] Built workflow...
+Claude: [Uses validate_workflow] Workflow is valid...
+Claude: [Uses run_workflow] Generated image!
 [Image displayed]
 ```
 
-### Advanced Workflow
+### Custom Workflow Composition
 ```
-User: I want to use a specific workflow from the ComfyUI examples
-Claude: [Uses list_examples] Here are 70+ available examples organized by model...
-User: Get the Flux Fill inpainting one
-Claude: [Uses get_example_workflow("Flux Fill (Inpaint/Outpaint)")] Here's the workflow...
-Claude: [Uses run_workflow] Running the inpainting workflow...
-```
-
-### Custom Workflow from Image
-```
-User: I have a ComfyUI output image with a workflow I want to reuse
-Claude: [Uses extract_workflow] Extracted workflow from the PNG metadata...
+User: I want to build a custom workflow with ControlNet
+Claude: [Uses list_nodes(category="controlnet")] Here are the ControlNet nodes...
+Claude: [Uses get_node_info("ControlNetApply")] Here's how to use it...
+Claude: [Uses build_node] Building each node...
+Claude: [Uses validate_workflow] Checking the workflow...
 Claude: [Uses run_workflow] Running your custom workflow...
 ```
 
@@ -791,9 +944,10 @@ npm run inspector
 3. Use `list_models` to see what's detected
 
 ### Generation fails
-1. Check `get_queue` for error messages
-2. Verify the model exists with `list_models`
-3. Try simpler parameters (smaller size, fewer steps)
+1. Use `validate_workflow` to check for issues
+2. Check `get_queue` for error messages
+3. Verify the model exists with `list_models`
+4. Try simpler parameters (smaller size, fewer steps)
 
 ---
 
