@@ -123,6 +123,19 @@ import {
   analyzeUserOutputs,
   getUserPreferencesSummary,
 } from "./analysis/outputs.js";
+import {
+  renderSvgSchema,
+  renderSvg,
+  RenderSvgInput,
+} from "./tools/svg.js";
+import {
+  downloadFontSchema,
+  downloadFont,
+  listFontsSchema,
+  listFonts,
+  DownloadFontInput,
+  RECOMMENDED_MAP_FONTS,
+} from "./tools/fonts.js";
 import { join } from "path";
 import * as db from "./db/index.js";
 import {
@@ -801,6 +814,46 @@ const TOOLS: Record<string, ToolDefinition> = {
     requiresConnection: true, // Need capabilities which contain the preferences
     annotations: {
       title: "Get User Preferences",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+
+  // === SVG Tools ===
+  render_svg: {
+    schema: renderSvgSchema,
+    description:
+      "Render SVG content to PNG and save to ComfyUI's input folder. Returns filename for use in LoadImage nodes. Useful for creating precise base images for img2img workflows.",
+    requiresConnection: true, // Need ComfyUI path for input folder
+    annotations: {
+      title: "Render SVG to PNG",
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+
+  // === Font Tools ===
+  download_font: {
+    schema: downloadFontSchema,
+    description:
+      "Download a font from Google Fonts or a direct URL for use in SVG rendering. Fonts are cached locally and can be embedded in SVGs via render_svg. Popular fantasy/map fonts: Cinzel, Pirata One, MedievalSharp, UnifrakturMaguntia, Almendra.",
+    requiresConnection: false,
+    annotations: {
+      title: "Download Font",
+      readOnlyHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  list_fonts: {
+    schema: listFontsSchema,
+    description:
+      "List all downloaded fonts available for use in SVG rendering.",
+    requiresConnection: false,
+    annotations: {
+      title: "List Downloaded Fonts",
       readOnlyHint: true,
       idempotentHint: true,
       openWorldHint: false,
@@ -1797,6 +1850,80 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      // === SVG Tools ===
+      case "render_svg": {
+        const input = renderSvgSchema.parse(args) as RenderSvgInput;
+
+        // Get ComfyUI input folder path
+        const comfyuiPath = getComfyUIPath(ctx);
+        if (!comfyuiPath) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  success: false,
+                  error: "ComfyUI path not detected. Make sure ComfyUI is installed.",
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const inputDir = join(comfyuiPath, "input");
+        const result = await renderSvg(inputDir, input);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+          isError: !result.success,
+        };
+      }
+
+      // === Font Tools ===
+      case "download_font": {
+        const input = downloadFontSchema.parse(args) as DownloadFontInput;
+        const result = await downloadFont(input);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                ...result,
+                recommendedFonts: result.success ? undefined : RECOMMENDED_MAP_FONTS,
+                hint: result.success
+                  ? `Font downloaded. Use it in render_svg with fonts: [{ name: "${result.font?.name}" }]`
+                  : "Check the font name or try one of the recommended fonts.",
+              }, null, 2),
+            },
+          ],
+          isError: !result.success,
+        };
+      }
+
+      case "list_fonts": {
+        const result = await listFonts();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                ...result,
+                recommendedFonts: RECOMMENDED_MAP_FONTS,
+                hint: "Use download_font to add more fonts. These can be embedded in SVGs via render_svg.",
+              }, null, 2),
             },
           ],
         };

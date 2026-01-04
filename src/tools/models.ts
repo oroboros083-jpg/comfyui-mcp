@@ -63,9 +63,9 @@ export async function listNodes(
 
   let nodes = Object.entries(objectInfo).map(([name, info]) => ({
     name,
-    displayName: info.display_name,
-    category: info.category,
-    description: info.description,
+    displayName: info.display_name || name,
+    category: info.category || "uncategorized",
+    description: info.description || "",
   }));
 
   if (input.category) {
