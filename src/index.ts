@@ -59,6 +59,7 @@ import {
   RunWorkflowInput,
   GetImageInput,
 } from "./tools/generate.js";
+import { processImageForTransfer } from "./utils/image.js";
 import {
   validateWorkflowSchema,
   validateWorkflow,
@@ -1591,6 +1592,64 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         if (job.status === "failed") {
+          // Check if the job actually completed in ComfyUI (timeout might have occurred but generation finished)
+          if (job.error?.includes("timed out") && ctx.client) {
+            try {
+              const history = await ctx.client.getHistory(job.promptId);
+              const historyEntry = history[job.promptId];
+              if (historyEntry?.status?.completed && historyEntry.outputs) {
+                // Generation actually completed! Recover the result
+                const images: Array<{ filename: string; data?: string; mimeType?: string; path?: string }> = [];
+                for (const [_nodeId, output] of Object.entries(historyEntry.outputs)) {
+                  const nodeOutput = output as { images?: Array<{ filename: string; subfolder: string; type: string }> };
+                  if (nodeOutput.images) {
+                    for (const img of nodeOutput.images) {
+                      const imageData = await ctx.client!.getImage(img.filename, img.subfolder, img.type);
+                      const imageBuffer = Buffer.from(imageData);
+                      const processed = await processImageForTransfer(imageBuffer, {
+                        format: "jpeg",
+                        quality: 85,
+                      });
+                      images.push({
+                        filename: img.filename,
+                        data: processed.data,
+                        mimeType: processed.mimeType,
+                      });
+                    }
+                  }
+                }
+
+                // Update job status to completed
+                const recoveredResult = {
+                  success: true,
+                  promptId: job.promptId,
+                  outputs: historyEntry.outputs,
+                  images,
+                };
+                ctx.jobManager.completeJob(job.taskId, recoveredResult);
+
+                // Return the recovered result
+                const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
+                  {
+                    type: "text",
+                    text: `Generation "${input.name}" recovered from timeout. ${images.length} image(s).`,
+                  },
+                ];
+                for (const img of images) {
+                  if (img.data) {
+                    content.push({
+                      type: "image",
+                      data: img.data,
+                      mimeType: img.mimeType || "image/jpeg",
+                    });
+                  }
+                }
+                return { content };
+              }
+            } catch {
+              // Failed to recover, fall through to error
+            }
+          }
           return {
             content: [{ type: "text", text: `Generation "${input.name}" failed: ${job.error}` }],
             isError: true,
