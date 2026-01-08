@@ -1918,34 +1918,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "render_svg": {
         const input = renderSvgSchema.parse(args) as RenderSvgInput;
 
-        // Get ComfyUI input folder path
-        const comfyuiPath = getComfyUIPath(ctx);
-        if (!comfyuiPath) {
+        // Render SVG to PNG buffer
+        const result = await renderSvg(input);
+
+        if (!result.success || !result.buffer || !result.filename) {
           return {
             content: [
               {
                 type: "text",
                 text: JSON.stringify({
                   success: false,
-                  error: "ComfyUI path not detected. Make sure ComfyUI is installed.",
-                }),
+                  error: result.error || "Failed to render SVG",
+                }, null, 2),
               },
             ],
             isError: true,
           };
         }
 
-        const inputDir = join(comfyuiPath, "input");
-        const result = await renderSvg(inputDir, input);
+        // Upload to ComfyUI via API (works with Docker/remote instances)
+        const { client } = await ensureConnected();
+        const uploadResult = await client.uploadImage(result.buffer, result.filename, true);
 
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result, null, 2),
+              text: JSON.stringify({
+                success: true,
+                filename: uploadResult.name,
+                subfolder: uploadResult.subfolder,
+                type: uploadResult.type,
+                hint: `Use "${uploadResult.name}" in a LoadImage node to load this image.`,
+              }, null, 2),
             },
           ],
-          isError: !result.success,
         };
       }
 

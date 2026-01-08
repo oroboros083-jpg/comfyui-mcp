@@ -1,8 +1,5 @@
 import { z } from "zod";
 import sharp from "sharp";
-import { mkdir } from "fs/promises";
-import { existsSync } from "fs";
-import { join } from "path";
 import { generateFontFaceCSS } from "./fonts.js";
 
 export const renderSvgSchema = z.object({
@@ -22,29 +19,22 @@ export type RenderSvgInput = z.infer<typeof renderSvgSchema>;
 export interface RenderSvgResult {
   success: boolean;
   filename?: string;
-  path?: string;
+  buffer?: Buffer;
   error?: string;
 }
 
 /**
- * Render SVG to PNG and save to ComfyUI's input folder.
- * Returns the filename for use in LoadImage nodes.
+ * Render SVG to PNG buffer for upload to ComfyUI.
+ * Returns the buffer and filename for use with uploadImage API.
  */
 export async function renderSvg(
-  comfyuiInputDir: string,
   input: RenderSvgInput
 ): Promise<RenderSvgResult> {
   try {
-    // Ensure input directory exists
-    if (!existsSync(comfyuiInputDir)) {
-      await mkdir(comfyuiInputDir, { recursive: true });
-    }
-
     // Generate filename if not provided
     const timestamp = Date.now();
     const filename = input.filename || `svg_render_${timestamp}`;
     const outputFilename = `${filename}.png`;
-    const outputPath = join(comfyuiInputDir, outputFilename);
 
     // Parse and modify SVG to ensure proper dimensions
     let svgContent = input.svg;
@@ -91,9 +81,10 @@ export async function renderSvg(
     // Determine background
     const hasBackground = input.background && input.background !== 'transparent';
 
+    let pngBuffer: Buffer;
     if (hasBackground) {
       // Render with solid background
-      await sharp({
+      pngBuffer = await sharp({
         create: {
           width: input.width!,
           height: input.height!,
@@ -109,19 +100,19 @@ export async function renderSvg(
           },
         ])
         .png()
-        .toFile(outputPath);
+        .toBuffer();
     } else {
       // Render SVG directly (transparent background)
-      await sharp(svgBuffer)
+      pngBuffer = await sharp(svgBuffer)
         .resize(input.width!, input.height!, { fit: 'contain' })
         .png()
-        .toFile(outputPath);
+        .toBuffer();
     }
 
     return {
       success: true,
       filename: outputFilename,
-      path: outputPath,
+      buffer: pngBuffer,
     };
   } catch (error) {
     return {
