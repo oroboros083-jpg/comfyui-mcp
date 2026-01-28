@@ -1173,8 +1173,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ws,
             input,
             ctx.config.outputDir,
-            ctx.config.outputSizeThreshold,
-            input.timeout || 300000
+            ctx.config.outputSizeThreshold
           );
 
           // Store the job in the database so named generations work

@@ -80,14 +80,6 @@ export const imageQualitySchema = z
   .default(85)
   .describe("Image quality for JPEG/WebP (1-100, higher = better quality but larger)");
 
-export const timeoutSchema = z
-  .number()
-  .min(30000)
-  .default(300000)
-  .describe(
-    "Timeout in milliseconds (default: 300000 = 5 min). Increase for complex generations: SD1.5 ~30s, SDXL ~1-2min, Flux on CPU ~10-30min"
-  );
-
 export const runWorkflowSchema = z.object({
   workflow: z
     .record(z.unknown())
@@ -95,7 +87,6 @@ export const runWorkflowSchema = z.object({
   outputMode: outputModeSchema,
   imageFormat: imageFormatSchema.optional(),
   imageQuality: imageQualitySchema.optional(),
-  timeout: timeoutSchema.optional(),
   sync: z
     .boolean()
     .optional()
@@ -127,8 +118,7 @@ export async function runWorkflow(
   ws: ComfyUIWebSocket,
   input: RunWorkflowInput,
   outputDir: string,
-  sizeThreshold: number,
-  timeout: number = 300000
+  sizeThreshold: number
 ): Promise<RunWorkflowResult> {
   // Queue the prompt
   const queueResponse = await client.queuePrompt(input.workflow);
@@ -144,7 +134,7 @@ export async function runWorkflow(
   }
 
   // Wait for completion
-  const result = await ws.waitForPrompt(queueResponse.prompt_id, timeout);
+  const result = await ws.waitForPrompt(queueResponse.prompt_id);
 
   if (!result.success) {
     return {

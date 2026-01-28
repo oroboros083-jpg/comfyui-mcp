@@ -120,8 +120,7 @@ export async function runWorkflowAsync(
   // Start background processing
   (async () => {
     try {
-      const timeout = input.timeout || 300000;
-      const result = await ws.waitForPrompt(promptId, timeout);
+      const result = await ws.waitForPrompt(promptId);
 
       // Process result (similar to runWorkflow but for async)
       const workflowResult = await processWorkflowResult(

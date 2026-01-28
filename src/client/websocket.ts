@@ -195,22 +195,13 @@ export class ComfyUIWebSocket extends EventEmitter {
     }
   }
 
-  waitForPrompt(promptId: string, timeout = 300000): Promise<PromptResult> {
+  waitForPrompt(promptId: string): Promise<PromptResult> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingPrompts.delete(promptId);
-        reject(new Error(`Prompt ${promptId} timed out`));
-      }, timeout);
-
+      // No timeout - let ComfyUI run as long as needed
+      // Video generation and large models can take hours
       this.pendingPrompts.set(promptId, {
-        resolve: (result) => {
-          clearTimeout(timer);
-          resolve(result);
-        },
-        reject: (error) => {
-          clearTimeout(timer);
-          reject(error);
-        },
+        resolve,
+        reject,
         outputs: {},
       });
     });
