@@ -39,12 +39,14 @@
       - [`list_examples`](#list_examples)
       - [`get_example_workflow`](#get_example_workflow)
       - [`extract_workflow`](#extract_workflow)
+      - [`recommend_workflow`](#recommend_workflow)
       - [`get_download_url`](#get_download_url)
     - [Prompting Guide Tools](#prompting-guide-tools)
       - [`get_prompting_guide`](#get_prompting_guide)
     - [Generation Tools](#generation-tools)
       - [`run_workflow`](#run_workflow)
       - [`validate_workflow`](#validate_workflow)
+      - [`get_image`](#get_image)
     - [Workflow Composition Tools](#workflow-composition-tools-1)
       - [`build_node`](#build_node)
       - [`get_node_info`](#get_node_info)
@@ -57,6 +59,7 @@
       - [`get_task`](#get_task)
       - [`get_task_result`](#get_task_result)
       - [`list_tasks`](#list_tasks)
+      - [`cancel_task`](#cancel_task)
       - [`name_generation`](#name_generation)
       - [`get_generation_by_name`](#get_generation_by_name)
       - [`get_queue`](#get_queue)
@@ -67,6 +70,14 @@
       - [`save_note`](#save_note)
       - [`get_notes`](#get_notes)
       - [`search_notes`](#search_notes)
+      - [`delete_note`](#delete_note)
+      - [`list_topics`](#list_topics)
+    - [User Preferences Tools](#user-preferences-tools)
+      - [`get_user_preferences`](#get_user_preferences)
+    - [SVG & Font Tools](#svg--font-tools)
+      - [`render_svg`](#render_svg)
+      - [`download_font`](#download_font)
+      - [`list_fonts`](#list_fonts)
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
     - [Config File](#config-file)
@@ -553,6 +564,25 @@ Extract workflow JSON from a ComfyUI-generated PNG image.
 Extract the workflow from this image: /path/to/comfyui_output.png
 ```
 
+#### `recommend_workflow`
+Get the correct workflow and settings for a model. **Call this BEFORE generating images** to ensure you're using the right workflow for your model (checkpoint vs UNET).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `modelName` | `string` | Model filename (e.g., 'flux1-schnell-fp8.safetensors') |
+| `taskType` | `"txt2img" \| "img2img" \| "inpaint" \| "edit" \| "video"` | Task type (default: "txt2img") |
+| `availableCheckpoints` | `string[]?` | List of available checkpoints |
+| `availableUnets` | `string[]?` | List of available UNETs |
+
+Returns:
+- Recommended workflow template
+- Optimal settings (steps, CFG, resolution)
+- Prompting guide for the model
+
+```
+What workflow should I use for flux1-schnell-fp8.safetensors?
+```
+
 #### `get_download_url`
 Get download URL for a model by name.
 
@@ -586,15 +616,16 @@ How should I write prompts for Flux?
 ### Generation Tools
 
 #### `run_workflow`
-Run a ComfyUI workflow (API format JSON). This is the primary generation tool.
+Run a ComfyUI workflow (API format JSON). This is the primary generation tool. Returns immediately with a task ID by default (async). Use `get_task` to check progress and `get_task_result` to retrieve results.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `workflow` | `object` | ComfyUI workflow JSON |
-| `outputMode` | `"base64" \| "file" \| "auto"` | Output mode |
+| `workflow` | `object` | ComfyUI workflow JSON (API format) |
+| `outputMode` | `"base64" \| "file" \| "auto"` | Output mode (default: "auto") |
 | `name` | `string?` | Descriptive name for later retrieval (e.g., "sunset_portrait_v2") |
 | `sync` | `boolean?` | Wait for completion (default: false, async) |
-| `timeout` | `number?` | Timeout in ms (default: 300000) |
+| `imageFormat` | `"jpeg" \| "png" \| "webp"` | Output format (default: "jpeg") |
+| `imageQuality` | `number?` | Quality 1-100 for JPEG/WebP (default: 85) |
 
 ```
 Run this workflow: [paste JSON]
@@ -615,6 +646,21 @@ Returns:
 
 ```
 Check if this workflow is valid before I run it
+```
+
+#### `get_image`
+Retrieve a generated image as base64. Use this to fetch images from ComfyUI's output directory.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `filename` | `string` | Image filename (e.g., 'ComfyUI_00001_.png') |
+| `subfolder` | `string?` | Subfolder within the output directory |
+| `type` | `"output" \| "input" \| "temp"` | Image location type (default: "output") |
+| `imageFormat` | `"jpeg" \| "png" \| "webp"` | Output format (default: "jpeg") |
+| `imageQuality` | `number?` | Quality 1-100 for JPEG/WebP (default: 85) |
+
+```
+Get the image named ComfyUI_00042_.png
 ```
 
 ### Workflow Composition Tools
@@ -723,6 +769,13 @@ List all generation tasks, optionally filtered by status.
 |-----------|------|-------------|
 | `status` | `"working" \| "completed" \| "failed" \| "cancelled"?` | Filter by status |
 
+#### `cancel_task`
+Cancel an async generation task. For queued tasks, this cancels the ComfyUI job. For running tasks, use `interrupt` to stop the generation.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `taskId` | `string` | The task ID to cancel |
+
 #### `name_generation`
 Assign a descriptive name to a generation for easy retrieval.
 
@@ -807,6 +860,83 @@ Search notes using full-text search.
 |-----------|------|-------------|
 | `query` | `string` | Search query |
 | `limit` | `number?` | Max notes to return |
+
+#### `delete_note`
+Delete a note by its ID.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `number` | The note ID to delete |
+
+#### `list_topics`
+List all unique topics that have notes.
+
+```
+What topics have I saved notes about?
+```
+
+### User Preferences Tools
+
+#### `get_user_preferences`
+Get user preferences extracted from analyzing their ComfyUI output history. Returns commonly used workflows, frequently used models, and preferred settings.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `includeWorkflows` | `boolean?` | Include workflow templates (default: true) |
+| `includeModels` | `boolean?` | Include model usage stats (default: true) |
+| `includeSettings` | `boolean?` | Include common settings (default: true) |
+| `workflowLimit` | `number?` | Max workflow templates to return (default: 20) |
+| `modelLimit` | `number?` | Max models to return (default: 30) |
+
+```
+What workflows and models do I use most often?
+```
+
+### SVG & Font Tools
+
+These tools allow creating precise base images for img2img workflows using SVG.
+
+#### `render_svg`
+Render SVG content to PNG and save to ComfyUI's input folder. Returns filename for use in LoadImage nodes.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `svg` | `string` | SVG content (full markup including `<svg>` tags) |
+| `filename` | `string?` | Output filename without extension |
+| `width` | `number?` | Output width in pixels (default: 768) |
+| `height` | `number?` | Output height in pixels (default: 768) |
+| `background` | `string?` | Background color (hex like '#ffffff' or 'transparent') |
+| `fonts` | `array?` | Fonts to embed (each with `name` and optional `family`) |
+
+```
+Render this map SVG as a base for img2img
+```
+
+#### `download_font`
+Download a font from Google Fonts or a direct URL for use in SVG rendering.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | `object` | Font source (see below) |
+
+**Google Fonts source:**
+```json
+{ "type": "google", "family": "Cinzel", "weight": 400 }
+```
+
+**URL source:**
+```json
+{ "type": "url", "url": "https://...", "name": "MyFont" }
+```
+
+Popular fantasy/map fonts available on Google Fonts: Cinzel, Pirata One, MedievalSharp, UnifrakturMaguntia, Almendra.
+
+#### `list_fonts`
+List all downloaded fonts available for use in SVG rendering.
+
+```
+What fonts do I have available for SVG rendering?
+```
 
 ---
 

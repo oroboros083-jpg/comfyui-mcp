@@ -10,6 +10,7 @@ This is a TypeScript MCP (Model Context Protocol) server that enables AI assista
 src/
 ├── index.ts                 # Main MCP server entry point
 ├── config.ts                # Configuration management
+├── context.ts               # Server context (shared state)
 ├── client/
 │   ├── comfyui.ts          # REST API client for ComfyUI
 │   └── websocket.ts        # WebSocket client for progress tracking
@@ -19,13 +20,49 @@ src/
 │   └── index.ts            # Capability detection from object_info
 ├── workflows/
 │   └── builder.ts          # Dynamic workflow generation
-└── tools/
-    ├── generate.ts         # Image generation tools
-    ├── models.ts           # Model listing tools
-    ├── queue.ts            # Queue management tools
-    ├── install.ts          # Installation assistance
-    ├── download.ts         # Model download tools
-    └── examples.ts         # Example workflow fetching
+├── tools/
+│   ├── generate.ts         # Sync workflow execution
+│   ├── generate-async.ts   # Async workflow execution
+│   ├── models.ts           # Model/node listing and building
+│   ├── queue.ts            # Queue management tools
+│   ├── install.ts          # Installation assistance
+│   ├── validation.ts       # Workflow validation
+│   ├── svg.ts              # SVG rendering to PNG
+│   ├── fonts.ts            # Font download and management
+│   └── examples/           # Example workflows and templates
+│       ├── index.ts        # Main exports
+│       ├── data.ts         # Aggregated example data
+│       ├── types.ts        # Type definitions
+│       ├── list-examples.ts # list_examples tool
+│       ├── templates.ts    # Template system (search/get/save)
+│       ├── recommend.ts    # Workflow recommendations
+│       ├── downloads.ts    # Model download URLs
+│       ├── basics.ts       # Basic workflow examples
+│       ├── flux.ts         # Flux model examples
+│       ├── sdxl.ts         # SDXL examples
+│       ├── sd3.ts          # SD3 examples
+│       ├── controlnet.ts   # ControlNet examples
+│       ├── video.ts        # Video generation examples
+│       ├── audio.ts        # Audio generation examples
+│       ├── hunyuan.ts      # Hunyuan examples
+│       ├── next-gen.ts     # Next-gen model examples
+│       └── 3d.ts           # 3D generation examples
+├── jobs/
+│   ├── manager.ts          # Async job tracking
+│   └── notifications.ts    # MCP notification handling
+├── db/
+│   └── index.ts            # SQLite database for notes/templates
+├── handlers/
+│   ├── resources.ts        # MCP resource handlers
+│   └── prompts.ts          # MCP prompt handlers
+├── resources/
+│   └── prompting-guide.ts  # Model-specific prompting guides
+├── analysis/
+│   ├── outputs.ts          # User output history analysis
+│   └── hash.ts             # Workflow hashing
+└── utils/
+    ├── image.ts            # Image processing utilities
+    └── logging.ts          # MCP logging utilities
 ```
 
 ## Key Concepts
@@ -75,7 +112,9 @@ No test framework is currently set up. To test:
 2. **src/client/comfyui.ts** - All ComfyUI API interactions
 3. **src/capabilities/index.ts** - How features are detected
 4. **src/workflows/builder.ts** - How workflows are dynamically built
-5. **src/tools/examples.ts** - PNG metadata extraction for example workflows
+5. **src/tools/examples/index.ts** - Example workflows, templates, and recommendations
+6. **src/jobs/manager.ts** - Async job tracking for workflow execution
+7. **src/db/index.ts** - SQLite database for notes and custom templates
 
 ## Common Tasks
 
@@ -91,7 +130,7 @@ No test framework is currently set up. To test:
 3. Update `selectWorkflowType` to choose it appropriately
 
 ### Adding a New Example Workflow
-Add entry to `EXAMPLE_WORKFLOWS` in `tools/examples.ts` with the image URL containing embedded workflow metadata.
+Add entry to the appropriate category file in `tools/examples/` (e.g., `flux.ts`, `sdxl.ts`, `video.ts`) with the image URL containing embedded workflow metadata. Then export it from `tools/examples/data.ts`.
 
 ## Environment
 
@@ -99,6 +138,8 @@ Add entry to `EXAMPLE_WORKFLOWS` in `tools/examples.ts` with the image URL conta
 - TypeScript with ESM modules
 - Zod for schema validation
 - ws package for WebSocket
+- sharp for image processing and SVG rendering
+- better-sqlite3 for persistent storage (notes, templates)
 
 ## Notes
 
