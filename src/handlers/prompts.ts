@@ -9,7 +9,7 @@ import {
   getPromptingGuide,
   PROMPTING_GUIDES,
 } from "../resources/prompting-guide.js";
-import { EXAMPLE_WORKFLOWS } from "../tools/examples.js";
+import { EXAMPLE_WORKFLOWS } from "../tools/examples/index.js";
 
 /**
  * MCP Prompt definition

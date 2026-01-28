@@ -108,7 +108,7 @@ import {
   SaveTemplateInput,
   DeleteTemplateInput,
   GetDownloadUrlInput,
-} from "./tools/examples.js";
+} from "./tools/examples/index.js";
 import { readFile } from "fs/promises";
 import {
   getPromptingGuide,
@@ -613,7 +613,7 @@ const TOOLS: Record<string, ToolDefinition> = {
   },
   cancel_job: {
     schema: cancelJobSchema,
-    description: "Cancel a queued or running job",
+    description: "Cancel a queued job by prompt ID. NOTE: This only works for jobs that are queued (pending), NOT for jobs that are already running. To stop a running job, use the 'interrupt' tool instead.",
     requiresConnection: true,
     annotations: {
       title: "Cancel Job",
@@ -625,7 +625,7 @@ const TOOLS: Record<string, ToolDefinition> = {
   },
   interrupt: {
     schema: interruptSchema,
-    description: "Interrupt the currently running job",
+    description: "Interrupt the currently running job. Use this to stop a job that is actively generating. For queued jobs that haven't started yet, use 'cancel_job' instead.",
     requiresConnection: true,
     annotations: {
       title: "Interrupt Current Job",
@@ -694,7 +694,7 @@ const TOOLS: Record<string, ToolDefinition> = {
     schema: z.object({
       taskId: z.string().describe("The task ID to cancel"),
     }),
-    description: "Cancel a running async generation task. Also cancels the corresponding ComfyUI job.",
+    description: "Cancel an async generation task. For queued tasks, this cancels the ComfyUI job. For tasks that are already running, this only removes the task from tracking - use 'interrupt' to actually stop the running generation.",
     requiresConnection: true, // Need to cancel in ComfyUI too
     annotations: {
       title: "Cancel Task",
@@ -1063,7 +1063,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "recommend_workflow": {
         const input = recommendWorkflowSchema.parse(args) as RecommendWorkflowInput;
-        const recommendation = recommendWorkflow(input);
+        const recommendation = await recommendWorkflow(input);
         const formatted = formatWorkflowRecommendation(recommendation);
         return {
           content: [

@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
-import { extractWorkflowFromPng } from "../tools/examples.js";
+import { extractWorkflowFromPng } from "../tools/examples/index.js";
 import {
   Workflow,
   hashWorkflowStructure,

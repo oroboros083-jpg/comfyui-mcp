@@ -83,7 +83,6 @@ export const imageQualitySchema = z
 export const timeoutSchema = z
   .number()
   .min(30000)
-  .max(3600000)
   .default(300000)
   .describe(
     "Timeout in milliseconds (default: 300000 = 5 min). Increase for complex generations: SD1.5 ~30s, SDXL ~1-2min, Flux on CPU ~10-30min"

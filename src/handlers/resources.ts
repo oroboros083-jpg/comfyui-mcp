@@ -10,7 +10,7 @@ import {
   formatPromptingGuide,
   getComprehensiveGuide,
 } from "../resources/prompting-guide.js";
-import { EXAMPLE_WORKFLOWS, fetchExampleWorkflow } from "../tools/examples.js";
+import { EXAMPLE_WORKFLOWS, fetchExampleWorkflow } from "../tools/examples/index.js";
 import { getCapabilitySummary } from "../capabilities/index.js";
 
 /**
