@@ -139,7 +139,7 @@ I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP s
 
 ## What is This?
 
-This MCP server acts as a bridge between AI assistants and ComfyUI, the powerful node-based interface for Stable Diffusion and other generative AI models. It allows Claude and other MCP-compatible AI assistants to:
+This is a fork of the original repo owned by Shawn R that implements a few security improvements. This MCP server acts as a bridge between AI assistants and ComfyUI, the powerful node-based interface for Stable Diffusion and other generative AI models. It allows Claude and other MCP-compatible AI assistants to:
 
 - **Run complex workflows** with full control over every node and parameter
 - **Compose custom workflows** using node discovery and building tools
