@@ -15,7 +15,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { loadConfig, Config } from "./config.js";
-import { discoverComfyUI } from "./discovery/index.js";
+import { discoverComfyUI, getCandidateUrls } from "./discovery/index.js";
 import { ComfyUIClient, ObjectInfo } from "./client/comfyui.js";
 import { ComfyUIWebSocket } from "./client/websocket.js";
 import {
@@ -118,6 +118,7 @@ import {
   PROMPTING_GUIDES,
 } from "./resources/prompting-guide.js";
 import { getJobManager, JobManager } from "./jobs/manager.js";
+import { reconcileOrphanedJobs, ReconcileSummary } from "./jobs/reconcile.js";
 import {
   runWorkflowAsync,
 } from "./tools/generate-async.js";
@@ -210,6 +211,7 @@ async function initializeComfyUI(): Promise<boolean> {
 
   if (!discovered) {
     info("ComfyUI is not running. Use get_install_guide or get_status for help.", undefined, "init");
+    clearConnectionState();
     return false;
   }
 
@@ -221,7 +223,9 @@ async function initializeComfyUI(): Promise<boolean> {
   ctx.client = new ComfyUIClient(discovered.url, ctx.config.comfyui.apiKey);
   debug("Created ComfyUI client", undefined, "init");
 
-  // Get capabilities
+  // Get capabilities. This always re-fetches: reaching here means we either
+  // never connected or lost the connection, and a ComfyUI restart can add or
+  // remove models and custom nodes.
   try {
     debug("Getting object info...", undefined, "init");
     ctx.objectInfo = await ctx.client.getObjectInfo();
@@ -230,6 +234,7 @@ async function initializeComfyUI(): Promise<boolean> {
     info(`Detected capabilities:\n${getCapabilitySummary(ctx.capabilities)}`, undefined, "init");
   } catch (err) {
     logError(`Failed to get ComfyUI capabilities: ${err}`, undefined, "init");
+    clearConnectionState();
     return false;
   }
 
@@ -249,7 +254,9 @@ async function initializeComfyUI(): Promise<boolean> {
     }
   }
 
-  // Connect WebSocket
+  // Connect WebSocket. Any previous socket is torn down first so its reconnect
+  // ladder doesn't keep running against the old URL.
+  ctx.ws?.disconnect();
   ctx.ws = new ComfyUIWebSocket(ctx.client.getWebSocketUrl());
   try {
     await ctx.ws.connect();
@@ -258,48 +265,208 @@ async function initializeComfyUI(): Promise<boolean> {
     warning(`Failed to connect WebSocket: ${err}`, undefined, "init");
   }
 
+  ctx.lastHealthyAt = Date.now();
   debug("Initialization complete, returning true", undefined, "init");
   return true;
 }
 
-/**
- * Ensure ComfyUI is connected
- */
-async function ensureConnected(): Promise<{
+interface ConnectionHandles {
   client: ComfyUIClient;
   ws: ComfyUIWebSocket;
   capabilities: Capabilities;
   objectInfo: ObjectInfo;
-}> {
-  if (!ctx.client || !ctx.ws || !ctx.capabilities || !ctx.objectInfo) {
-    const connected = await initializeComfyUI();
-    if (!connected) {
-      throw new Error(
-        "ComfyUI is not available. Use 'get_status' to check installation, or 'get_install_guide' for setup help."
+}
+
+// A successful health probe is trusted for this long, so a burst of tool calls
+// costs one round trip instead of one per call. Only successes are cached: a
+// failed probe leaves lastHealthyAt at 0, so the next call probes again.
+const HEALTH_TTL_MS = 20_000;
+const HEALTH_PROBE_TIMEOUT_MS = 2000;
+
+// The in-flight connection check, shared by concurrent callers so N simultaneous
+// tool calls trigger one probe rather than N.
+let connectionCheck: Promise<ConnectionHandles> | null = null;
+
+function isFullyInitialized(): boolean {
+  return !!(ctx.client && ctx.ws && ctx.capabilities && ctx.objectInfo);
+}
+
+function connectionHandles(): ConnectionHandles {
+  return {
+    client: ctx.client!,
+    ws: ctx.ws!,
+    capabilities: ctx.capabilities!,
+    objectInfo: ctx.objectInfo!,
+  };
+}
+
+/**
+ * Drop every piece of ComfyUI-derived state. Called whenever ComfyUI turns out
+ * to be unreachable, so no tool, resource, or status report can serve a model
+ * list or capability set from before the outage as though it were current.
+ */
+function clearConnectionState(): void {
+  ctx.ws?.disconnect();
+  ctx.client = null;
+  ctx.ws = null;
+  ctx.capabilities = null;
+  ctx.objectInfo = null;
+  ctx.discoveredUrl = null;
+  ctx.discoverySource = null;
+  ctx.lastHealthyAt = 0;
+}
+
+/**
+ * Cheap liveness probe. /system_stats is a few hundred bytes; /object_info is
+ * megabytes and must never be used as a health check.
+ */
+async function probeCurrentClient(): Promise<boolean> {
+  if (!ctx.client) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_PROBE_TIMEOUT_MS);
+  try {
+    await ctx.client.getSystemStats(controller.signal);
+    return true;
+  } catch (err) {
+    debug(`Health probe failed: ${err}`, undefined, "connection");
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Error text for a genuinely unreachable ComfyUI: name where we looked and how
+ * to retry without restarting the MCP server.
+ */
+function unreachableError(): string {
+  const candidates = getCandidateUrls(ctx.config.comfyui.url);
+  return (
+    `ComfyUI is not reachable. Tried: ${candidates.join(", ")}. ` +
+    "Start ComfyUI (or set COMFYUI_URL) and call 'reconnect' to retry - " +
+    "the MCP server does not need to be restarted. See 'get_install_guide' for setup help."
+  );
+}
+
+/**
+ * Resolve interrupted jobs against ComfyUI now that it is reachable again.
+ */
+async function reconcileAfterConnect(): Promise<ReconcileSummary | undefined> {
+  if (!ctx.client) return undefined;
+  try {
+    const summary = await reconcileOrphanedJobs(ctx.client, ctx.jobManager);
+    if (summary.completed > 0 || summary.failed > 0) {
+      info(
+        `Reconciled interrupted tasks: ${summary.completed} completed, ${summary.failed} failed, ${summary.stillRunning} still running`,
+        undefined,
+        "connection"
       );
     }
+    return summary;
+  } catch (err) {
+    warning(`Failed to reconcile interrupted tasks: ${err}`, undefined, "connection");
+    return undefined;
+  }
+}
+
+async function resolveConnection(): Promise<ConnectionHandles> {
+  // Fast path: initialized and probed within the TTL.
+  if (isFullyInitialized() && Date.now() - ctx.lastHealthyAt < HEALTH_TTL_MS) {
+    return connectionHandles();
   }
 
-  if (!ctx.client || !ctx.ws || !ctx.capabilities || !ctx.objectInfo) {
-    throw new Error(
-      "ComfyUI is not available. Make sure it's running and accessible."
+  // Still pointing at a live ComfyUI with a live socket? Just extend the TTL.
+  // A dropped WebSocket means ComfyUI went away even if it is answering again
+  // now, so that case falls through to a full refresh.
+  if (isFullyInitialized() && ctx.ws!.isConnected() && (await probeCurrentClient())) {
+    ctx.lastHealthyAt = Date.now();
+    return connectionHandles();
+  }
+
+  // Either we never connected or ComfyUI stopped answering. Re-run the whole
+  // discovery ladder rather than retrying the last URL - it may have come back
+  // on a different port.
+  const previousUrl = ctx.discoveredUrl;
+  if (previousUrl) {
+    warning(
+      `Lost connection to ComfyUI at ${previousUrl}, re-running discovery...`,
+      undefined,
+      "connection"
     );
   }
 
-  // Verify connection is still alive
-  if (!ctx.ws.isConnected()) {
-    try {
-      await ctx.ws.connect();
-    } catch {
-      throw new Error("Lost connection to ComfyUI WebSocket");
-    }
+  const connected = await initializeComfyUI();
+  if (!connected || !isFullyInitialized()) {
+    throw new Error(unreachableError());
   }
 
+  if (previousUrl && previousUrl !== ctx.discoveredUrl) {
+    info(`ComfyUI moved from ${previousUrl} to ${ctx.discoveredUrl}`, undefined, "connection");
+  }
+
+  // ComfyUI restarted under us, so anything left mid-flight needs resolving.
+  await reconcileAfterConnect();
+
+  return connectionHandles();
+}
+
+/**
+ * Gate every ComfyUI-touching tool goes through. Revalidates the connection,
+ * rediscovers and refreshes capabilities when ComfyUI has restarted, and throws
+ * an actionable error when it is genuinely gone.
+ */
+async function ensureConnected(): Promise<ConnectionHandles> {
+  if (connectionCheck) return connectionCheck;
+
+  const pending = resolveConnection();
+  connectionCheck = pending;
+  try {
+    return await pending;
+  } finally {
+    if (connectionCheck === pending) connectionCheck = null;
+  }
+}
+
+/**
+ * Force a full rediscovery and capability refresh, ignoring the health cache.
+ * Backs both `reconnect` and `get_status`, which exist to answer "is this
+ * working right now" - a question a cached answer cannot address.
+ */
+async function refreshConnection(): Promise<{
+  connected: boolean;
+  url?: string;
+  source?: string;
+  error?: string;
+  reconciled?: ReconcileSummary;
+}> {
+  ctx.lastHealthyAt = 0;
+  const previousUrl = ctx.discoveredUrl;
+
+  const connected = await initializeComfyUI();
+  if (!connected || !isFullyInitialized()) {
+    return { connected: false, error: unreachableError() };
+  }
+
+  // Confirm with a live, authenticated request: discovery probes /system_stats
+  // without the API key, so it can succeed against an instance our client is
+  // not actually allowed to talk to.
+  if (!(await probeCurrentClient())) {
+    clearConnectionState();
+    return { connected: false, error: unreachableError() };
+  }
+  ctx.lastHealthyAt = Date.now();
+
+  if (previousUrl && previousUrl !== ctx.discoveredUrl) {
+    info(`ComfyUI moved from ${previousUrl} to ${ctx.discoveredUrl}`, undefined, "connection");
+  }
+
+  const reconciled = await reconcileAfterConnect();
+
   return {
-    client: ctx.client,
-    ws: ctx.ws,
-    capabilities: ctx.capabilities,
-    objectInfo: ctx.objectInfo,
+    connected: true,
+    url: ctx.discoveredUrl ?? undefined,
+    source: ctx.discoverySource ?? undefined,
+    reconciled,
   };
 }
 
@@ -332,6 +499,19 @@ const TOOLS: Record<string, ToolDefinition> = {
     annotations: {
       title: "Get ComfyUI Status",
       readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  reconnect: {
+    schema: z.object({}),
+    description:
+      "Re-discover and reconnect to ComfyUI, refreshing the cached model and node list. Use this after restarting ComfyUI, or if a tool reports that ComfyUI is unreachable. Also resolves any tasks that were interrupted by the restart.",
+    requiresConnection: false,
+    annotations: {
+      title: "Reconnect to ComfyUI",
+      readOnlyHint: false,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true,
     },
@@ -908,32 +1088,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       // === Status & Setup ===
       case "get_status": {
-        // Always try to connect/reconnect when checking status
+        // Always probe live - "is this working right now" is the whole point of
+        // this tool, so it never reports cached connection state.
         debug("Starting status check...", undefined, "get_status");
-        const wasConnected = ctx.client !== null;
-        debug(`Was previously connected: ${wasConnected}`, undefined, "get_status");
-
-        const initResult = await initializeComfyUI();
-        debug(`initializeComfyUI returned: ${initResult}`, undefined, "get_status");
-        debug(`client is null: ${ctx.client === null}`, undefined, "get_status");
-        debug(`discoveredUrl: ${ctx.discoveredUrl}`, undefined, "get_status");
-
-        // Test actual connectivity
-        let isConnected = false;
-        if (ctx.client) {
-          try {
-            debug("Testing connectivity with getSystemStats...", undefined, "get_status");
-            const stats = await ctx.client.getSystemStats();
-            debug(`Got system stats: ${JSON.stringify(stats).slice(0, 100)}...`, undefined, "get_status");
-            isConnected = true;
-          } catch (err) {
-            debug(`getSystemStats failed: ${err}`, undefined, "get_status");
-            isConnected = false;
-          }
-        } else {
-          debug("client is null, cannot test connectivity", undefined, "get_status");
-        }
-
+        const refresh = await refreshConnection();
+        const isConnected = refresh.connected;
         debug(`Final isConnected: ${isConnected}`, undefined, "get_status");
 
         const status = await getStatus(
@@ -942,6 +1101,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ctx.discoverySource || undefined,
           ctx.capabilities ? getCapabilitySummary(ctx.capabilities) : undefined
         );
+
+        if (!isConnected) {
+          (status as unknown as Record<string, unknown>).error = refresh.error;
+          (status as unknown as Record<string, unknown>).urlsTried =
+            getCandidateUrls(ctx.config.comfyui.url);
+        }
+
+        if (refresh.reconciled && (refresh.reconciled.completed > 0 || refresh.reconciled.failed > 0)) {
+          (status as unknown as Record<string, unknown>).reconciledTasks = refresh.reconciled;
+        }
 
         // Add prompting guide advice when connected
         if (isConnected && ctx.capabilities) {
@@ -958,6 +1127,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         return {
           content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
+        };
+      }
+
+      case "reconnect": {
+        const refresh = await refreshConnection();
+
+        if (!refresh.connected) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    connected: false,
+                    error: refresh.error,
+                    urlsTried: getCandidateUrls(ctx.config.comfyui.url),
+                    hint: "Start ComfyUI and run 'reconnect' again. 'get_install_guide' has setup help.",
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  connected: true,
+                  url: refresh.url,
+                  discoverySource: refresh.source,
+                  capabilities: ctx.capabilities
+                    ? getCapabilitySummary(ctx.capabilities)
+                    : undefined,
+                  nodeCount: ctx.objectInfo ? Object.keys(ctx.objectInfo).length : 0,
+                  reconciledTasks: refresh.reconciled,
+                  note: "Model and node lists were re-read from ComfyUI.",
+                },
+                null,
+                2
+              ),
+            },
+          ],
         };
       }
 
@@ -2051,6 +2268,12 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
 // Read resource handler
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
+  // ComfyUI-backed resources go through the same gate as tools, so a restarted
+  // ComfyUI is rediscovered instead of being reported as "not connected".
+  // readResource reports the disconnected case itself, so failures fall through.
+  if (uri.startsWith("comfyui://models/") || uri === "comfyui://capabilities") {
+    await ensureConnected().catch(() => {});
+  }
   return await readResource(ctx, uri);
 });
 
@@ -2087,7 +2310,11 @@ async function main() {
   initLogging(server, "info");
 
   // Try to initialize ComfyUI connection (non-fatal if not available)
-  await initializeComfyUI();
+  if (await initializeComfyUI()) {
+    // Jobs outlive this process, so anything left "working" in the database was
+    // interrupted by a restart on one side or the other.
+    await reconcileAfterConnect();
+  }
 
   // Start MCP server regardless of ComfyUI status
   const transport = new StdioServerTransport();

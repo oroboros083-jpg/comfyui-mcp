@@ -29,6 +29,7 @@
   - [Tools Reference](#tools-reference)
     - [Setup \& Status Tools](#setup--status-tools)
       - [`get_status`](#get_status)
+      - [`reconnect`](#reconnect)
       - [`get_install_guide`](#get_install_guide)
       - [`get_model_guide`](#get_model_guide)
     - [Template \& Workflow Tools](#template--workflow-tools)
@@ -447,10 +448,21 @@ Then configure your MCP client to use the built server:
 ### Setup & Status Tools
 
 #### `get_status`
-Get the current status of ComfyUI connection and installation.
+Get the current status of ComfyUI connection and installation. Always probes ComfyUI live rather than reporting a cached result.
 
 ```
 What's the status of ComfyUI?
+```
+
+#### `reconnect`
+Re-discover ComfyUI and refresh the cached model and node lists. ComfyUI can be
+restarted (or moved to a different port) at any time without restarting this
+server or your MCP client — tools reconnect on their own — but this forces it
+immediately and reports what was found. It also resolves any tasks that were
+left in flight by the restart.
+
+```
+Reconnect to ComfyUI.
 ```
 
 #### `get_install_guide`

@@ -107,9 +107,10 @@ export class ComfyUIClient {
     return this.baseUrl;
   }
 
-  async getSystemStats(): Promise<SystemStats> {
+  async getSystemStats(signal?: AbortSignal): Promise<SystemStats> {
     const response = await fetch(`${this.baseUrl}/system_stats`, {
       headers: this.getHeaders(),
+      signal,
     });
     if (!response.ok) {
       throw new Error(`Failed to get system stats: ${response.statusText}`);
