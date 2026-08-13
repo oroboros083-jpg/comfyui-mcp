@@ -30,6 +30,7 @@
     - [Setup \& Status Tools](#setup--status-tools)
       - [`get_status`](#get_status)
       - [`reconnect`](#reconnect)
+      - [`restart_comfyui`](#restart_comfyui)
       - [`get_install_guide`](#get_install_guide)
       - [`get_model_guide`](#get_model_guide)
     - [Template \& Workflow Tools](#template--workflow-tools)
@@ -463,6 +464,28 @@ left in flight by the restart.
 
 ```
 Reconnect to ComfyUI.
+```
+
+#### `restart_comfyui`
+Ask ComfyUI to restart itself, then wait for it to come back and reconnect
+automatically. This is a clean in-app restart through ComfyUI's own API — no
+killing processes — useful for loading newly installed custom nodes or models,
+or for clearing a wedged instance.
+
+Requires **[ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager)**,
+which provides the reboot endpoint; core ComfyUI has none. If ComfyUI-Manager's
+`security_level` forbids remote reboots, the tool reports that specifically.
+
+Refuses while generations are running or queued unless `force` is set, since a
+restart drops them.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `force` | `boolean` | Restart even if generations are running or queued (default `false`) |
+| `timeoutSeconds` | `number` | How long to wait for ComfyUI to come back, 10–600 (default `180`) |
+
+```
+I just installed a custom node. Restart ComfyUI so it loads.
 ```
 
 #### `get_install_guide`

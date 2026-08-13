@@ -119,6 +119,7 @@ import {
 } from "./resources/prompting-guide.js";
 import { getJobManager, JobManager } from "./jobs/manager.js";
 import { reconcileOrphanedJobs, ReconcileSummary } from "./jobs/reconcile.js";
+import { restartComfyUISchema, RestartComfyUIInput } from "./tools/restart.js";
 import {
   runWorkflowAsync,
 } from "./tools/generate-async.js";
@@ -427,6 +428,54 @@ async function ensureConnected(): Promise<ConnectionHandles> {
   }
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// How long to watch for ComfyUI to actually go offline after accepting a
+// restart. It exits without answering the request, so the disappearance is the
+// only confirmation the restart took effect.
+const RESTART_SHUTDOWN_WINDOW_MS = 20_000;
+const RESTART_POLL_INTERVAL_MS = 2000;
+
+/**
+ * Watch the current URL until it stops answering. Returns false if ComfyUI
+ * never went away, which means the restart didn't take (or it came back faster
+ * than we could observe).
+ */
+async function waitForShutdown(): Promise<boolean> {
+  const deadline = Date.now() + RESTART_SHUTDOWN_WINDOW_MS;
+  while (Date.now() < deadline) {
+    if (!(await probeCurrentClient())) return true;
+    await sleep(500);
+  }
+  return false;
+}
+
+/**
+ * Poll until ComfyUI answers again, rediscovering each time - a restarted
+ * instance may come back on a different port.
+ */
+async function waitForRestart(timeoutMs: number): Promise<{
+  connected: boolean;
+  url?: string;
+  source?: string;
+  error?: string;
+  reconciled?: ReconcileSummary;
+}> {
+  const deadline = Date.now() + timeoutMs;
+  let last: Awaited<ReturnType<typeof refreshConnection>> = {
+    connected: false,
+    error: unreachableError(),
+  };
+
+  while (Date.now() < deadline) {
+    last = await refreshConnection();
+    if (last.connected) return last;
+    await sleep(RESTART_POLL_INTERVAL_MS);
+  }
+
+  return last;
+}
+
 /**
  * Force a full rediscovery and capability refresh, ignoring the health cache.
  * Backs both `reconnect` and `get_status`, which exist to answer "is this
@@ -513,6 +562,19 @@ const TOOLS: Record<string, ToolDefinition> = {
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  restart_comfyui: {
+    schema: restartComfyUISchema,
+    description:
+      "Ask ComfyUI to restart itself, then wait for it to come back and reconnect. Use this to load newly installed custom nodes or models, or to clear a wedged ComfyUI - it is a clean in-app restart, not a process kill. Requires ComfyUI-Manager (core ComfyUI has no restart endpoint). Refuses while generations are running or queued unless force is set.",
+    requiresConnection: true,
+    annotations: {
+      title: "Restart ComfyUI",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
       openWorldHint: true,
     },
   },
@@ -1169,6 +1231,105 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   nodeCount: ctx.objectInfo ? Object.keys(ctx.objectInfo).length : 0,
                   reconciledTasks: refresh.reconciled,
                   note: "Model and node lists were re-read from ComfyUI.",
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "restart_comfyui": {
+        const input = restartComfyUISchema.parse(args) as RestartComfyUIInput;
+        const { client } = await ensureConnected();
+        const restartingUrl = ctx.discoveredUrl;
+
+        // A restart drops whatever ComfyUI is working on, so don't pull it out
+        // from under a running generation unless explicitly told to.
+        if (!input.force) {
+          const queue = await client.getQueue();
+          const busy = queue.queue_running.length + queue.queue_pending.length;
+          if (busy > 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      restarted: false,
+                      reason: `${busy} generation(s) running or queued. Restarting would drop them.`,
+                      hint: "Wait for them to finish, cancel them with cancel_task, or call restart_comfyui again with force: true.",
+                    },
+                    null,
+                    2
+                  ),
+                },
+              ],
+              isError: true,
+            };
+          }
+        }
+
+        const startedAt = Date.now();
+        const { endpoint } = await client.requestRestart();
+        info(`Asked ComfyUI to restart via ${endpoint}`, undefined, "restart");
+
+        const observedShutdown = await waitForShutdown();
+        const recovery = await waitForRestart(input.timeoutSeconds * 1000);
+        const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+
+        if (!recovery.connected) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    restarted: true,
+                    recovered: false,
+                    endpoint,
+                    observedShutdown,
+                    waitedSeconds: elapsedSeconds,
+                    error: recovery.error,
+                    hint: observedShutdown
+                      ? "ComfyUI shut down but has not come back yet. It may still be loading - call 'reconnect' in a moment. This server does not need restarting."
+                      : "ComfyUI never went offline, so the restart may not have been accepted. Check ComfyUI's console output.",
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  restarted: true,
+                  recovered: true,
+                  endpoint,
+                  observedShutdown,
+                  elapsedSeconds,
+                  url: recovery.url,
+                  movedFrom:
+                    restartingUrl && restartingUrl !== recovery.url
+                      ? restartingUrl
+                      : undefined,
+                  discoverySource: recovery.source,
+                  capabilities: ctx.capabilities
+                    ? getCapabilitySummary(ctx.capabilities)
+                    : undefined,
+                  nodeCount: ctx.objectInfo ? Object.keys(ctx.objectInfo).length : 0,
+                  reconciledTasks: recovery.reconciled,
+                  note: observedShutdown
+                    ? "ComfyUI restarted; model and node lists were re-read."
+                    : "ComfyUI is reachable and its model and node lists were re-read, but it was never observed going offline - it may have restarted too quickly to see, or not restarted at all.",
                 },
                 null,
                 2

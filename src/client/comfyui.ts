@@ -181,6 +181,69 @@ export class ComfyUIClient {
     }
   }
 
+  /**
+   * Ask ComfyUI to restart itself, rather than killing the process from
+   * outside. The reboot endpoint comes from ComfyUI-Manager - core ComfyUI has
+   * none - and its handler exits the process without finishing the response,
+   * so a dropped connection is the success case, not an error.
+   */
+  async requestRestart(): Promise<{ endpoint: string }> {
+    // ComfyUI mirrors extension routes under /api; builds that only expose the
+    // unprefixed path answer 404 there, so fall back to it.
+    const paths = ["/api/manager/reboot", "/manager/reboot"];
+    let lastStatus = 404;
+
+    for (const path of paths) {
+      let response: Response;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        response = await fetch(`${this.baseUrl}${path}`, {
+          method: "POST",
+          // JSON content type matters: ComfyUI-Manager rejects form-encoded and
+          // text/plain bodies on this route as CSRF.
+          headers: this.getHeaders(),
+          signal: controller.signal,
+        });
+      } catch {
+        // No response because the server exited mid-request - that is the
+        // reboot taking effect. The caller confirms by watching it go down.
+        return { endpoint: path };
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (response.ok) {
+        return { endpoint: path };
+      }
+
+      lastStatus = response.status;
+
+      if (response.status === 404) {
+        continue; // try the other path before concluding it isn't there
+      }
+
+      if (response.status === 403) {
+        throw new Error(
+          "ComfyUI-Manager refused the restart (403 Forbidden). Its security level " +
+            "forbids remote reboots - lower `security_level` in ComfyUI-Manager's " +
+            "config.ini (it must be 'middle' or weaker) and try again."
+        );
+      }
+
+      throw new Error(
+        `ComfyUI refused the restart: ${response.status} ${response.statusText}`
+      );
+    }
+
+    throw new Error(
+      `ComfyUI has no restart endpoint (HTTP ${lastStatus} at ${paths.join(" and ")}). ` +
+        "Restarting on request is provided by ComfyUI-Manager, which does not appear to be " +
+        "installed. Install it from https://github.com/Comfy-Org/ComfyUI-Manager, or restart " +
+        "ComfyUI yourself - this server will reconnect on its own."
+    );
+  }
+
   async interrupt(): Promise<void> {
     const response = await fetch(`${this.baseUrl}/interrupt`, {
       method: "POST",
