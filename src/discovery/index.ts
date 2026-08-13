@@ -167,3 +167,32 @@ export async function discoverComfyUI(
 export async function checkConnection(url: string): Promise<boolean> {
   return probeUrl(url);
 }
+
+/**
+ * The URLs discoverComfyUI() would probe, in order. Used to tell the user
+ * exactly where we looked when nothing answered.
+ */
+export function getCandidateUrls(configUrl?: string): string[] {
+  const urls: string[] = [];
+  const add = (url: string) => {
+    if (!urls.includes(url)) urls.push(url);
+  };
+
+  if (process.env.COMFYUI_URL) add(process.env.COMFYUI_URL);
+  if (configUrl) add(configUrl);
+
+  const desktopPort = getDesktopAppPort();
+  if (desktopPort) add(`http://${LOCALHOST}:${desktopPort}`);
+
+  for (const port of DEFAULT_PORTS) {
+    add(`http://${LOCALHOST}:${port}`);
+  }
+
+  if (isRunningInDocker()) {
+    for (const port of DEFAULT_PORTS) {
+      add(`http://${DOCKER_HOST}:${port}`);
+    }
+  }
+
+  return urls;
+}

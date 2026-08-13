@@ -44,6 +44,11 @@ export interface ServerContext {
   discoverySource: string | null;
   comfyuiPath: string | null;
 
+  // Epoch ms of the last successful health probe. 0 means "not known healthy",
+  // which forces the next ComfyUI-touching call to re-probe. Only successful
+  // probes are cached, so a failure is never sticky.
+  lastHealthyAt: number;
+
   // Job management
   jobManager: JobManager;
 
@@ -69,6 +74,7 @@ export function createContext(
     discoveredUrl: null,
     discoverySource: null,
     comfyuiPath: null,
+    lastHealthyAt: 0,
     jobManager,
     loggingLevel: "info",
   };

@@ -29,6 +29,8 @@
   - [Tools Reference](#tools-reference)
     - [Setup \& Status Tools](#setup--status-tools)
       - [`get_status`](#get_status)
+      - [`reconnect`](#reconnect)
+      - [`restart_comfyui`](#restart_comfyui)
       - [`get_install_guide`](#get_install_guide)
       - [`get_model_guide`](#get_model_guide)
     - [Template \& Workflow Tools](#template--workflow-tools)
@@ -447,10 +449,43 @@ Then configure your MCP client to use the built server:
 ### Setup & Status Tools
 
 #### `get_status`
-Get the current status of ComfyUI connection and installation.
+Get the current status of ComfyUI connection and installation. Always probes ComfyUI live rather than reporting a cached result.
 
 ```
 What's the status of ComfyUI?
+```
+
+#### `reconnect`
+Re-discover ComfyUI and refresh the cached model and node lists. ComfyUI can be
+restarted (or moved to a different port) at any time without restarting this
+server or your MCP client — tools reconnect on their own — but this forces it
+immediately and reports what was found. It also resolves any tasks that were
+left in flight by the restart.
+
+```
+Reconnect to ComfyUI.
+```
+
+#### `restart_comfyui`
+Ask ComfyUI to restart itself, then wait for it to come back and reconnect
+automatically. This is a clean in-app restart through ComfyUI's own API — no
+killing processes — useful for loading newly installed custom nodes or models,
+or for clearing a wedged instance.
+
+Requires **[ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager)**,
+which provides the reboot endpoint; core ComfyUI has none. If ComfyUI-Manager's
+`security_level` forbids remote reboots, the tool reports that specifically.
+
+Refuses while generations are running or queued unless `force` is set, since a
+restart drops them.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `force` | `boolean` | Restart even if generations are running or queued (default `false`) |
+| `timeoutSeconds` | `number` | How long to wait for ComfyUI to come back, 10–600 (default `180`) |
+
+```
+I just installed a custom node. Restart ComfyUI so it loads.
 ```
 
 #### `get_install_guide`

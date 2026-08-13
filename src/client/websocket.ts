@@ -76,6 +76,7 @@ export class ComfyUIWebSocket extends EventEmitter {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
+  private closedByUser = false;
   private pendingPrompts: Map<
     string,
     {
@@ -88,42 +89,89 @@ export class ComfyUIWebSocket extends EventEmitter {
   constructor(url: string) {
     super();
     this.url = url;
+    // EventEmitter throws when an "error" event has no listener. This class
+    // emits one for every failed socket, including from the setTimeout in
+    // attemptReconnect() where nothing can catch it, so a ComfyUI restart
+    // would take the whole MCP server process down with it.
+    this.on("error", () => {});
   }
 
   connect(): Promise<void> {
+    // An explicit connect() is a fresh start, so clear backoff state left over
+    // from a previous outage. Without this, a socket whose reconnect ladder was
+    // exhausted could never be revived.
+    this.reconnectAttempts = 0;
+    this.closedByUser = false;
+    return this.openSocket();
+  }
+
+  private openSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
-      try {
-        this.ws = new WebSocket(this.url);
-
-        this.ws.on("open", () => {
-          this.reconnectAttempts = 0;
-          this.emit("connected");
-          resolve();
-        });
-
-        this.ws.on("message", (data) => {
-          try {
-            const message = JSON.parse(data.toString()) as ComfyUIMessage;
-            this.handleMessage(message);
-          } catch {
-            // Ignore parse errors for binary messages
-          }
-        });
-
-        this.ws.on("close", () => {
-          this.emit("disconnected");
-          this.attemptReconnect();
-        });
-
-        this.ws.on("error", (error) => {
-          this.emit("error", error);
-          if (this.reconnectAttempts === 0) {
-            reject(error);
-          }
-        });
-      } catch (error) {
+      // The returned promise must settle exactly once, on every path. The old
+      // code only rejected while reconnectAttempts === 0, so after an outage
+      // exhausted the ladder every later connect() hung forever and took the
+      // calling tool with it.
+      let settled = false;
+      const succeed = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
         reject(error);
+      };
+
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(this.url);
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+        return;
       }
+      this.ws = socket;
+
+      // Handlers from a socket we have already replaced must not drive
+      // reconnects or fail prompts belonging to the current one.
+      const isCurrent = () => this.ws === socket;
+
+      socket.on("open", () => {
+        if (!isCurrent()) return;
+        this.reconnectAttempts = 0;
+        this.emit("connected");
+        succeed();
+      });
+
+      socket.on("message", (data) => {
+        try {
+          const message = JSON.parse(data.toString()) as ComfyUIMessage;
+          this.handleMessage(message);
+        } catch {
+          // Ignore parse errors for binary messages
+        }
+      });
+
+      socket.on("close", () => {
+        if (!isCurrent()) return;
+        this.emit("disconnected");
+        fail(new Error(`WebSocket to ${this.url} closed before it opened`));
+        // ComfyUI went away mid-execution: the progress stream for anything in
+        // flight is gone, so settle those waiters instead of leaking them.
+        // reconnect() reconciles them against /history afterwards.
+        this.failPendingPrompts(
+          "ComfyUI disconnected before this execution finished"
+        );
+        if (!this.closedByUser) {
+          this.attemptReconnect();
+        }
+      });
+
+      socket.on("error", (error) => {
+        if (!isCurrent()) return;
+        this.emit("error", error);
+        fail(error);
+      });
     });
   }
 
@@ -131,10 +179,18 @@ export class ComfyUIWebSocket extends EventEmitter {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       setTimeout(() => {
-        this.connect().catch(() => {
+        if (this.closedByUser) return;
+        this.openSocket().catch(() => {
           // Reconnect failed, will try again
         });
       }, this.reconnectDelay * this.reconnectAttempts);
+    }
+  }
+
+  private failPendingPrompts(reason: string): void {
+    for (const [promptId, pending] of this.pendingPrompts) {
+      pending.reject(new Error(reason));
+      this.pendingPrompts.delete(promptId);
     }
   }
 
@@ -208,15 +264,14 @@ export class ComfyUIWebSocket extends EventEmitter {
   }
 
   disconnect(): void {
+    this.closedByUser = true;
     if (this.ws) {
-      this.ws.close();
+      const socket = this.ws;
       this.ws = null;
+      socket.close();
     }
     // Reject all pending prompts
-    for (const [promptId, pending] of this.pendingPrompts) {
-      pending.reject(new Error("WebSocket disconnected"));
-      this.pendingPrompts.delete(promptId);
-    }
+    this.failPendingPrompts("WebSocket disconnected");
   }
 
   isConnected(): boolean {
