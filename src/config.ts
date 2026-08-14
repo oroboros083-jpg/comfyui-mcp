@@ -13,6 +13,18 @@ export interface Config {
   outputDir: string;
   workflowsDir: string;
   outputSizeThreshold: number; // bytes, for auto mode
+  /**
+   * Extra directories the workflow tools may write to.
+   *
+   * Empty by default: writes normally go through ComfyUI's own userdata API,
+   * which refuses traversal itself, so the default is safe by construction.
+   * This list is the deliberate exception for folders outside the user
+   * directory.
+   *
+   * There is intentionally NO tool that appends to this. A permission an
+   * agent can grant itself is not a permission -- it is edited here, by hand.
+   */
+  workflowWriteDirs: string[];
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -23,6 +35,7 @@ const DEFAULT_CONFIG: Config = {
   outputDir: "./outputs",
   workflowsDir: "./workflows",
   outputSizeThreshold: 1024 * 1024, // 1MB
+  workflowWriteDirs: [],
 };
 
 function getConfigDir(): string {

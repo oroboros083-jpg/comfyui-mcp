@@ -121,6 +121,25 @@ import { getJobManager, JobManager } from "./jobs/manager.js";
 import { reconcileOrphanedJobs, ReconcileSummary } from "./jobs/reconcile.js";
 import { restartComfyUISchema, RestartComfyUIInput } from "./tools/restart.js";
 import {
+  listOpenWorkflowsSchema,
+  flushWorkflowSchema,
+  reloadWorkflowSchema,
+  readWorkflowSchema,
+  writeWorkflowSchema,
+  FlushWorkflowInput,
+  ReloadWorkflowInput,
+  ReadWorkflowInput,
+  WriteWorkflowInput,
+  getTabState,
+  flushWorkflow,
+  reloadWorkflow,
+  readWorkflowFile,
+  writeWorkflowFile,
+  diffWorkflows,
+  WriteNotPermittedError,
+  BRIDGE_MISSING_HINT,
+} from "./tools/workflow-files.js";
+import {
   runWorkflowAsync,
 } from "./tools/generate-async.js";
 import {
@@ -572,6 +591,69 @@ const TOOLS: Record<string, ToolDefinition> = {
     requiresConnection: true,
     annotations: {
       title: "Restart ComfyUI",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  list_open_workflows: {
+    schema: listOpenWorkflowsSchema,
+    description:
+      "List the workflows currently open in the user's ComfyUI browser tabs, and which have UNSAVED changes. Call this before rewriting a workflow file: a tab holding it will keep showing the old graph and, with autosave on, will write its stale copy back over yours. Requires the ComfyUI-TabBridge custom node.",
+    requiresConnection: true,
+    annotations: {
+      title: "List Open Workflow Tabs",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  flush_workflow: {
+    schema: flushWorkflowSchema,
+    description:
+      "Ask any open tab to SAVE a workflow now, and wait for it to settle. Use before overwriting a workflow so the human's unsaved edits reach disk, where they can be read and taken into account instead of being destroyed by your write. write_workflow does this for you.",
+    requiresConnection: true,
+    annotations: {
+      title: "Flush Workflow Tab",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  reload_workflow: {
+    schema: reloadWorkflowSchema,
+    description:
+      "Tell open tabs to re-read a workflow from disk after it was rewritten. Necessary because ComfyUI restores a workflow from cached session state rather than re-reading the file, so a tab can sit on a stale graph indefinitely and autosave it back. write_workflow does this for you.",
+    requiresConnection: true,
+    annotations: {
+      title: "Reload Workflow Tab",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  read_workflow: {
+    schema: readWorkflowSchema,
+    description:
+      "Read a workflow file as JSON. Reads through ComfyUI so it always sees the current file rather than a cached copy.",
+    requiresConnection: true,
+    annotations: {
+      title: "Read Workflow File",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  write_workflow: {
+    schema: writeWorkflowSchema,
+    description:
+      "Write a workflow file SAFELY: flushes any open tab so unsaved human edits reach disk, diffs the existing file against what you are about to write, writes, then tells the tab to reload. ALWAYS use this instead of writing workflow JSON with a file tool. If the returned diff is non-empty the human had edited that workflow -- read it and fold their intent into what you generate, rather than regenerating it away. Writes go through ComfyUI's user directory by default; other locations must be granted in workflowWriteDirs in the MCP config.",
+    requiresConnection: true,
+    annotations: {
+      title: "Write Workflow File",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
@@ -1336,6 +1418,117 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               ),
             },
           ],
+        };
+      }
+
+      case "list_open_workflows": {
+        await ensureConnected();
+        const base = ctx.discoveredUrl!;
+        const state = await getTabState(base);
+        if (!state) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ available: false, hint: BRIDGE_MISSING_HINT }, null, 2) }],
+          };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(state, null, 2) }] };
+      }
+
+      case "flush_workflow": {
+        const input = flushWorkflowSchema.parse(args) as FlushWorkflowInput;
+        await ensureConnected();
+        const result = await flushWorkflow(ctx.discoveredUrl!, input.path, input.wait_seconds ?? 4);
+        return {
+          content: [{ type: "text", text: JSON.stringify({
+            ...result,
+            hint: result.requested ? undefined : BRIDGE_MISSING_HINT,
+          }, null, 2) }],
+        };
+      }
+
+      case "reload_workflow": {
+        const input = reloadWorkflowSchema.parse(args) as ReloadWorkflowInput;
+        await ensureConnected();
+        const ok = await reloadWorkflow(ctx.discoveredUrl!, input.path, input.save_first !== false);
+        return {
+          content: [{ type: "text", text: JSON.stringify({
+            requested: ok, hint: ok ? undefined : BRIDGE_MISSING_HINT,
+          }, null, 2) }],
+        };
+      }
+
+      case "read_workflow": {
+        const input = readWorkflowSchema.parse(args) as ReadWorkflowInput;
+        await ensureConnected();
+        try {
+          const wf = await readWorkflowFile(ctx.discoveredUrl!, input.path, ctx.config.workflowWriteDirs ?? []);
+          if (wf === null) {
+            return { content: [{ type: "text", text: JSON.stringify({ found: false, path: input.path }, null, 2) }] };
+          }
+          return { content: [{ type: "text", text: JSON.stringify(wf, null, 2) }] };
+        } catch (err) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: err instanceof Error ? err.message : String(err) }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case "write_workflow": {
+        const input = writeWorkflowSchema.parse(args) as WriteWorkflowInput;
+        await ensureConnected();
+        const base = ctx.discoveredUrl!;
+        const granted = ctx.config.workflowWriteDirs ?? [];
+
+        // 1. Flush, so unsaved hand edits land on disk and show up in the
+        //    diff below instead of being destroyed by this write.
+        let flushed = null;
+        if (!input.skip_flush) {
+          flushed = await flushWorkflow(base, input.path, 4);
+        }
+
+        // 2. Diff what is there against what we are about to write.
+        let diff = null;
+        try {
+          const existing = await readWorkflowFile(base, input.path, granted);
+          if (existing) diff = diffWorkflows(existing, input.workflow);
+        } catch {
+          // Unreadable or absent: nothing to compare, carry on and write.
+        }
+
+        // 3. Write.
+        let written: string;
+        try {
+          written = await writeWorkflowFile(base, input.path, input.workflow, granted);
+        } catch (err) {
+          const permission = err instanceof WriteNotPermittedError;
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              written: false,
+              reason: err instanceof Error ? err.message : String(err),
+              ...(permission ? { how_to_allow: "Add the directory to workflowWriteDirs in the MCP config file. There is no tool for this on purpose -- it is the human's decision." } : {}),
+            }, null, 2) }],
+            isError: true,
+          };
+        }
+
+        // 4. Reload, so the tab is not left on the old graph.
+        let reloaded = false;
+        if (!input.skip_reload) {
+          reloaded = await reloadWorkflow(base, input.path, true);
+        }
+
+        return {
+          content: [{ type: "text", text: JSON.stringify({
+            written: true,
+            path: written,
+            flushed,
+            reloaded,
+            human_edits_detected: diff?.any ?? false,
+            ...(diff?.any ? {
+              their_changes: diff.summary,
+              action_required: "The human had edited this workflow. Those edits were just overwritten. Read the diff, work out what they were doing, and fold it into the generator so it survives the next regeneration.",
+            } : {}),
+          }, null, 2) }],
         };
       }
 
