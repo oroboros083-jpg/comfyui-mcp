@@ -2,7 +2,15 @@ import { z } from "zod";
 import { realpath, readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { dirname, extname, isAbsolute, relative, resolve, sep } from "path";
-import { safeFetch } from "../utils/safe-fetch.js";
+
+/**
+ * NOTE ON HTTP: these call ComfyUI directly with plain `fetch`, NOT
+ * `safeFetch`. safeFetch is the SSRF guard for UNTRUSTED urls and it refuses
+ * loopback on purpose ("Refusing to fetch localhost") -- which is precisely
+ * where ComfyUI lives, so routing these through it makes every call throw.
+ * The base url here is the discovered ComfyUI instance, the same trusted
+ * target ComfyUIClient talks to. Do not "fix" this back to safeFetch.
+ */
 
 /**
  * Reading and writing ComfyUI workflow files without fighting the human.
@@ -306,7 +314,7 @@ const NO_BRIDGE =
 
 export async function getTabState(baseUrl: string): Promise<TabState | null> {
   try {
-    const res = await safeFetch(`${baseUrl}/tabs/state`);
+    const res = await fetch(`${baseUrl}/tabs/state`);
     if (!res.ok) return null;
     return (await res.json()) as TabState;
   } catch {
@@ -320,7 +328,7 @@ async function postBridge(
   body: Record<string, unknown>
 ): Promise<boolean> {
   try {
-    const res = await safeFetch(`${baseUrl}${route}`, {
+    const res = await fetch(`${baseUrl}${route}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -377,7 +385,7 @@ export async function readWorkflowFile(
     // Cache-busted: a plain GET can return a stale copy, which defeats the
     // point of reading before a write.
     const url = `${baseUrl}/api/userdata/${encodeURIComponent(path)}?t=${Date.now()}`;
-    const res = await safeFetch(url, { headers: { "Cache-Control": "no-cache" } });
+    const res = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
     if (!res.ok) return null;
     return (await res.json()) as unknown;
   }
@@ -395,7 +403,7 @@ export async function writeWorkflowFile(
   const blob = JSON.stringify(workflow, null, 2);
   if (isUserdataPath(path)) {
     const url = `${baseUrl}/api/userdata/${encodeURIComponent(path)}?overwrite=true`;
-    const res = await safeFetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: blob,
