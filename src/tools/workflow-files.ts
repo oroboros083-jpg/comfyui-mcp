@@ -201,16 +201,27 @@ interface WorkflowNodeLike {
   inputs?: Array<{ name?: string; link?: number | null }>;
 }
 
+/**
+ * A diff is always oriented THEIRS relative to YOURS: "theirs" is the file as
+ * it currently sits on disk (the human's), "yours" is the graph about to be
+ * written over it.
+ *
+ * The names say which is which on purpose. A bare "896 -> 1024" does not tell
+ * the reader which side is the human's, and guessing wrong means folding the
+ * value they had just REPLACED back into the generator -- reintroducing the
+ * exact edit this path exists to preserve. The rendered summary carries the
+ * same legend for the same reason.
+ */
 export interface WorkflowDiff {
   any: boolean;
-  addedNodes: Array<{ id: unknown; type?: string }>;
-  removedNodes: Array<{ id: unknown; type?: string }>;
+  onlyInTheirs: Array<{ id: unknown; type?: string }>;
+  onlyInYours: Array<{ id: unknown; type?: string }>;
   widgetChanges: Array<{
     id: unknown;
     type?: string;
     index: number;
-    from: unknown;
-    to: unknown;
+    yours: unknown;
+    theirs: unknown;
   }>;
   linkChanges: Array<{ id: unknown; type?: string }>;
   summary: string;
@@ -222,7 +233,8 @@ function shorten(v: unknown, limit = 70): string {
 }
 
 /**
- * What `current` has that `candidate` does not.
+ * What the file on disk (`current`, "theirs") has that the graph about to be
+ * written (`candidate`, "yours") does not.
  *
  * Node POSITIONS are ignored on purpose: auto-layout rewrites every one of
  * them, and so does anyone tidying the canvas. Treating that as an edit
@@ -237,13 +249,17 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
   const cur = nodesOf(current);
   const cand = nodesOf(candidate);
 
-  const addedNodes: WorkflowDiff["addedNodes"] = [];
-  const removedNodes: WorkflowDiff["removedNodes"] = [];
+  const onlyInTheirs: WorkflowDiff["onlyInTheirs"] = [];
+  const onlyInYours: WorkflowDiff["onlyInYours"] = [];
   const widgetChanges: WorkflowDiff["widgetChanges"] = [];
   const linkChanges: WorkflowDiff["linkChanges"] = [];
 
-  for (const [id, n] of cur) if (!cand.has(id)) addedNodes.push({ id, type: n.type });
-  for (const [id, n] of cand) if (!cur.has(id)) removedNodes.push({ id, type: n.type });
+  // Deliberately not "added"/"removed": a node in theirs and not yours is
+  // usually one they ADDED, but a node in yours and not theirs is just as
+  // often one your generator is adding as one they deleted. The presence
+  // claim is observable; the intent behind it is not.
+  for (const [id, n] of cur) if (!cand.has(id)) onlyInTheirs.push({ id, type: n.type });
+  for (const [id, n] of cand) if (!cur.has(id)) onlyInYours.push({ id, type: n.type });
 
   for (const [id, c] of cur) {
     const g = cand.get(id);
@@ -253,7 +269,7 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
     const len = Math.max(cv.length, gv.length);
     for (let i = 0; i < len; i++) {
       if (JSON.stringify(cv[i]) !== JSON.stringify(gv[i])) {
-        widgetChanges.push({ id, type: c.type, index: i, from: gv[i], to: cv[i] });
+        widgetChanges.push({ id, type: c.type, index: i, yours: gv[i], theirs: cv[i] });
       }
     }
     // Only real wires. ComfyUI's saved format lists every widget as an input
@@ -270,25 +286,28 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
   }
 
   const lines: string[] = [];
-  for (const n of addedNodes) lines.push(`  + ADDED    ${n.type} (id ${n.id})`);
-  for (const n of removedNodes) lines.push(`  - REMOVED  ${n.type} (id ${n.id})`);
+  for (const n of onlyInTheirs) lines.push(`  THEIRS ONLY  ${n.type} (id ${n.id})`);
+  for (const n of onlyInYours) lines.push(`  YOURS ONLY   ${n.type} (id ${n.id})`);
   for (const w of widgetChanges)
     lines.push(
-      `  ~ WIDGET   ${w.type} (id ${w.id}) [${w.index}]: ` +
-        `${shorten(w.from)} -> ${shorten(w.to)}`
+      `  WIDGET       ${w.type} (id ${w.id}) [${w.index}]: ` +
+        `yours ${shorten(w.yours)} | theirs ${shorten(w.theirs)}`
     );
-  for (const l of linkChanges) lines.push(`  ~ REWIRED  ${l.type} (id ${l.id})`);
+  for (const l of linkChanges) lines.push(`  REWIRED      ${l.type} (id ${l.id})`);
 
   const any =
-    addedNodes.length + removedNodes.length + widgetChanges.length + linkChanges.length >
+    onlyInTheirs.length + onlyInYours.length + widgetChanges.length + linkChanges.length >
     0;
+  const legend =
+    "THEIRS = the file on disk now (the human's). YOURS = what you are about " +
+    "to write over it.\n";
   return {
     any,
-    addedNodes,
-    removedNodes,
+    onlyInTheirs,
+    onlyInYours,
     widgetChanges,
     linkChanges,
-    summary: any ? lines.join("\n") : "no changes",
+    summary: any ? legend + lines.join("\n") : "no changes",
   };
 }
 
