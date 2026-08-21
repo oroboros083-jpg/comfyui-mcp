@@ -285,13 +285,27 @@ Recorded so it is not rediscovered every time:
 
 - **Model architecture is one concept in eight files.** Adding an
   architecture takes ~12 edits (see above), and the modules have already
-  drifted: `prompting-guide.ts` ships guides for seven architectures
-  `capabilities/index.ts` cannot detect and `builder.ts` cannot build, and
-  `recommend.ts` maps Qwen to `modelType: "flux"` because its union has only
-  four values. The fix is one `ARCHITECTURES` registry each module consults,
-  turning an addition into one table row plus a builder. Roughly 1-2 days,
-  and `Capabilities.hasX` is public so it needs a derived compatibility
-  shim for a release.
+  drifted apart. Counted 2026-08-21:
+  - `capabilities/index.ts` detects 5 architectures (SD15, SDXL, SD3, Flux,
+    Cascade).
+  - `resources/prompting-guide.ts` ships 11 guides, but only 4 (sd15, sdxl,
+    sd3, flux) are reachable - those are the only ones the advice ladders in
+    `server/tools/discovery.ts` and `server/tools/setup.ts` name. The other
+    7, including `cascade`, are unreachable unless the caller already knows
+    the key.
+  - `hasCascade` is detected and then read by nothing except its own summary
+    line: detection with no consumer.
+  - `workflows/builder.ts` has 2 builders (standard and Flux), so every other
+    architecture routes through one of those two graphs.
+  - `tools/examples/recommend.ts` has a 4-value `modelType` union against 36
+    pattern rows, so **24 of the 36 are labelled `"flux"`** - Qwen, HiDream,
+    Wan, Lumina, Chroma, Z-Image and others, one of them carrying the comment
+    "Uses similar workflow structure to Flux".
+
+  The fix is one `ARCHITECTURES` registry each module consults, turning an
+  addition into one table row plus a builder. Roughly 1-2 days, and
+  `Capabilities.hasX` is public so it needs a derived compatibility shim for
+  a release.
 - **`generate.ts` and `generate-async.ts` duplicate ~120 lines** and have
   diverged: the Docker `OUTPUT_DIR` escape hatch exists only in the sync
   path, and only the sync path sets `path` on returned images even though
