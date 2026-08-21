@@ -39,7 +39,7 @@ import { dirname, extname, isAbsolute, relative, resolve, sep } from "path";
 // Schemas
 // ---------------------------------------------------------------------------
 
-export const listOpenWorkflowsSchema = z.object({});
+export const listOpenWorkflowsSchema = z.object({}).strict();
 
 export const flushWorkflowSchema = z.object({
   path: z
@@ -54,7 +54,7 @@ export const flushWorkflowSchema = z.object({
     .max(30)
     .optional()
     .describe("How long to wait for the tab to finish saving. Default 4."),
-});
+}).strict();
 
 export const reloadWorkflowSchema = z.object({
   path: z.string().describe("Workflow path relative to the user directory"),
@@ -65,7 +65,7 @@ export const reloadWorkflowSchema = z.object({
       "Save the tab's unsaved changes before reloading. Default true. " +
         "Setting this false DISCARDS whatever the human had not saved."
     ),
-});
+}).strict();
 
 export const readWorkflowSchema = z.object({
   path: z
@@ -74,7 +74,7 @@ export const readWorkflowSchema = z.object({
       "Workflow path relative to the user directory, or an absolute path " +
         "inside a granted directory"
     ),
-});
+}).strict();
 
 export const writeWorkflowSchema = z.object({
   path: z
@@ -103,7 +103,7 @@ export const writeWorkflowSchema = z.object({
         "the tab keeps showing the old graph and may autosave it back over " +
         "what you just wrote."
     ),
-});
+}).strict();
 
 export type ListOpenWorkflowsInput = z.infer<typeof listOpenWorkflowsSchema>;
 export type FlushWorkflowInput = z.infer<typeof flushWorkflowSchema>;

@@ -239,7 +239,7 @@ export const startComfyUISchema = z.object({
     .describe(
       "How long to wait for ComfyUI to start answering before reporting failure. A cold start that loads many custom nodes can take minutes."
     ),
-});
+}).strict();
 
 export type StartComfyUIInput = z.infer<typeof startComfyUISchema>;
 

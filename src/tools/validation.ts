@@ -6,7 +6,7 @@ export const validateWorkflowSchema = z.object({
   workflow: z
     .record(z.unknown())
     .describe("The ComfyUI workflow JSON (API format) to validate"),
-});
+}).strict();
 
 export type ValidateWorkflowInput = z.infer<typeof validateWorkflowSchema>;
 

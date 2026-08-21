@@ -12,7 +12,7 @@ export const renderSvgSchema = z.object({
     name: z.string().describe("Font name (must be downloaded first with download_font)"),
     family: z.string().optional().describe("CSS font-family name to use in the SVG (defaults to font name)"),
   })).optional().describe("Fonts to embed in the SVG for rendering"),
-});
+}).strict();
 
 export type RenderSvgInput = z.infer<typeof renderSvgSchema>;
 

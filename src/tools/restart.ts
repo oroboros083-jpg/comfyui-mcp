@@ -18,6 +18,6 @@ export const restartComfyUISchema = z.object({
     .describe(
       "How long to wait for ComfyUI to come back before reporting failure. Loading many custom nodes or large models can take a while."
     ),
-});
+}).strict();
 
 export type RestartComfyUIInput = z.infer<typeof restartComfyUISchema>;

@@ -1,0 +1,459 @@
+/**
+ * ComfyUI's own queue, and this server's task tracking on top of it.
+ *
+ * The two are distinct: a "job" is ComfyUI's prompt, a "task" is our record of
+ * it, which survives an MCP server restart. Cancelling one is not cancelling
+ * the other, which is why the tools say so explicitly.
+ */
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+
+import { defineTool, noArgs } from "../register.js";
+import { ensureConnected } from "../connection.js";
+import {
+  dataResult,
+  textResult,
+  errorResult,
+  paginate,
+  paginationFields,
+} from "../../utils/response.js";
+import {
+  getQueueSchema,
+  getQueue,
+  cancelJobSchema,
+  cancelJob,
+  interrupt,
+  getHistorySchema,
+  getHistory,
+} from "../../tools/queue.js";
+import { processImageForTransfer } from "../../utils/image.js";
+import { ServerContext } from "../../context.js";
+import { imagesToContent } from "./generation.js";
+
+const taskIdSchema = z
+  .object({ taskId: z.string().min(1).describe("The task ID returned by comfyui_run_workflow") })
+  .strict();
+
+export function registerTaskTools(server: McpServer, ctx: () => ServerContext): void {
+  defineTool(server, {
+    name: "get_queue",
+    description:
+      "Get ComfyUI's current queue: what is running now and what is pending. Reflects everything " +
+      "queued on the instance, including work submitted outside this server.",
+    schema: getQueueSchema,
+    requiresConnection: true,
+    annotations: {
+      title: "Get Queue Status",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    handler: async () => {
+      const { client } = await ensureConnected();
+      return textResult(await getQueue(client));
+    },
+  });
+
+  defineTool(server, {
+    name: "cancel_job",
+    description:
+      "Cancel a QUEUED ComfyUI job by prompt ID. Only works for jobs that have not started. To stop a " +
+      "job that is actively generating, use comfyui_interrupt instead.",
+    schema: cancelJobSchema,
+    requiresConnection: true,
+    annotations: {
+      title: "Cancel Queued Job",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    handler: async (input) => {
+      const { client } = await ensureConnected();
+      return textResult(await cancelJob(client, input));
+    },
+  });
+
+  defineTool(server, {
+    name: "interrupt",
+    description:
+      "Interrupt the job ComfyUI is currently running. Stops generation in progress and discards its " +
+      "output. For jobs that are queued but not yet started, use comfyui_cancel_job instead.",
+    schema: noArgs,
+    requiresConnection: true,
+    annotations: {
+      title: "Interrupt Running Job",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    handler: async () => {
+      const { client } = await ensureConnected();
+      return textResult(await interrupt(client));
+    },
+  });
+
+  defineTool(server, {
+    name: "get_history",
+    description:
+      "Get ComfyUI's generation history: recent prompts and the output files they produced. Defaults to " +
+      "the most recent entries; raise 'limit' to look further back.",
+    schema: getHistorySchema,
+    requiresConnection: true,
+    annotations: {
+      title: "Get Generation History",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    handler: async (input) => {
+      const { client } = await ensureConnected();
+      return textResult(await getHistory(client, input), "Lower 'limit'.");
+    },
+  });
+
+  // === Task tracking ===
+
+  defineTool(server, {
+    name: "get_task",
+    description:
+      "Get the status of an async generation task: current step, total steps, average step time, " +
+      "estimated time remaining, and a suggested poll interval derived from actual generation speed. " +
+      "Poll at the suggested interval rather than tighter - the work is GPU-bound either way.",
+    schema: taskIdSchema,
+    requiresConnection: false,
+    annotations: {
+      title: "Get Task Status",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    handler: (input) => {
+      const job = ctx().jobManager.getJob(input.taskId);
+      if (!job) {
+        return errorResult(
+          `Task not found: ${input.taskId}`,
+          "Use comfyui_list_tasks to see known task IDs."
+        );
+      }
+
+      const response: Record<string, unknown> = {
+        taskId: job.taskId,
+        promptId: job.promptId,
+        status: job.status,
+        statusMessage: job.statusMessage,
+        createdAt: job.createdAt,
+        lastUpdatedAt: job.lastUpdatedAt,
+        error: job.error,
+        name: job.name,
+      };
+
+      if (job.progressStats) {
+        response.progress = {
+          currentStep: job.progressStats.currentStep,
+          totalSteps: job.progressStats.totalSteps,
+          currentNode: job.progressStats.currentNode,
+          avgStepTimeMs: job.progressStats.avgStepTimeMs,
+          estimatedRemainingMs: job.progressStats.estimatedRemainingMs,
+        };
+
+        // Poll at half a step, clamped - fast enough to feel responsive,
+        // slow enough not to spin on a long diffusion step.
+        if (job.progressStats.avgStepTimeMs) {
+          response.suggestedPollIntervalMs = Math.max(
+            500,
+            Math.min(10000, Math.round(job.progressStats.avgStepTimeMs / 2))
+          );
+        }
+      }
+
+      return dataResult(response);
+    },
+  });
+
+  defineTool(server, {
+    name: "get_task_result",
+    description:
+      "Get the result of a completed generation task, returning its images. If the task is still " +
+      "running, reports that instead of blocking - poll comfyui_get_task first.",
+    schema: taskIdSchema,
+    requiresConnection: false,
+    annotations: {
+      title: "Get Task Result",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    handler: (input) => {
+      const job = ctx().jobManager.getJob(input.taskId);
+      if (!job) {
+        return errorResult(
+          `Task not found: ${input.taskId}`,
+          "Use comfyui_list_tasks to see known task IDs."
+        );
+      }
+
+      if (job.status === "working") {
+        return dataResult({
+          taskId: job.taskId,
+          status: job.status,
+          statusMessage: job.statusMessage,
+          hint: "Still in progress. Poll comfyui_get_task for progress and a suggested interval.",
+        });
+      }
+
+      if (job.status === "failed") return errorResult(`Task failed: ${job.error}`);
+      if (job.status === "cancelled") return errorResult("Task was cancelled.");
+      if (!job.result) return errorResult("Task completed but no result was recorded.");
+
+      return imagesToContent(
+        `Task ${job.taskId} completed. Generated ${job.result.images.length} image(s).`,
+        job.result.images
+      );
+    },
+  });
+
+  defineTool(server, {
+    name: "list_tasks",
+    description:
+      "List generation tasks tracked by this server, newest first, with a count by status. Filter with " +
+      "'status' and page with 'limit'/'offset'.\n\n" +
+      "Returns: { summary: {<status>: count}, total, count, offset, tasks, has_more, next_offset }",
+    schema: z
+      .object({
+        status: z
+          .enum(["working", "completed", "failed", "cancelled"])
+          .optional()
+          .describe("Only return tasks in this state"),
+        ...paginationFields,
+      })
+      .strict(),
+    requiresConnection: false,
+    annotations: {
+      title: "List Tasks",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    handler: (input) => {
+      const c = ctx();
+      const jobs = c.jobManager.listJobs(input.status);
+      const page = paginate(jobs, input.limit, input.offset);
+
+      return dataResult({
+        summary: c.jobManager.getJobCounts(),
+        total: page.total,
+        count: page.count,
+        offset: page.offset,
+        tasks: page.items.map((j) => ({
+          taskId: j.taskId,
+          status: j.status,
+          statusMessage: j.statusMessage,
+          createdAt: j.createdAt,
+          lastUpdatedAt: j.lastUpdatedAt,
+          name: j.name,
+        })),
+        has_more: page.has_more,
+        ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+      });
+    },
+  });
+
+  defineTool(server, {
+    name: "cancel_task",
+    description:
+      "Cancel an async generation task. For a task still queued in ComfyUI this cancels the underlying " +
+      "job. For one already generating this only stops tracking it - use comfyui_interrupt to actually " +
+      "stop the generation.",
+    schema: taskIdSchema,
+    requiresConnection: true,
+    annotations: {
+      title: "Cancel Task",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    handler: async (input) => {
+      const { client } = await ensureConnected();
+      const c = ctx();
+      const job = c.jobManager.getJob(input.taskId);
+
+      if (!job) {
+        return errorResult(
+          `Task not found: ${input.taskId}`,
+          "Use comfyui_list_tasks to see known task IDs."
+        );
+      }
+      if (job.status !== "working") {
+        return errorResult(`Task is not running (status: ${job.status}).`);
+      }
+
+      try {
+        await cancelJob(client, { promptId: job.promptId });
+      } catch {
+        // Already finished or gone in ComfyUI; stop tracking it either way.
+      }
+
+      c.jobManager.cancelJob(input.taskId);
+      return dataResult({ cancelled: true, taskId: input.taskId });
+    },
+  });
+
+  defineTool(server, {
+    name: "name_generation",
+    description:
+      "Assign a descriptive name to an existing generation so it can be retrieved later by name. Use " +
+      "names that describe the content ('landscape_sunset_warm', 'logo_draft_2'), not the ordering.",
+    schema: z
+      .object({
+        taskId: z.string().min(1).describe("The task ID to name"),
+        name: z
+          .string()
+          .min(1)
+          .describe("Descriptive name, e.g. 'hero_banner_blue' or 'product_shot_v3'"),
+      })
+      .strict(),
+    requiresConnection: false,
+    annotations: {
+      title: "Name Generation",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    handler: (input) => {
+      const c = ctx();
+      if (!c.jobManager.getJob(input.taskId)) {
+        return errorResult(`Task not found: ${input.taskId}`);
+      }
+      if (!c.jobManager.setName(input.taskId, input.name)) {
+        return errorResult(`Could not set name for task: ${input.taskId}`);
+      }
+
+      return dataResult({
+        taskId: input.taskId,
+        name: input.name,
+        hint: `Retrieve with comfyui_get_generation_by_name({ name: "${input.name}" }).`,
+      });
+    },
+  });
+
+  defineTool(server, {
+    name: "get_generation_by_name",
+    description:
+      "Retrieve a generation by the name assigned via comfyui_run_workflow's 'name' or " +
+      "comfyui_name_generation. Returns images, the same as comfyui_get_task_result.\n\n" +
+      "If the task was recorded as timed out but ComfyUI actually finished it, this recovers the " +
+      "output from ComfyUI's history rather than reporting a failure.",
+    schema: z
+      .object({ name: z.string().min(1).describe("The name assigned to the generation") })
+      .strict(),
+    requiresConnection: false,
+    annotations: {
+      title: "Get Generation by Name",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    handler: async (input) => {
+      const c = ctx();
+      const job = c.jobManager.getJobByName(input.name);
+      if (!job) {
+        return errorResult(
+          `No generation found with name: ${input.name}`,
+          "Use comfyui_list_tasks to see tracked generations."
+        );
+      }
+
+      if (job.status === "working") {
+        return dataResult({
+          name: job.name,
+          taskId: job.taskId,
+          status: job.status,
+          statusMessage: job.statusMessage,
+          hint: "Still in progress. Poll comfyui_get_task with this taskId.",
+        });
+      }
+
+      if (job.status === "failed") {
+        // A timeout on our side does not mean ComfyUI failed - it may have
+        // finished after we stopped waiting. Check before reporting failure.
+        const recovered = job.error?.includes("timed out")
+          ? await recoverTimedOutJob(c, job.promptId, job.taskId)
+          : null;
+
+        if (recovered) {
+          return imagesToContent(
+            `Generation "${input.name}" recovered from timeout. ${recovered.length} image(s).`,
+            recovered
+          );
+        }
+
+        return errorResult(`Generation "${input.name}" failed: ${job.error}`);
+      }
+
+      if (job.status === "cancelled") {
+        return errorResult(`Generation "${input.name}" was cancelled.`);
+      }
+      if (!job.result) {
+        return errorResult(`Generation "${input.name}" completed but no result was recorded.`);
+      }
+
+      return imagesToContent(
+        `Generation "${input.name}" (task ${job.taskId}) completed. ${job.result.images.length} image(s).`,
+        job.result.images
+      );
+    },
+  });
+}
+
+/**
+ * Pull a job's output from ComfyUI's history after our own wait timed out.
+ * Returns null when it genuinely did not complete.
+ */
+async function recoverTimedOutJob(
+  c: ServerContext,
+  promptId: string,
+  taskId: string
+): Promise<Array<{ filename: string; data?: string; mimeType?: string }> | null> {
+  if (!c.client) return null;
+
+  try {
+    const history = await c.client.getHistory(promptId);
+    const entry = history[promptId];
+    if (!entry?.status?.completed || !entry.outputs) return null;
+
+    const images: Array<{ filename: string; data?: string; mimeType?: string }> = [];
+    for (const output of Object.values(entry.outputs)) {
+      const nodeOutput = output as {
+        images?: Array<{ filename: string; subfolder: string; type: string }>;
+      };
+      for (const img of nodeOutput.images ?? []) {
+        const raw = await c.client.getImage(img.filename, img.subfolder, img.type);
+        const processed = await processImageForTransfer(Buffer.from(raw), {
+          format: "jpeg",
+          quality: 85,
+        });
+        images.push({
+          filename: img.filename,
+          data: processed.data,
+          mimeType: processed.mimeType,
+        });
+      }
+    }
+
+    c.jobManager.completeJob(taskId, {
+      success: true,
+      promptId,
+      outputs: entry.outputs,
+      images,
+    });
+
+    return images;
+  } catch {
+    return null;
+  }
+}

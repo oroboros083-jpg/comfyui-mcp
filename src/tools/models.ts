@@ -6,14 +6,14 @@ import {
   jsonText,
 } from "../utils/response.js";
 
+/** How many category counts to report alongside a node listing. */
+const TOP_CATEGORIES = 20;
+
 /**
  * A ComfyUI output slot is usually a type name ("IMAGE"), but a node may
  * declare a COMBO output as the array of its options. Normalise both to a
  * comparable type name.
  */
-/** How many category counts to report alongside a node listing. */
-const TOP_CATEGORIES = 20;
-
 export function outputTypeName(outType: unknown): string {
   if (typeof outType === "string") return outType.toUpperCase();
   if (Array.isArray(outType)) return "COMBO";
@@ -41,7 +41,7 @@ export const listModelsSchema = z.object({
     .optional()
     .describe("Only return model filenames containing this substring (case-insensitive)"),
   ...paginationFields,
-});
+}).strict();
 
 export type ListModelsInput = z.infer<typeof listModelsSchema>;
 
@@ -97,7 +97,7 @@ export const listNodesSchema = z.object({
         "'full' (adds the description). Use 'names' to survey what exists, then get_node_info for specifics."
     ),
   ...paginationFields,
-});
+}).strict();
 
 export type ListNodesInput = z.infer<typeof listNodesSchema>;
 
@@ -179,7 +179,7 @@ export async function listNodes(
 
 export const getNodeInfoSchema = z.object({
   node: z.string().describe("The node class_type name (e.g., 'KSampler', 'CheckpointLoaderSimple')"),
-});
+}).strict();
 
 export type GetNodeInfoInput = z.infer<typeof getNodeInfoSchema>;
 
@@ -451,7 +451,7 @@ export const findNodesByTypeSchema = z.object({
     .optional()
     .describe("Find nodes that produce this output type (e.g., 'MODEL', 'LATENT', 'IMAGE', 'CONDITIONING')"),
   ...paginationFields,
-});
+}).strict();
 
 export type FindNodesByTypeInput = z.infer<typeof findNodesByTypeSchema>;
 
@@ -565,7 +565,7 @@ export const buildNodeSchema = z.object({
     .record(z.unknown())
     .optional()
     .describe("Input values to set. For connections, use [nodeId, slotIndex] format. Omitted inputs use defaults."),
-});
+}).strict();
 
 export type BuildNodeInput = z.infer<typeof buildNodeSchema>;
 

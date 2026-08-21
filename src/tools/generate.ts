@@ -96,7 +96,7 @@ export const runWorkflowSchema = z.object({
     .string()
     .optional()
     .describe("Descriptive name for this generation (e.g., 'beach_sunset_v2', 'logo_blue_variant'). Use clear, searchable names to find it later with get_generation_by_name."),
-});
+}).strict();
 
 export type RunWorkflowInput = z.infer<typeof runWorkflowSchema>;
 
@@ -255,7 +255,7 @@ export const getImageSchema = z.object({
     .describe("Type of image location"),
   imageFormat: imageFormatSchema.optional(),
   imageQuality: imageQualitySchema.optional(),
-});
+}).strict();
 
 export type GetImageInput = z.infer<typeof getImageSchema>;
 

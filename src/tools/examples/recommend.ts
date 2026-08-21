@@ -393,7 +393,7 @@ export const recommendWorkflowSchema = z.object({
     .optional()
     .default("txt2img")
     .describe("What type of generation task"),
-});
+}).strict();
 
 export type RecommendWorkflowInput = z.infer<typeof recommendWorkflowSchema>;
 

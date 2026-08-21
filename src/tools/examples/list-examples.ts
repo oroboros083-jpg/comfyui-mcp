@@ -215,7 +215,7 @@ export const listExamplesSchema = z.object({
         "'full' (adds required models, nodes, and notes). Use get_example_workflow for the actual workflow JSON."
     ),
   ...paginationFields,
-});
+}).strict();
 
 export type ListExamplesInput = z.infer<typeof listExamplesSchema>;
 
@@ -299,7 +299,7 @@ export const getExampleWorkflowSchema = z.object({
     .optional()
     .default(0)
     .describe("Which variant to get (0 = first/default)"),
-});
+}).strict();
 
 export type GetExampleWorkflowInput = z.infer<typeof getExampleWorkflowSchema>;
 

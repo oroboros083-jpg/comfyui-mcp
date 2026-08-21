@@ -114,7 +114,7 @@ export const getInstallGuideSchema = z.object({
     .optional()
     .default("auto")
     .describe("Target platform (auto-detect if not specified)"),
-});
+}).strict();
 
 export type GetInstallGuideInput = z.infer<typeof getInstallGuideSchema>;
 
@@ -203,7 +203,7 @@ export const getModelGuideSchema = z.object({
     .optional()
     .default("all")
     .describe("Type of model to get guidance for"),
-});
+}).strict();
 
 export type GetModelGuideInput = z.infer<typeof getModelGuideSchema>;
 
@@ -311,7 +311,7 @@ export function getModelGuide(input: GetModelGuideInput): string {
   return guide;
 }
 
-export const getStatusSchema = z.object({});
+export const getStatusSchema = z.object({}).strict();
 
 export interface ServerStatus {
   comfyuiConnected: boolean;

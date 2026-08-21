@@ -108,7 +108,7 @@ export const getDownloadUrlSchema = z.object({
   modelName: z
     .string()
     .describe("The model name or partial name to search for (e.g., 'flux1-schnell', 'sdxl', 't5xxl')"),
-});
+}).strict();
 
 export type GetDownloadUrlInput = z.infer<typeof getDownloadUrlSchema>;
 

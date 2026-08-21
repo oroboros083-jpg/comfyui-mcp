@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ComfyUIClient } from "../client/comfyui.js";
 
-export const getQueueSchema = z.object({});
+export const getQueueSchema = z.object({}).strict();
 
 export async function getQueue(client: ComfyUIClient): Promise<string> {
   const queue = await client.getQueue();
@@ -33,7 +33,7 @@ export const cancelJobSchema = z.object({
     .string()
     .optional()
     .describe("Specific prompt ID to cancel. If not provided, cancels all jobs."),
-});
+}).strict();
 
 export type CancelJobInput = z.infer<typeof cancelJobSchema>;
 
@@ -49,7 +49,7 @@ export async function cancelJob(
   return JSON.stringify({ success: true, message: "All jobs cancelled" });
 }
 
-export const interruptSchema = z.object({});
+export const interruptSchema = z.object({}).strict();
 
 export async function interrupt(client: ComfyUIClient): Promise<string> {
   await client.interrupt();
@@ -59,7 +59,7 @@ export async function interrupt(client: ComfyUIClient): Promise<string> {
 export const getHistorySchema = z.object({
   promptId: z.string().optional().describe("Specific prompt ID to get history for"),
   limit: z.number().optional().default(10).describe("Maximum number of entries to return"),
-});
+}).strict();
 
 export type GetHistoryInput = z.infer<typeof getHistorySchema>;
 

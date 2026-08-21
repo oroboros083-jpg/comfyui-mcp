@@ -21,9 +21,9 @@ export const downloadFontSchema = z.object({
       name: z.string().describe("Name to save the font as (without extension)"),
     }),
   ]).describe("Font source - either Google Fonts or a direct URL"),
-});
+}).strict();
 
-export const listFontsSchema = z.object({});
+export const listFontsSchema = z.object({}).strict();
 
 export type DownloadFontInput = z.infer<typeof downloadFontSchema>;
 

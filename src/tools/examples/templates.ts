@@ -57,7 +57,7 @@ export const searchTemplatesSchema = z.object({
     .default(true)
     .describe("Include custom saved templates from the database"),
   ...paginationFields,
-});
+}).strict();
 
 export type SearchTemplatesInput = z.infer<typeof searchTemplatesSchema>;
 
@@ -295,7 +295,7 @@ export const getTemplateSchema = z.object({
     .record(z.unknown())
     .optional()
     .describe("Parameters for the template (e.g., { prompt: 'a cat', width: 1024 })"),
-});
+}).strict();
 
 export type GetTemplateInput = z.infer<typeof getTemplateSchema>;
 
@@ -447,7 +447,7 @@ export const saveTemplateSchema = z.object({
     .record(z.unknown())
     .optional()
     .describe("Default settings (steps, cfg, width, height, etc.)"),
-});
+}).strict();
 
 export type SaveTemplateInput = z.infer<typeof saveTemplateSchema>;
 
@@ -494,7 +494,7 @@ export const deleteTemplateSchema = z.object({
   id: z
     .string()
     .describe("The template ID to delete"),
-});
+}).strict();
 
 export type DeleteTemplateInput = z.infer<typeof deleteTemplateSchema>;
 
