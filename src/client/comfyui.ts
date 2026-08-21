@@ -78,6 +78,56 @@ export interface ModelInfo {
   unet: string[];
 }
 
+/**
+ * Which loader node's combo input lists each kind of model.
+ *
+ * A table rather than seven near-identical blocks: every entry was previously
+ * copy-pasted, which is how upscale_models came to be read with a check the
+ * others had outgrown.
+ */
+const MODEL_SOURCES: ReadonlyArray<[keyof ModelInfo, string, string]> = [
+  ["checkpoints", "CheckpointLoaderSimple", "ckpt_name"],
+  ["loras", "LoraLoader", "lora_name"],
+  ["vae", "VAELoader", "vae_name"],
+  ["controlnet", "ControlNetLoader", "control_net_name"],
+  ["upscale_models", "UpscaleModelLoader", "model_name"],
+  ["unet", "UNETLoader", "unet_name"],
+  ["clip", "CLIPLoader", "clip_name"],
+  ["hypernetworks", "HypernetworkLoader", "hypernetwork_name"],
+];
+
+/**
+ * Read the options out of a combo input spec.
+ *
+ * ComfyUI writes these two ways and a single instance serves both at once -
+ * core nodes still use the legacy form while others have moved:
+ *
+ *   legacy:  [["a.safetensors", "b.safetensors"], { tooltip: ... }]
+ *   current: ["COMBO", { options: ["a.safetensors", ...], multiselect: false }]
+ *
+ * Reading only the legacy form does not fail loudly; it reports an empty list,
+ * so an installed model looks like a missing one. That was happening to
+ * upscale_models on a stock ComfyUI 0.8.x desktop install.
+ */
+export function comboOptions(spec: unknown): string[] {
+  if (!Array.isArray(spec) || spec.length === 0) return [];
+
+  const [head, meta] = spec;
+
+  if (Array.isArray(head)) {
+    return head.filter((option): option is string => typeof option === "string");
+  }
+
+  if (head === "COMBO" && meta && typeof meta === "object") {
+    const options = (meta as { options?: unknown }).options;
+    if (Array.isArray(options)) {
+      return options.filter((option): option is string => typeof option === "string");
+    }
+  }
+
+  return [];
+}
+
 export class ComfyUIClient {
   private baseUrl: string;
   private clientId: string;
@@ -299,8 +349,8 @@ export class ComfyUIClient {
   }
 
   async getModels(): Promise<ModelInfo> {
-    // ComfyUI doesn't have a single endpoint for all models
-    // We need to parse object_info to find model lists
+    // ComfyUI has no endpoint that lists models. The options of each loader
+    // node's combo input are the list, so they are read out of object_info.
     const objectInfo = await this.getObjectInfo();
 
     const models: ModelInfo = {
@@ -315,66 +365,42 @@ export class ComfyUIClient {
       unet: [],
     };
 
-    // Extract model lists from loader nodes
-    const checkpointLoader = objectInfo["CheckpointLoaderSimple"];
-    if (checkpointLoader?.input?.required?.ckpt_name) {
-      const ckptInput = checkpointLoader.input.required.ckpt_name as unknown[];
-      if (Array.isArray(ckptInput) && Array.isArray(ckptInput[0])) {
-        models.checkpoints = ckptInput[0] as string[];
-      }
+    for (const [key, node, field] of MODEL_SOURCES) {
+      const spec = objectInfo[node]?.input?.required?.[field];
+      models[key] = comboOptions(spec);
     }
 
-    const loraLoader = objectInfo["LoraLoader"];
-    if (loraLoader?.input?.required?.lora_name) {
-      const loraInput = loraLoader.input.required.lora_name as unknown[];
-      if (Array.isArray(loraInput) && Array.isArray(loraInput[0])) {
-        models.loras = loraInput[0] as string[];
-      }
-    }
-
-    const vaeLoader = objectInfo["VAELoader"];
-    if (vaeLoader?.input?.required?.vae_name) {
-      const vaeInput = vaeLoader.input.required.vae_name as unknown[];
-      if (Array.isArray(vaeInput) && Array.isArray(vaeInput[0])) {
-        models.vae = vaeInput[0] as string[];
-      }
-    }
-
-    const controlnetLoader = objectInfo["ControlNetLoader"];
-    if (controlnetLoader?.input?.required?.control_net_name) {
-      const cnInput = controlnetLoader.input.required.control_net_name as unknown[];
-      if (Array.isArray(cnInput) && Array.isArray(cnInput[0])) {
-        models.controlnet = cnInput[0] as string[];
-      }
-    }
-
-    const upscaleLoader = objectInfo["UpscaleModelLoader"];
-    if (upscaleLoader?.input?.required?.model_name) {
-      const upInput = upscaleLoader.input.required.model_name as unknown[];
-      if (Array.isArray(upInput) && Array.isArray(upInput[0])) {
-        models.upscale_models = upInput[0] as string[];
-      }
-    }
-
-    // Try UNET loader for Flux/SD3 style models
-    const unetLoader = objectInfo["UNETLoader"];
-    if (unetLoader?.input?.required?.unet_name) {
-      const unetInput = unetLoader.input.required.unet_name as unknown[];
-      if (Array.isArray(unetInput) && Array.isArray(unetInput[0])) {
-        models.unet = unetInput[0] as string[];
-      }
-    }
-
-    // Try CLIP loader
-    const clipLoader = objectInfo["CLIPLoader"];
-    if (clipLoader?.input?.required?.clip_name) {
-      const clipInput = clipLoader.input.required.clip_name as unknown[];
-      if (Array.isArray(clipInput) && Array.isArray(clipInput[0])) {
-        models.clip = clipInput[0] as string[];
-      }
-    }
+    // Embeddings are the exception: no loader node lists them, because they
+    // are referenced from inside a prompt rather than loaded by a node. They
+    // have their own endpoint, and without it this field is always empty -
+    // which reads as "none installed" rather than "never looked".
+    models.embeddings = await this.getEmbeddings();
 
     return models;
+  }
+
+  /**
+   * Textual-inversion embeddings, by name and without file extension - that is
+   * how a prompt refers to them.
+   *
+   * A failure here is not allowed to sink the whole model listing: the
+   * endpoint is missing on old ComfyUI builds, and eight other model types
+   * still have something useful to say.
+   */
+  async getEmbeddings(): Promise<string[]> {
+    try {
+      const response = await fetch(`${this.baseUrl}/embeddings`, {
+        headers: this.getHeaders(),
+      });
+      if (!response.ok) return [];
+
+      const names = await response.json();
+      return Array.isArray(names)
+        ? names.filter((name): name is string => typeof name === "string")
+        : [];
+    } catch {
+      return [];
+    }
   }
 
   getWebSocketUrl(): string {
