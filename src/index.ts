@@ -114,7 +114,7 @@ lowLevel.setRequestHandler(ListPromptsRequestSchema, async () => ({
 
 lowLevel.setRequestHandler(GetPromptRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  return await getPrompt(ctx, name, args || {});
+  return await getPrompt(name, args || {});
 });
 
 lowLevel.setRequestHandler(SetLevelRequestSchema, async (request) => {

@@ -90,6 +90,11 @@ export async function initializeComfyUI(): Promise<boolean> {
   // remove models and custom nodes.
   try {
     debug("Getting object info...", undefined, "init");
+    // Reaching here means we never connected or lost the connection, so any
+    // cached catalogue is suspect. comfyui_reconnect exists to pick up models
+    // and custom nodes added since - serving it a cached copy would defeat
+    // the one thing it promises.
+    ctx.client.invalidateObjectInfo();
     ctx.objectInfo = await ctx.client.getObjectInfo();
     debug(`Got object info with ${Object.keys(ctx.objectInfo).length} nodes`, undefined, "init");
     ctx.capabilities = detectCapabilities(ctx.objectInfo);
@@ -100,20 +105,24 @@ export async function initializeComfyUI(): Promise<boolean> {
     return false;
   }
 
-  // Analyze user outputs for preferences (non-blocking)
+  // Analyse user outputs for preferences. Deliberately NOT awaited: this walks
+  // the whole output tree and reads up to MAX_IMAGES PNGs in full, which on a
+  // real install is seconds to minutes. It used to be awaited despite the
+  // comment claiming otherwise, so the server answered no tool call until it
+  // finished. Every reader already treats userPreferences as optional.
   if (ctx.comfyuiPath) {
     const outputDir = join(ctx.comfyuiPath, "output");
     debug(`Analyzing user outputs in: ${outputDir}`, undefined, "init");
-    try {
-      const userPrefs = await analyzeUserOutputs(outputDir);
-      if (ctx.capabilities) {
-        ctx.capabilities.userPreferences = userPrefs;
-      }
-      debug(`User preferences:\n${getUserPreferencesSummary(userPrefs)}`, undefined, "init");
-    } catch (err) {
-      warning(`Failed to analyze user outputs: ${err}`, undefined, "init");
-      // Non-fatal - continue without preferences
-    }
+    void analyzeUserOutputs(outputDir)
+      .then((userPrefs) => {
+        if (ctx.capabilities) {
+          ctx.capabilities.userPreferences = userPrefs;
+        }
+        debug(`User preferences:\n${getUserPreferencesSummary(userPrefs)}`, undefined, "init");
+      })
+      .catch((err) => {
+        warning(`Failed to analyze user outputs: ${err}`, undefined, "init");
+      });
   }
 
   // Connect WebSocket. Any previous socket is torn down first so its reconnect

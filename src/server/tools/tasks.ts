@@ -13,7 +13,6 @@ import { defineTool, noArgs } from "../register.js";
 import { ensureConnected } from "../connection.js";
 import {
   dataResult,
-  textResult,
   errorResult,
   formattedResult,
   paginate,

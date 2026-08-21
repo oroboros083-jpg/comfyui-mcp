@@ -54,13 +54,6 @@ export function setLogLevel(level: LoggingLevel): void {
 }
 
 /**
- * Get the current logging level
- */
-export function getLogLevel(): LoggingLevel {
-  return currentLevel;
-}
-
-/**
  * Check if a message at the given level should be logged
  */
 function shouldLog(level: LoggingLevel): boolean {
@@ -123,17 +116,6 @@ export function info(
 }
 
 /**
- * Log a notice message
- */
-export function notice(
-  message: string,
-  data?: unknown,
-  logger?: string
-): Promise<void> {
-  return log("notice", message, data, logger);
-}
-
-/**
  * Log a warning message
  */
 export function warning(
@@ -153,37 +135,4 @@ export function error(
   logger?: string
 ): Promise<void> {
   return log("error", message, data, logger);
-}
-
-/**
- * Log a critical message
- */
-export function critical(
-  message: string,
-  data?: unknown,
-  logger?: string
-): Promise<void> {
-  return log("critical", message, data, logger);
-}
-
-/**
- * Log an alert message
- */
-export function alert(
-  message: string,
-  data?: unknown,
-  logger?: string
-): Promise<void> {
-  return log("alert", message, data, logger);
-}
-
-/**
- * Log an emergency message
- */
-export function emergency(
-  message: string,
-  data?: unknown,
-  logger?: string
-): Promise<void> {
-  return log("emergency", message, data, logger);
 }

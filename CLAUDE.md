@@ -213,9 +213,20 @@ mismatch, including on branches you did not think about (empty results, the
 final page, error paths).
 
 ### Adding a New Model Architecture
-1. Update `capabilities/index.ts` to detect the new model type
-2. Add workflow builder function in `workflows/builder.ts`
-3. Update `selectWorkflowType` to choose it appropriately
+
+Be warned: this is currently spread across eight files, and the steps below
+are the honest list, not a good design. See "Known architectural debt".
+
+1. `capabilities/index.ts` - detect it (interface field, init literal,
+   checkpoint/unet substring match, summary line)
+2. `workflows/builder.ts` - add a builder function and a `BUILTIN_TEMPLATES`
+   entry; dispatch is by `templateId` through `buildFromTemplate`
+3. `tools/examples/recommend.ts` - add `MODEL_PATTERNS` rows and widen the
+   `modelType` union
+4. `resources/prompting-guide.ts` - add the guide and its aliases
+5. `server/tools/discovery.ts` and `server/tools/setup.ts` - both have their
+   own if/else picking prompting advice
+6. `tools/examples/` - add the example workflows and export them from `data.ts`
 
 ### Adding a New Example Workflow
 Add entry to the appropriate category file in `tools/examples/` (e.g., `flux.ts`, `sdxl.ts`, `video.ts`) with the image URL containing embedded workflow metadata. Then export it from `tools/examples/data.ts`.
@@ -267,6 +278,30 @@ helpers in `utils/response.ts` exist to prevent that — use them.
 
 Measure before and after when changing a response shape — against a live
 ComfyUI where the tool needs one. Put the numbers in the commit message.
+
+## Known architectural debt
+
+Recorded so it is not rediscovered every time:
+
+- **Model architecture is one concept in eight files.** Adding an
+  architecture takes ~12 edits (see above), and the modules have already
+  drifted: `prompting-guide.ts` ships guides for seven architectures
+  `capabilities/index.ts` cannot detect and `builder.ts` cannot build, and
+  `recommend.ts` maps Qwen to `modelType: "flux"` because its union has only
+  four values. The fix is one `ARCHITECTURES` registry each module consults,
+  turning an addition into one table row plus a builder. Roughly 1-2 days,
+  and `Capabilities.hasX` is public so it needs a derived compatibility
+  shim for a release.
+- **`generate.ts` and `generate-async.ts` duplicate ~120 lines** and have
+  diverged: the Docker `OUTPUT_DIR` escape hatch exists only in the sync
+  path, and only the sync path sets `path` on returned images even though
+  both share `RunWorkflowResult`. Sync is async plus a wait, not a peer;
+  unifying deletes the duplication and the divergence.
+- **Errors are mostly untyped.** ~24 bare `throw new Error` against four
+  typed classes, so most failures reach `register.ts` and flatten to a
+  message with no hint - which is what the "name the tool that fixes it"
+  rule above asks for. A `ToolError` carrying `hint`/`remedyTool` would let
+  `register.ts` surface it uniformly.
 
 ## Environment
 

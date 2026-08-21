@@ -128,9 +128,18 @@ export function comboOptions(spec: unknown): string[] {
   return [];
 }
 
+/**
+ * How long a fetched /object_info is trusted. Short enough that a newly
+ * installed model appears without a reconnect, long enough that one burst of
+ * tool calls does not refetch it repeatedly.
+ */
+const OBJECT_INFO_TTL_MS = 10_000;
+
 export class ComfyUIClient {
   private baseUrl: string;
   private clientId: string;
+  private objectInfoCache: { value: ObjectInfo; at: number } | null = null;
+  private objectInfoInFlight: Promise<ObjectInfo> | null = null;
   private apiKey?: string;
 
   constructor(baseUrl: string, apiKey?: string) {
@@ -168,14 +177,53 @@ export class ComfyUIClient {
     return response.json() as Promise<SystemStats>;
   }
 
+  /**
+   * The node catalogue, cached for OBJECT_INFO_TTL_MS.
+   *
+   * This is by far the largest document ComfyUI serves - ~440KB on a modded
+   * install - and nothing here used to cache it, so every gated tool refetched
+   * and re-parsed the whole thing. Paging comfyui_list_nodes 50 at a time
+   * through 2000 node types transferred and parsed it once per page.
+   *
+   * The window is short deliberately: long enough that a burst of calls (page,
+   * page, build_node, validate_workflow) costs one fetch, short enough that a
+   * model or custom node installed while the server runs shows up on its own.
+   * comfyui_reconnect drops it outright via invalidateObjectInfo().
+   */
   async getObjectInfo(): Promise<ObjectInfo> {
-    const response = await fetch(`${this.baseUrl}/object_info`, {
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to get object info: ${response.statusText}`);
+    const now = Date.now();
+    if (this.objectInfoCache && now - this.objectInfoCache.at < OBJECT_INFO_TTL_MS) {
+      return this.objectInfoCache.value;
     }
-    return response.json() as Promise<ObjectInfo>;
+
+    // Share one in-flight request rather than starting a second 440KB
+    // download when concurrent callers both miss.
+    if (!this.objectInfoInFlight) {
+      this.objectInfoInFlight = (async () => {
+        const response = await fetch(`${this.baseUrl}/object_info`, {
+          headers: this.getHeaders(),
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to get object info: ${response.statusText}`);
+        }
+        return (await response.json()) as ObjectInfo;
+      })();
+
+      try {
+        const value = await this.objectInfoInFlight;
+        this.objectInfoCache = { value, at: Date.now() };
+        return value;
+      } finally {
+        this.objectInfoInFlight = null;
+      }
+    }
+
+    return this.objectInfoInFlight;
+  }
+
+  /** Drop the cached catalogue, so the next read goes back to ComfyUI. */
+  invalidateObjectInfo(): void {
+    this.objectInfoCache = null;
   }
 
   async queuePrompt(

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ExampleWorkflow, ModelDownload } from "./types.js";
+import { ExampleWorkflow } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
 import { safeFetch } from "../../utils/safe-fetch.js";
 import {
@@ -448,50 +448,6 @@ export async function getExampleWorkflow(
   }
 
   return output;
-}
-
-/**
- * Get all model downloads for a specific example or category
- */
-export function getModelDownloads(categoryOrName?: string): ModelDownload[] {
-  let examples = EXAMPLE_WORKFLOWS;
-
-  if (categoryOrName) {
-    const search = categoryOrName.toLowerCase();
-    examples = examples.filter(
-      (e) =>
-        e.name.toLowerCase().includes(search) ||
-        e.category.toLowerCase().includes(search)
-    );
-  }
-
-  const models: ModelDownload[] = [];
-  const seen = new Set<string>();
-
-  for (const example of examples) {
-    if (example.requiredModels) {
-      for (const model of example.requiredModels) {
-        const key = `${model.type}:${model.url}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          models.push(model);
-        }
-      }
-    }
-  }
-
-  return models;
-}
-
-/**
- * Get all unique categories
- */
-export function getCategories(): string[] {
-  const categories = new Set<string>();
-  for (const example of EXAMPLE_WORKFLOWS) {
-    categories.add(example.category);
-  }
-  return Array.from(categories).sort();
 }
 
 // Model patterns for workflow recommendation

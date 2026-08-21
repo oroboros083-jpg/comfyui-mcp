@@ -93,11 +93,3 @@ export const DEFAULT_TRANSFER_OPTIONS: ImageProcessingOptions = {
   format: "jpeg",
   quality: 85,
 };
-
-/**
- * Check if an image buffer is too large for efficient transfer
- * Threshold is 1MB by default
- */
-export function isImageTooLarge(buffer: Buffer, threshold = 1024 * 1024): boolean {
-  return buffer.length > threshold;
-}

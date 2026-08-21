@@ -12,8 +12,6 @@ export {
   renderExamples,
   getExampleWorkflowSchema,
   getExampleWorkflow,
-  getModelDownloads,
-  getCategories,
 } from "./list-examples.js";
 export type {
   ListExamplesInput,

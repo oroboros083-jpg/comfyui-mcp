@@ -108,16 +108,6 @@ function initializeSchema(database: Database.Database): void {
   `);
 }
 
-/**
- * Close the database connection.
- */
-export function closeDatabase(): void {
-  if (db) {
-    db.close();
-    db = null;
-  }
-}
-
 // ============================================================================
 // Job Operations
 // ============================================================================
@@ -292,15 +282,6 @@ export function updateJobProgress(
     statusMessage,
     progressStats: stats,
   });
-}
-
-/**
- * Get progress stats for a job.
- */
-export function getJobProgressStats(taskId: string): ProgressStats | null {
-  const job = getJobById(taskId);
-  if (!job || !job.progress_stats) return null;
-  return JSON.parse(job.progress_stats);
 }
 
 export function getJobById(taskId: string): JobRow | null {
@@ -516,18 +497,6 @@ export function getTopics(): string[] {
   const stmt = database.prepare("SELECT DISTINCT topic FROM notes ORDER BY topic");
   const rows = stmt.all() as Array<{ topic: string }>;
   return rows.map(r => r.topic);
-}
-
-export function getNotesByTag(tag: string): Note[] {
-  const database = getDatabase();
-  // Search for tag in JSON array
-  const stmt = database.prepare(`
-    SELECT * FROM notes
-    WHERE tags LIKE ?
-    ORDER BY updated_at DESC
-  `);
-  const rows = stmt.all(`%"${tag}"%`) as NoteRow[];
-  return rows.map(rowToNote);
 }
 
 // ============================================================================
@@ -768,10 +737,3 @@ export function deleteTemplate(id: string): boolean {
   return result.changes > 0;
 }
 
-export function getTemplateCategories(): string[] {
-  const database = getDatabase();
-  initializeTemplatesTable();
-  const stmt = database.prepare("SELECT DISTINCT category FROM templates ORDER BY category");
-  const rows = stmt.all() as Array<{ category: string }>;
-  return rows.map(r => r.category);
-}

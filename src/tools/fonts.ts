@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { mkdir, readFile, writeFile, readdir } from "fs/promises";
+import { mkdir, readFile, writeFile, readdir, stat } from "fs/promises";
 import { existsSync } from "fs";
-import { join, basename } from "path";
+import { join } from "path";
 import { homedir } from "os";
 import { safeFetch } from "../utils/safe-fetch.js";
 
@@ -248,7 +248,8 @@ export async function listFonts(): Promise<ListFontsResult> {
       const ext = file.split(".").pop()?.toLowerCase();
       if (["ttf", "otf", "woff", "woff2"].includes(ext || "")) {
         const filepath = join(FONTS_DIR, file);
-        const data = await readFile(filepath);
+        // stat, not readFile: only the size is wanted, and a font is megabytes.
+        const { size } = await stat(filepath);
 
         // Extract name from filename (remove extension and weight suffix)
         const nameWithoutExt = file.replace(/\.[^.]+$/, "");
@@ -259,7 +260,7 @@ export async function listFonts(): Promise<ListFontsResult> {
           filename: file,
           path: filepath,
           format: getFontFormat(file),
-          size: data.length,
+          size,
         });
       }
     }

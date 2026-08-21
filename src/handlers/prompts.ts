@@ -4,7 +4,6 @@
  * Provides pre-built prompts to guide users through common ComfyUI workflows.
  */
 
-import { ServerContext } from "../context.js";
 import {
   getPromptingGuide,
   PROMPTING_GUIDES,
@@ -117,7 +116,6 @@ export function listPrompts(): Prompt[] {
  * Get a specific prompt with its messages
  */
 export async function getPrompt(
-  ctx: ServerContext,
   name: string,
   args: Record<string, string>
 ): Promise<{

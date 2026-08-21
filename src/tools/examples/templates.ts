@@ -3,7 +3,6 @@
 import { z } from "zod";
 import { ExampleWorkflow, ModelDownload } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
-import { fetchExampleWorkflow } from "./list-examples.js";
 import {
   paginate,
   paginationFields,
@@ -17,9 +16,8 @@ import {
   buildFromTemplate,
   getTemplateById,
   WorkflowTemplate,
-  Workflow,
 } from "../../workflows/builder.js";
-import { ComfyUIClient, ObjectInfo } from "../../client/comfyui.js";
+import { ComfyUIClient } from "../../client/comfyui.js";
 import {
   saveTemplate as dbSaveTemplate,
   listTemplates as dbListTemplates,
@@ -107,12 +105,6 @@ interface TemplateMatch {
   fetchCommand?: string;
   useCount?: number;
   tags?: string[];
-}
-
-interface TemplateSearchResult {
-  query: SearchTemplatesInput;
-  totalResults: number;
-  results: TemplateMatch[];
 }
 
 function matchesTemplateFilters(template: WorkflowTemplate, input: SearchTemplatesInput): boolean {
@@ -436,7 +428,7 @@ function applyParametersToWorkflow(
 ): Record<string, unknown> {
   const result = JSON.parse(JSON.stringify(workflow)); // Deep clone
 
-  for (const [nodeId, node] of Object.entries(result)) {
+  for (const node of Object.values(result)) {
     const nodeObj = node as Record<string, unknown>;
     if (nodeObj.class_type === "CLIPTextEncode" && nodeObj.inputs) {
       const inputs = nodeObj.inputs as Record<string, unknown>;

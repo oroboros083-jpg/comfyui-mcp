@@ -401,13 +401,6 @@ export function getPromptingGuide(modelType: string): ModelPromptingGuide | null
 }
 
 /**
- * Get all available prompting guides
- */
-export function getAllPromptingGuides(): ModelPromptingGuide[] {
-  return Object.values(PROMPTING_GUIDES);
-}
-
-/**
  * Format a prompting guide as a readable string
  */
 export function formatPromptingGuide(guide: ModelPromptingGuide): string {

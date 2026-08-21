@@ -83,24 +83,3 @@ export async function sendCompletionNotification(
     warning(`Failed to send completion notification: ${error}`, undefined, "notifications");
   }
 }
-
-/**
- * Send a logging message for progress updates (alternative to task notifications).
- * Some clients may not support task notifications but do support logging.
- */
-export async function sendLoggingProgress(
-  server: Server,
-  message: string,
-  level: "debug" | "info" | "warning" | "error" = "info"
-): Promise<void> {
-  try {
-    await server.sendLoggingMessage({
-      level,
-      logger: "comfyui-generation",
-      data: message,
-    });
-  } catch (error) {
-    // Ignore logging errors
-    warning(`Failed to send logging message: ${error}`, undefined, "notifications");
-  }
-}

@@ -403,7 +403,7 @@ function generateConnectionGuide(
   const guide: Record<string, string> = {};
 
   if (nodeInfo.input.required) {
-    for (const [name, spec] of Object.entries(nodeInfo.input.required)) {
+    for (const spec of Object.values(nodeInfo.input.required)) {
       const parsed = parseInputSpec(spec);
       const upperType = parsed.type.toUpperCase();
 

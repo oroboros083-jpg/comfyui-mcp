@@ -162,13 +162,6 @@ export async function discoverComfyUI(
 }
 
 /**
- * Check if ComfyUI is reachable at the given URL
- */
-export async function checkConnection(url: string): Promise<boolean> {
-  return probeUrl(url);
-}
-
-/**
  * The URLs discoverComfyUI() would probe, in order. Used to tell the user
  * exactly where we looked when nothing answered.
  */

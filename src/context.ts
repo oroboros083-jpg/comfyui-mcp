@@ -91,18 +91,3 @@ export function isConnected(ctx: ServerContext): boolean {
     ctx.objectInfo !== null
   );
 }
-
-/**
- * Get ComfyUI installation path for downloads
- * For desktop app installs, user data is in ~/Documents/ComfyUI
- */
-export function getComfyUIPath(ctx: ServerContext): string {
-  // For desktop app, the app bundle is in /Applications but user data is in Documents
-  if (ctx.comfyuiPath?.includes("ComfyUI.app")) {
-    const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-    const documentsPath = `${homeDir}/Documents/ComfyUI`;
-    return documentsPath;
-  }
-  if (ctx.comfyuiPath) return ctx.comfyuiPath;
-  return ctx.config?.outputDir || "./";
-}

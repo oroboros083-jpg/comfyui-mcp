@@ -1,5 +1,4 @@
 import { ObjectInfo } from "../client/comfyui.js";
-import { Capabilities } from "../capabilities/index.js";
 
 export interface WorkflowNode {
   class_type: string;
@@ -318,36 +317,6 @@ export function buildFluxWorkflow(
   };
 
   return workflow;
-}
-
-/**
- * Determine the best workflow type based on model and capabilities
- */
-export function selectWorkflowType(
-  checkpoint: string | undefined,
-  capabilities: Capabilities,
-  objectInfo: ObjectInfo
-): "standard" | "flux" | "sd3" {
-  // If a specific checkpoint is provided, try to detect its type
-  if (checkpoint) {
-    const lower = checkpoint.toLowerCase();
-    if (lower.includes("flux")) return "flux";
-    if (lower.includes("sd3")) return "sd3";
-    return "standard";
-  }
-
-  // Check if Flux models are available and no standard checkpoints
-  const hasStandardCheckpoints = getAvailableModels(
-    objectInfo,
-    "CheckpointLoaderSimple",
-    "ckpt_name"
-  ).length > 0;
-
-  if (!hasStandardCheckpoints && capabilities.hasFlux) {
-    return "flux";
-  }
-
-  return "standard";
 }
 
 // === Built-in Workflow Templates ===

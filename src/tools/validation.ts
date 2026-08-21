@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
+import { ComfyUIClient } from "../client/comfyui.js";
 import { WorkflowNode } from "../workflows/builder.js";
 import { responseFormatField } from "../utils/response.js";
 

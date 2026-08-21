@@ -141,8 +141,6 @@ export async function cancelJob(
 
 // === interrupt ===
 
-export const interruptSchema = z.object({}).strict();
-
 export interface InterruptResult {
   success: true;
   message: string;
