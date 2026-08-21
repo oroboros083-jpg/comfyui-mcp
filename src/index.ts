@@ -38,6 +38,7 @@ import { registerGenerationTools } from "./server/tools/generation.js";
 import { registerTaskTools } from "./server/tools/tasks.js";
 import { registerLibraryTools } from "./server/tools/library.js";
 import { registerWorkspaceTools } from "./server/tools/workspace.js";
+import { relaxOutputSchemaDialect } from "./server/output-schema-dialect.js";
 import {
   getStaticResources,
   getDynamicResources,
@@ -79,6 +80,10 @@ registerGenerationTools(server, context);
 registerTaskTools(server, context);
 registerLibraryTools(server);
 registerWorkspaceTools(server);
+
+// Must run after every tool is registered - it wraps the finished tools/list
+// handler. See output-schema-dialect.ts for why this is necessary at all.
+const dialectRelaxed = relaxOutputSchemaDialect(server);
 
 /**
  * Resources and prompts stay on the low-level handlers rather than
@@ -138,6 +143,13 @@ async function main(): Promise<void> {
   await server.connect(new StdioServerTransport());
 
   info("ComfyUI MCP server started");
+  if (!dialectRelaxed) {
+    // Not fatal, but clients that validate the declared dialect will refuse
+    // every tool that declares an outputSchema.
+    info(
+      "Could not relax the outputSchema dialect; the SDK's tools/list handler was not where expected."
+    );
+  }
   if (!ctx.client) {
     info("ComfyUI is not connected. Setup and library tools are still available.");
   }
