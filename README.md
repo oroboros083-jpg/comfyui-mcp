@@ -8,7 +8,9 @@
 > prefix. See [Tools Reference](#tools-reference) for the full list.
 >
 > List tools are also paginated now: they take `limit`/`offset` and return
-> `has_more`/`next_offset` instead of the entire collection.
+> `has_more`/`next_offset` instead of the entire collection, and they accept
+> `response_format: "markdown"` when you want readable text instead of JSON.
+> See [Shared Parameters](#shared-parameters).
 
 - [ComfyUI MCP Server](#comfyui-mcp-server)
   - [Let Your AI Install This For You](#let-your-ai-install-this-for-you)
@@ -37,6 +39,7 @@
       - [Port Configuration](#port-configuration)
     - [Option 2: From Source](#option-2-from-source)
   - [Tools Reference](#tools-reference)
+    - [Shared Parameters](#shared-parameters)
     - [Setup \& Status Tools](#setup--status-tools)
       - [`comfyui_get_status`](#get_status)
       - [`comfyui_reconnect`](#reconnect)
@@ -457,6 +460,26 @@ Then configure your MCP client to use the built server:
 
 ## Tools Reference
 
+### Shared Parameters
+
+Rather than repeat these in every table below, the tools that list or search
+accept a common set:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | `number?` | Max results per page (default: 25, max: 200) |
+| `offset` | `number?` | Results to skip, for paging |
+| `response_format` | `"json" \| "markdown"?` | Output format (default: `json`) |
+
+Paginated tools return `total`, `count`, `offset`, `has_more` and
+`next_offset` alongside the page, so you can page deliberately instead of
+guessing. `response_format: "markdown"` renders the same data as readable
+text — useful when you are showing tool output to a person; the default
+`json` is more compact and is what an assistant should normally use.
+
+A few listing tools also take `detail` (`"names"` / `"summary"` / `"full"`)
+to choose how much comes back per item.
+
 ### Setup & Status Tools
 
 #### `comfyui_get_status`
@@ -873,7 +896,13 @@ Retrieve a generation by its assigned name.
 | `name` | `string` | The name assigned to the generation |
 
 #### `comfyui_get_queue`
-Get the current ComfyUI queue status.
+Get the current ComfyUI queue status. Paginated, running jobs first.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | `number?` | Max jobs per page (default: 25, max: 200) |
+| `offset` | `number?` | Jobs to skip, for paging |
+| `response_format` | `"json" \| "markdown"?` | Output format (default: `json`) |
 
 ```
 What's in the generation queue?
@@ -898,12 +927,15 @@ Stop the current generation
 ```
 
 #### `comfyui_get_history`
-Get generation history.
+Get generation history. Without `promptId` this lists prompts and is
+paginated; with `promptId` it returns that one prompt's output files.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `promptId` | `string?` | Specific job ID |
-| `limit` | `number?` | Max entries (default: 10) |
+| `promptId` | `string?` | Fetch one prompt's full detail instead of a listing |
+| `limit` | `number?` | Max entries per page (default: 25, max: 200) |
+| `offset` | `number?` | Entries to skip, for paging |
+| `response_format` | `"json" \| "markdown"?` | Output format (default: `json`) |
 
 ```
 Show recent generations
