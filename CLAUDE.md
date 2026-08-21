@@ -10,6 +10,7 @@ This is a TypeScript MCP (Model Context Protocol) server that enables AI assista
 src/
 ├── index.ts                 # Main MCP server entry point
 ├── config.ts                # Configuration management
+├── constants.ts             # Shared limits (CHARACTER_LIMIT, page sizes)
 ├── context.ts               # Server context (shared state)
 ├── client/
 │   ├── comfyui.ts          # REST API client for ComfyUI
@@ -63,6 +64,7 @@ src/
 │   └── hash.ts             # Workflow hashing
 └── utils/
     ├── image.ts            # Image processing utilities
+    ├── response.ts         # Pagination, compact JSON, truncation
     └── logging.ts          # MCP logging utilities
 ```
 
@@ -77,7 +79,7 @@ The server uses `@modelcontextprotocol/sdk` with stdio transport. Tools are defi
 - Workflows are JSON objects with numbered node IDs
 
 ### Auto-Discovery
-Discovery order: ENV var → config file → desktop app paths → port scanning (8188-8190)
+Discovery order: ENV var → config file → desktop app paths → port scanning (8188, 8000, 8189, 8190). ComfyUI Desktop commonly serves on 8000, not 8188
 
 ### Capability Detection
 Parses `/object_info` response to detect:
@@ -95,6 +97,7 @@ Parses `/object_info` response to detect:
 ```bash
 npm install          # Install dependencies
 npm run build        # Compile TypeScript
+npm test             # Build, then run the test suite
 npm start            # Run the server
 npm run dev          # Watch mode for development
 npm run inspector    # Test with MCP Inspector
@@ -102,10 +105,35 @@ npm run inspector    # Test with MCP Inspector
 
 ## Testing
 
-No test framework is currently set up. To test:
+Unit tests use the Node built-in runner (`node:test`) — no test framework
+dependency. Tests live beside the code as `*.test.ts` and run from `dist/`
+after compilation, so `npm test` builds first.
+
+Note `node --test dist/` (a bare directory) would execute `dist/index.js` as
+a test and hang forever on stdio. The script globs `dist/**/*.test.js`
+instead; keep it that way.
+
+Cover pure logic in unit tests: pagination boundaries, response shaping,
+parsing, and any bug being fixed. Anything needing a live ComfyUI is not a
+unit test — verify those against a running instance and say so in the commit.
+
+For end-to-end checks:
 1. Run ComfyUI locally
 2. Use `npm run inspector` to interact with tools
 3. Or configure in Claude Desktop and test via Claude
+
+## Git Workflow
+
+This repo has high risk-bearing capacity. Push directly to `main`:
+
+- **Low-risk changes** — push directly, no ceremony.
+- **Significant changes** — push directly once they pass `npm test` and have
+  no known issues.
+- **Prefer small, frequent pushes** over large batched ones, so any single
+  change is easy to identify and roll back.
+
+Do not batch unrelated work into one commit. A commit that mixes a bug fix
+with a refactor cannot be reverted without losing the fix.
 
 ## Key Files to Understand
 
@@ -132,6 +160,31 @@ No test framework is currently set up. To test:
 
 ### Adding a New Example Workflow
 Add entry to the appropriate category file in `tools/examples/` (e.g., `flux.ts`, `sdxl.ts`, `video.ts`) with the image URL containing embedded workflow metadata. Then export it from `tools/examples/data.ts`.
+
+## Response Conventions
+
+Every tool response is context the model pays for on each call, and a single
+careless response can cost more than the whole conversation around it. The
+helpers in `utils/response.ts` exist to prevent that — use them.
+
+- **Never return an unbounded collection.** Spread `paginationFields` into the
+  schema and run results through `paginate()`. Report `total`, `count`,
+  `offset`, `has_more`, and `next_offset` so the agent can page deliberately.
+  `list_nodes` once returned 440KB (~110k tokens) on a modded install.
+- **Use `jsonText()`, not `JSON.stringify(x, null, 2)`.** Indentation is pure
+  token cost for a machine reader.
+- **Listings identify; detail tools elaborate.** A search result carries only
+  enough to pick one item. Parameter lists, default settings, workflow JSON,
+  and model download URLs belong in the tool that takes an id.
+- **Offer a `detail` projection** (`names` / `summary` / `full`) when callers
+  legitimately want different depths.
+- **Cap category/facet maps.** A modded install has ~400 node categories;
+  the full map cost 4x the page of nodes it labelled.
+- **Never return the same data twice** in one response (e.g. a rendered
+  markdown view plus the raw JSON of the same object).
+
+Measure before and after when changing a response shape — against a live
+ComfyUI where the tool needs one. Put the numbers in the commit message.
 
 ## Environment
 
