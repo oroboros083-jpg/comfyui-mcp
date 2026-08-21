@@ -82,6 +82,13 @@ import {
   GetModelGuideInput,
 } from "./tools/install.js";
 import {
+  startComfyUISchema,
+  resolveLaunchTarget,
+  spawnComfyUI,
+  launchBlockedReason,
+  StartComfyUIInput,
+} from "./tools/launch.js";
+import {
   listExamplesSchema,
   listExamples,
   getExampleWorkflowSchema,
@@ -578,6 +585,19 @@ const TOOLS: Record<string, ToolDefinition> = {
     requiresConnection: false,
     annotations: {
       title: "Reconnect to ComfyUI",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  start_comfyui: {
+    schema: startComfyUISchema,
+    description:
+      "Start ComfyUI on this machine if it is not already running, then wait for it to come up and connect. Auto-detects the desktop app, a portable launcher, or a source install; pass 'command' to launch something else. Returns immediately with alreadyRunning if an instance is already reachable - it never starts a second one. To restart a running instance, use restart_comfyui instead.",
+    requiresConnection: false,
+    annotations: {
+      title: "Start ComfyUI",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
@@ -1313,6 +1333,181 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                   nodeCount: ctx.objectInfo ? Object.keys(ctx.objectInfo).length : 0,
                   reconciledTasks: refresh.reconciled,
                   note: "Model and node lists were re-read from ComfyUI.",
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case "start_comfyui": {
+        const input = startComfyUISchema.parse(args) as StartComfyUIInput;
+
+        // Probe live rather than trusting cached state: acting on a stale
+        // "disconnected" would start a second ComfyUI on a second port and
+        // quietly split the user's queue across both.
+        const existing = await refreshConnection();
+        if (existing.connected) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    started: false,
+                    alreadyRunning: true,
+                    url: existing.url,
+                    discoverySource: existing.source,
+                    capabilities: ctx.capabilities
+                      ? getCapabilitySummary(ctx.capabilities)
+                      : undefined,
+                    reconciledTasks: existing.reconciled,
+                    note: "ComfyUI is already running; nothing was launched. Use restart_comfyui to restart it.",
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        const blocked = launchBlockedReason(
+          process.env.COMFYUI_URL || ctx.config.comfyui.url
+        );
+        if (blocked) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ started: false, reason: blocked }, null, 2),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const { target, detected } = resolveLaunchTarget(input);
+        if (!target) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    started: false,
+                    reason:
+                      "No ComfyUI installation was found in the usual locations.",
+                    hint:
+                      "Pass 'command' with the path to your launcher, set COMFYUI_LAUNCH_COMMAND, " +
+                      "or see 'get_install_guide' if ComfyUI is not installed yet.",
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const alternatives = detected
+          .filter((option) => option.label !== target.label)
+          .map((option) => option.label);
+
+        const startedAt = Date.now();
+        let launch: Awaited<ReturnType<typeof spawnComfyUI>>;
+        try {
+          launch = await spawnComfyUI(target);
+        } catch (spawnError) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    started: false,
+                    launcher: target.label,
+                    command: target.command,
+                    error:
+                      spawnError instanceof Error
+                        ? spawnError.message
+                        : String(spawnError),
+                    alternatives,
+                    hint: "Pass 'command' to launch a different executable, or start ComfyUI yourself and call 'reconnect'.",
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        info(
+          `Launched ComfyUI via ${target.label} (pid ${launch.pid})`,
+          undefined,
+          "launch"
+        );
+
+        const recovery = await waitForRestart(input.timeoutSeconds * 1000);
+        const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+
+        if (!recovery.connected) {
+          const exit = launch.exited();
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    started: true,
+                    connected: false,
+                    launcher: target.label,
+                    command: target.command,
+                    pid: launch.pid,
+                    waitedSeconds: elapsedSeconds,
+                    launcherExit: exit ?? undefined,
+                    error: recovery.error,
+                    alternatives,
+                    hint: exit
+                      ? "The launcher exited before ComfyUI answered, so it likely failed to start. Run the command in a terminal to see its output."
+                      : "The process is still running but has not answered yet - a cold start can take a while. Call 'reconnect' in a moment.",
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  started: true,
+                  connected: true,
+                  launcher: target.label,
+                  command: target.command,
+                  pid: launch.pid,
+                  elapsedSeconds,
+                  url: recovery.url,
+                  discoverySource: recovery.source,
+                  capabilities: ctx.capabilities
+                    ? getCapabilitySummary(ctx.capabilities)
+                    : undefined,
+                  nodeCount: ctx.objectInfo
+                    ? Object.keys(ctx.objectInfo).length
+                    : 0,
+                  reconciledTasks: recovery.reconciled,
+                  note: "ComfyUI is running and detached from this server - it keeps running if the MCP server restarts.",
                 },
                 null,
                 2

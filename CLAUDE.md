@@ -26,6 +26,7 @@ src/
 │   ├── models.ts           # Model/node listing and building
 │   ├── queue.ts            # Queue management tools
 │   ├── install.ts          # Installation assistance
+│   ├── launch.ts           # Launcher detection and detached process start
 │   ├── validation.ts       # Workflow validation
 │   ├── svg.ts              # SVG rendering to PNG
 │   ├── fonts.ts            # Font download and management
@@ -145,5 +146,6 @@ Add entry to the appropriate category file in `tools/examples/` (e.g., `flux.ts`
 
 - All console output uses `console.error` (stdout is reserved for MCP protocol)
 - Server works even if ComfyUI is not running (setup tools remain available)
+- `tools/launch.ts` is the only module that spawns processes. Anything it starts must be `detached` with `stdio: "ignore"` — inherited stdout would corrupt the MCP stream, and an attached child would die with the server
 - Image outputs can be base64 (inline) or saved to files based on size threshold
 - Example workflows are extracted from PNG metadata in ComfyUI docs images

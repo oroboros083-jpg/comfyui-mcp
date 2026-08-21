@@ -30,6 +30,7 @@
     - [Setup \& Status Tools](#setup--status-tools)
       - [`get_status`](#get_status)
       - [`reconnect`](#reconnect)
+      - [`start_comfyui`](#start_comfyui)
       - [`restart_comfyui`](#restart_comfyui)
       - [`get_install_guide`](#get_install_guide)
       - [`get_model_guide`](#get_model_guide)
@@ -464,6 +465,41 @@ left in flight by the restart.
 
 ```
 Reconnect to ComfyUI.
+```
+
+#### `start_comfyui`
+Start ComfyUI on this machine if nothing is answering, then wait for it to come
+up and connect. This is the one tool that launches a process rather than
+talking to a running instance.
+
+It checks live first and returns `alreadyRunning` without launching anything if
+ComfyUI is reachable, so it is safe to call speculatively — it will never start
+a second instance alongside the first. To restart a running instance, use
+[`restart_comfyui`](#restart_comfyui).
+
+Launch targets are auto-detected, best first: the desktop app, a portable
+`run_nvidia_gpu.bat` / `run_cpu.bat`, then a source checkout (`main.py` run with
+the checkout's own venv or `python_embeded` if it has one). Anything else — a
+wrapper script, custom flags — goes in `COMFYUI_LAUNCH_COMMAND` (with optional
+`COMFYUI_LAUNCH_ARGS` and `COMFYUI_LAUNCH_CWD`), or in the `command` parameter
+for a one-off.
+
+ComfyUI is launched detached with its output discarded, so it keeps running if
+this server restarts, and its console output cannot corrupt the MCP stream. Run
+the reported `command` in a terminal yourself when you need to see that output.
+
+Refuses when `COMFYUI_URL` points at another machine, or when this server is
+running inside Docker — in both cases the process to start is not here.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `command` | `string` | Executable, `.bat`, or script to launch instead of the auto-detected one |
+| `args` | `string[]` | Arguments for the command, e.g. `["--listen", "--port", "8189"]` |
+| `cwd` | `string` | Working directory (defaults to the detected install directory) |
+| `timeoutSeconds` | `number` | How long to wait for ComfyUI to answer, 10–600 (default `180`) |
+
+```
+Start ComfyUI if it isn't already running.
 ```
 
 #### `restart_comfyui`
