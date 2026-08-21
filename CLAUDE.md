@@ -32,8 +32,9 @@ src/
 ├── workflows/
 │   └── builder.ts          # Dynamic workflow generation
 ├── tools/
-│   ├── generate.ts         # Sync workflow execution
-│   ├── generate-async.ts   # Async workflow execution
+│   ├── generate.ts         # Workflow/image schemas, get_image
+│   ├── generate-async.ts   # Submit a workflow and track it to completion
+│   ├── outputs.ts          # Collect a finished prompt's images
 │   ├── models.ts           # Model/node listing and building
 │   ├── queue.ts            # Queue management tools
 │   ├── install.ts          # Installation assistance
@@ -223,6 +224,18 @@ SDK validates every response against it and fails the whole call on a
 mismatch, including on branches you did not think about (empty results, the
 final page, error paths).
 
+### Running a Workflow
+
+There is one execution path. `runWorkflowAsync` submits, creates the job, and
+returns `{ task, completion }`; a synchronous run is that plus `await
+completion`. Do not add a second implementation for sync - that is what these
+two were, and they drifted in three user-visible ways before being merged.
+
+Image collection lives in `tools/outputs.ts` and is shared. Saving and
+inlining are separate decisions: the file is written unless Docker says
+otherwise, and `outputMode` controls only whether the bytes also travel
+inline, which is what `outputModeSchema` has always documented.
+
 ### Adding a New Model Architecture
 
 One row in `src/architectures/registry.ts`:
@@ -308,15 +321,6 @@ helpers in `utils/response.ts` exist to prevent that — use them.
 Measure before and after when changing a response shape — against a live
 ComfyUI where the tool needs one. Put the numbers in the commit message.
 
-## Known architectural debt
-
-Recorded so it is not rediscovered every time:
-
-- **`generate.ts` and `generate-async.ts` duplicate ~120 lines** and have
-  diverged: the Docker `OUTPUT_DIR` escape hatch exists only in the sync
-  path, and only the sync path sets `path` on returned images even though
-  both share `RunWorkflowResult`. Sync is async plus a wait, not a peer;
-  unifying deletes the duplication and the divergence.
 ## Environment
 
 - Node.js 18+

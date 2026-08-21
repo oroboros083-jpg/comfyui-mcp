@@ -8,7 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { defineTool } from "../register.js";
 import { ensureConnected } from "../connection.js";
 import { dataResult, textResult, errorResult, ToolResult } from "../../utils/response.js";
-import { runWorkflowSchema, runWorkflow, getImageSchema, getImage } from "../../tools/generate.js";
+import { runWorkflowSchema, getImageSchema, getImage } from "../../tools/generate.js";
 import { runWorkflowAsync } from "../../tools/generate-async.js";
 import {
   listOpenWorkflowsSchema,
@@ -84,43 +84,11 @@ export function registerGenerationTools(
       const { client, ws } = await ensureConnected();
       const c = ctx();
 
-      if (input.sync) {
-        const result = await runWorkflow(
-          client,
-          ws,
-          input,
-          c.config.outputDir,
-          c.config.outputSizeThreshold
-        );
-
-        // Record it either way so named lookup works for sync runs too.
-        if (result.promptId) {
-          c.jobManager.createJob(
-            result.promptId,
-            { type: "run_workflow", input },
-            input.name
-          );
-          if (result.success) {
-            c.jobManager.completeJob(result.promptId, result);
-          } else {
-            c.jobManager.failJob(result.promptId, result.error || "Unknown error");
-          }
-        }
-
-        if (!result.success) {
-          return errorResult(
-            `Workflow failed: ${result.error}`,
-            "Run comfyui_validate_workflow on this workflow to find structural problems."
-          );
-        }
-
-        return imagesToContent(
-          `Workflow completed (prompt_id: ${result.promptId}).`,
-          result.images
-        );
-      }
-
-      const asyncResult = await runWorkflowAsync(
+      // One path for both modes: a sync run is the async run plus a wait.
+      // Sync used to be a separate implementation, which is how the two
+      // drifted, and this handler then had to retroactively fabricate the
+      // job record that the async path creates up front.
+      const { task, completion } = await runWorkflowAsync(
         c.server,
         c.jobManager,
         client,
@@ -130,14 +98,36 @@ export function registerGenerationTools(
         c.config.outputSizeThreshold
       );
 
-      return dataResult({
-        taskId: asyncResult.taskId,
-        promptId: asyncResult.promptId,
-        status: asyncResult.status,
-        statusMessage: asyncResult.statusMessage,
-        pollInterval: asyncResult.pollInterval,
-        hint: "Started in the background. Use comfyui_get_task for progress, comfyui_get_task_result when complete.",
-      });
+      if (!input.sync) {
+        return dataResult({
+          ...task,
+          hint: "Started in the background. Use comfyui_get_task for progress, comfyui_get_task_result when complete.",
+        });
+      }
+
+      await completion;
+
+      const job = c.jobManager.getJob(task.taskId);
+      if (!job || job.status === "failed") {
+        return errorResult(
+          `Workflow failed: ${job?.error ?? "no result was recorded"}`,
+          "Run comfyui_validate_workflow on this workflow to find structural problems."
+        );
+      }
+      if (job.status === "cancelled") {
+        return errorResult(`Workflow was cancelled (prompt_id: ${task.promptId}).`);
+      }
+      if (!job.result) {
+        return errorResult(
+          `Workflow finished but recorded no result (prompt_id: ${task.promptId}).`,
+          "comfyui_get_history has what ComfyUI itself recorded for this prompt."
+        );
+      }
+
+      return imagesToContent(
+        `Workflow completed (prompt_id: ${task.promptId}).`,
+        job.result.images
+      );
     },
   });
 
