@@ -4,7 +4,13 @@ import { z } from "zod";
 import { ExampleWorkflow, ModelDownload } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
 import { fetchExampleWorkflow } from "./list-examples.js";
-import { paginate, paginationFields, jsonText } from "../../utils/response.js";
+import {
+  paginate,
+  paginationFields,
+  responseFormatField,
+  PageEnvelope,
+} from "../../utils/response.js";
+import { renderListing } from "../../utils/render.js";
 import { DEFAULT_PAGE_SIZE } from "../../constants.js";
 import {
   BUILTIN_TEMPLATES,
@@ -57,9 +63,34 @@ export const searchTemplatesSchema = z.object({
     .default(true)
     .describe("Include custom saved templates from the database"),
   ...paginationFields,
+  response_format: responseFormatField,
 }).strict();
 
 export type SearchTemplatesInput = z.infer<typeof searchTemplatesSchema>;
+
+/**
+ * One search hit. Carries only what is needed to pick a template - the
+ * parameters, default settings and workflow JSON come back from get_template
+ * for the id actually chosen.
+ */
+export interface TemplateSearchRow {
+  source: "builtin" | "example" | "custom";
+  id: string;
+  name: string;
+  description: string;
+  modelType?: string;
+  taskType?: string;
+  category?: string;
+  parameterCount?: number;
+  requiredModelCount?: number;
+  useCount?: number;
+}
+
+export type SearchTemplatesResult = PageEnvelope & {
+  query: SearchTemplatesInput;
+  results: TemplateSearchRow[];
+  hint: string;
+};
 
 interface TemplateMatch {
   source: "builtin" | "example" | "custom";
@@ -176,7 +207,7 @@ function matchesCustomTemplateFilters(template: CustomTemplate, input: SearchTem
   return true;
 }
 
-export function searchTemplates(input: SearchTemplatesInput): string {
+export function searchTemplates(input: SearchTemplatesInput): SearchTemplatesResult {
   const results: TemplateMatch[] = [];
 
   // Search custom templates first (user's saved templates take priority)
@@ -273,7 +304,7 @@ export function searchTemplates(input: SearchTemplatesInput): string {
     ...(r.useCount !== undefined ? { useCount: r.useCount } : {}),
   }));
 
-  return jsonText({
+  return {
     query: input,
     total: page.total,
     count: page.count,
@@ -282,6 +313,28 @@ export function searchTemplates(input: SearchTemplatesInput): string {
     has_more: page.has_more,
     ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
     hint: "Call comfyui_get_template with a result's id for its parameters, default settings and runnable workflow JSON.",
+  };
+}
+
+export function renderTemplateSearch(result: SearchTemplatesResult): string {
+  const filters = [
+    result.query.query ? `'${result.query.query}'` : null,
+    result.query.modelType && result.query.modelType !== "any" ? result.query.modelType : null,
+    result.query.taskType && result.query.taskType !== "any" ? result.query.taskType : null,
+    result.query.category ?? null,
+  ].filter(Boolean);
+
+  return renderListing({
+    title: filters.length ? `Templates - ${filters.join(", ")}` : "Templates",
+    rows: result.results.map((r) => {
+      const badges = [r.modelType, r.taskType, r.category].filter(Boolean).join("/");
+      const needs = r.requiredModelCount ? ` _(needs ${r.requiredModelCount} model(s))_` : "";
+      return `- \`${r.id}\` **${r.name}** _(${r.source}${badges ? `; ${badges}` : ""})_ - ${r.description}${needs}`;
+    }),
+    page: result,
+    empty:
+      "No templates match. Widen the filters, or call comfyui_list_examples to browse the documented workflows.",
+    next: result.hint,
   });
 }
 

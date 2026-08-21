@@ -9,12 +9,18 @@ export {
   fetchJsonWorkflow,
   listExamplesSchema,
   listExamples,
+  renderExamples,
   getExampleWorkflowSchema,
   getExampleWorkflow,
   getModelDownloads,
   getCategories,
 } from "./list-examples.js";
-export type { ListExamplesInput, GetExampleWorkflowInput } from "./list-examples.js";
+export type {
+  ListExamplesInput,
+  ListExamplesResult,
+  ExampleRow,
+  GetExampleWorkflowInput,
+} from "./list-examples.js";
 
 // Re-export functions from recommend
 export {
@@ -28,6 +34,7 @@ export type { RecommendWorkflowInput, WorkflowRecommendation } from "./recommend
 export {
   searchTemplatesSchema,
   searchTemplates,
+  renderTemplateSearch,
   getTemplateSchema,
   getTemplate,
   saveTemplateSchema,

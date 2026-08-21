@@ -1,8 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { outputTypeName, listNodes, findNodesByType } from "./models.js";
+import {
+  outputTypeName,
+  listNodes,
+  findNodesByType,
+  type ListNodesResult,
+  type NodeRow,
+  renderNodes,
+  renderFoundNodes,
+  NoTypeFilterError,
+} from "./models.js";
 import type { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
+import { ResponseFormat } from "../utils/response.js";
 
 /**
  * Minimal stand-in for ComfyUIClient. Only getObjectInfo is exercised by the
@@ -26,21 +36,19 @@ function node(overrides: Record<string, unknown> = {}): ObjectInfo[string] {
   } as unknown as ObjectInfo[string];
 }
 
-/** The paginated envelope these tools return, for readable assertions. */
-interface NodePage {
-  total: number;
-  count: number;
-  offset: number;
-  categoryCount?: number;
-  topCategories?: Record<string, number>;
-  nodes: Array<Record<string, unknown> | string>;
-  has_more: boolean;
-  next_offset?: number;
-}
+/** Defaults every call shares, so each test states only what it varies. */
+const base = {
+  limit: 25,
+  offset: 0,
+  response_format: ResponseFormat.JSON,
+} as const;
 
-const asPage = (r: Record<string, unknown>) => r as unknown as NodePage;
-const row = (page: NodePage, i: number) =>
-  page.nodes[i] as Record<string, unknown>;
+/** listNodes projects to bare strings at detail:'names'; narrow for assertions. */
+function row(page: ListNodesResult, i: number): NodeRow {
+  const entry = page.nodes[i];
+  assert.notEqual(typeof entry, "string", "expected a projected node object");
+  return entry as NodeRow;
+}
 
 test("outputTypeName normalises a plain type name", () => {
   assert.equal(outputTypeName("image"), "IMAGE");
@@ -65,12 +73,10 @@ test("findNodesByType survives nodes with COMBO array outputs", async () => {
     }),
   });
 
-  const page = asPage(
-    await findNodesByType(client, { outputType: "IMAGE", limit: 25, offset: 0 })
-  );
+  const page = await findNodesByType(client, { ...base, outputType: "IMAGE" });
 
   assert.equal(page.total, 1, "the IMAGE node matches");
-  assert.equal(row(page, 0).name, "Plain");
+  assert.equal(page.nodes[0].name, "Plain");
 });
 
 test("findNodesByType can select the COMBO-output nodes themselves", async () => {
@@ -82,21 +88,19 @@ test("findNodesByType can select the COMBO-output nodes themselves", async () =>
     }),
   });
 
-  const page = asPage(
-    await findNodesByType(client, { outputType: "COMBO", limit: 25, offset: 0 })
-  );
+  const page = await findNodesByType(client, { ...base, outputType: "COMBO" });
 
   assert.equal(page.total, 1);
-  assert.deepEqual(row(page, 0).matchedOutputs, ["sampler"]);
+  assert.deepEqual(page.nodes[0].matchedOutputs, ["sampler"]);
 });
 
 test("findNodesByType asks for a type instead of dumping every node", async () => {
-  const page = asPage(
-    await findNodesByType(clientReturning({ A: node() }), { limit: 25, offset: 0 })
+  // Reported as a tool error, not as a success carrying an `error` field: the
+  // caller has to be able to tell the two apart.
+  await assert.rejects(
+    () => findNodesByType(clientReturning({ A: node() }), base),
+    (err: unknown) => err instanceof NoTypeFilterError
   );
-
-  assert.equal(page.total, 0, "no criteria returns nothing, not everything");
-  assert.match(String((page as unknown as { error: string }).error), /inputType or outputType/);
 });
 
 test("listNodes pages rather than returning every node type", async () => {
@@ -108,13 +112,7 @@ test("listNodes pages rather than returning every node type", async () => {
     });
   }
 
-  const page = asPage(
-    await listNodes(clientReturning(many), {
-      limit: 25,
-      offset: 0,
-      detail: "summary",
-    })
-  );
+  const page = await listNodes(clientReturning(many), { ...base, detail: "summary" });
 
   assert.equal(page.total, 60);
   assert.equal(page.nodes.length, 25, "a page, not the whole set");
@@ -126,15 +124,13 @@ test("listNodes detail levels control per-node cost", async () => {
   const client = clientReturning({
     Only: node({ name: "Only", description: "a long description" }),
   });
-  const base = { limit: 25, offset: 0 } as const;
-
-  const names = asPage(await listNodes(client, { ...base, detail: "names" }));
+  const names = await listNodes(client, { ...base, detail: "names" });
   assert.equal(typeof names.nodes[0], "string", "'names' returns bare strings");
 
-  const summary = asPage(await listNodes(client, { ...base, detail: "summary" }));
+  const summary = await listNodes(client, { ...base, detail: "summary" });
   assert.equal(row(summary, 0).description, undefined, "'summary' omits descriptions");
 
-  const full = asPage(await listNodes(client, { ...base, detail: "full" }));
+  const full = await listNodes(client, { ...base, detail: "full" });
   assert.equal(row(full, 0).description, "a long description");
 });
 
@@ -144,17 +140,46 @@ test("listNodes caps the category map instead of listing hundreds", async () => 
     many[`Node${i}`] = node({ name: `Node${i}`, category: `category-${i}` });
   }
 
-  const page = asPage(
-    await listNodes(clientReturning(many), {
-      limit: 5,
-      offset: 0,
-      detail: "summary",
-    })
-  );
+  const page = await listNodes(clientReturning(many), {
+    ...base,
+    limit: 5,
+    detail: "summary",
+  });
 
   assert.equal(page.categoryCount, 50, "the true category count is reported");
   assert.ok(
     Object.keys(page.topCategories ?? {}).length <= 20,
     "only the largest categories are enumerated"
   );
+});
+
+test("renderNodes says where the rest of the results are", async () => {
+  const many: Record<string, unknown> = {};
+  for (let i = 0; i < 60; i++) many[`Node${i}`] = node({ name: `Node${i}` });
+
+  const input = { ...base, limit: 10, detail: "summary" } as const;
+  const markdown = renderNodes(await listNodes(clientReturning(many), input), input);
+
+  assert.match(markdown, /offset: 10/, "the next page is reachable from the text");
+  assert.match(markdown, /comfyui_get_node_info/, "points at the detail tool");
+});
+
+test("renderNodes explains an empty result instead of printing a bare heading", async () => {
+  const input = { ...base, search: "nonesuch", detail: "summary" } as const;
+  const markdown = renderNodes(
+    await listNodes(clientReturning({ A: node() }), input),
+    input
+  );
+
+  assert.match(markdown, /No nodes matching/);
+  assert.doesNotMatch(markdown, /^#/, "no empty listing scaffold");
+});
+
+test("renderFoundNodes names the types that were searched for", async () => {
+  const page = await findNodesByType(clientReturning({ A: node({ name: "A" }) }), {
+    ...base,
+    outputType: "IMAGE",
+  });
+
+  assert.match(renderFoundNodes(page), /produce \*\*IMAGE\*\*/);
 });

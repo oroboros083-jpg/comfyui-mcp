@@ -19,7 +19,9 @@ import {
   paginate,
   paginationFields,
   paginatedOutputSchema,
+  responseFormatField,
 } from "../../utils/response.js";
+import { renderListing } from "../../utils/render.js";
 import {
   getQueueSchema,
   getQueue,
@@ -272,36 +274,49 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
           .optional()
           .describe("Only return tasks in this state"),
         ...paginationFields,
+        response_format: responseFormatField,
       })
       .strict(),
     requiresConnection: false,
     annotations: {
       title: "List Tasks",
       readOnlyHint: true,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
     handler: (input) => {
       const c = ctx();
       const jobs = c.jobManager.listJobs(input.status);
-      const page = paginate(jobs, input.limit, input.offset);
+      const { items, ...envelope } = paginate(jobs, input.limit, input.offset);
 
-      return dataResult({
-        summary: c.jobManager.getJobCounts(),
-        total: page.total,
-        count: page.count,
-        offset: page.offset,
-        tasks: page.items.map((j) => ({
-          taskId: j.taskId,
-          status: j.status,
-          statusMessage: j.statusMessage,
-          createdAt: j.createdAt,
-          lastUpdatedAt: j.lastUpdatedAt,
-          name: j.name,
-        })),
-        has_more: page.has_more,
-        ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
-      });
+      const tasks = items.map((j) => ({
+        taskId: j.taskId,
+        status: j.status,
+        statusMessage: j.statusMessage,
+        createdAt: j.createdAt,
+        lastUpdatedAt: j.lastUpdatedAt,
+        name: j.name,
+      }));
+
+      const data = { summary: c.jobManager.getJobCounts(), ...envelope, tasks };
+
+      return formattedResult(input.response_format, data, () =>
+        renderListing({
+          title: input.status ? `Tasks (${input.status})` : "Tasks",
+          facets: c.jobManager.getJobCounts(),
+          rows: tasks.map(
+            (t) =>
+              `- \`${t.taskId}\` **${t.status}**${t.name ? ` - ${t.name}` : ""}` +
+              `${t.statusMessage ? ` - ${t.statusMessage}` : ""}`
+          ),
+          page: envelope,
+          empty: input.status
+            ? `No tasks in state '${input.status}'.`
+            : "No tasks tracked yet. comfyui_run_workflow records one per run.",
+          next: "Call comfyui_get_task_result with a task id for its output.",
+        })
+      );
     },
   });
 

@@ -2,7 +2,14 @@ import { z } from "zod";
 import { ExampleWorkflow, ModelDownload } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
 import { safeFetch } from "../../utils/safe-fetch.js";
-import { paginate, paginationFields, jsonText } from "../../utils/response.js";
+import {
+  paginate,
+  paginationFields,
+  responseFormatField,
+  jsonText,
+  PageEnvelope,
+} from "../../utils/response.js";
+import { renderListing } from "../../utils/render.js";
 
 // Refuse to even attempt parsing implausibly large "PNG" data. Without
 // this, a URL-fetching caller (extract_workflow, fetchExampleWorkflow) that
@@ -215,9 +222,28 @@ export const listExamplesSchema = z.object({
         "'full' (adds required models, nodes, and notes). Use comfyui_get_example_workflow for the actual workflow JSON."
     ),
   ...paginationFields,
+  response_format: responseFormatField,
 }).strict();
 
 export type ListExamplesInput = z.infer<typeof listExamplesSchema>;
+
+/** One example as listed, projected to the caller's requested `detail`. */
+export interface ExampleRow {
+  name: string;
+  category: string;
+  description?: string;
+  docs?: string;
+  workflows?: number;
+  requiredModels?: Array<{ type: string; name: string; url: string; destination?: string }>;
+  requiredNodes?: string[];
+  notes?: string;
+}
+
+export type ListExamplesResult = PageEnvelope & {
+  categories: Record<string, number>;
+  examples: ExampleRow[];
+  hint: string;
+};
 
 /**
  * List example workflows, filtered and paged.
@@ -227,7 +253,7 @@ export type ListExamplesInput = z.infer<typeof listExamplesSchema>;
  * in get_example_workflow and get_download_url. So 'summary' is the default
  * and the heavy fields only appear under detail: 'full'.
  */
-export function listExamples(input: ListExamplesInput): string {
+export function listExamples(input: ListExamplesInput): ListExamplesResult {
   let examples: ExampleWorkflow[] = EXAMPLE_WORKFLOWS;
 
   if (input.category) {
@@ -251,12 +277,12 @@ export function listExamples(input: ListExamplesInput): string {
 
   const page = paginate(examples, input.limit, input.offset);
 
-  const project = (e: ExampleWorkflow) => {
+  const project = (e: ExampleWorkflow): ExampleRow => {
     if (input.detail === "names") {
       return { name: e.name, category: e.category };
     }
 
-    const base: Record<string, unknown> = {
+    const base: ExampleRow = {
       name: e.name,
       category: e.category,
       description: e.description,
@@ -280,7 +306,7 @@ export function listExamples(input: ListExamplesInput): string {
     return base;
   };
 
-  return jsonText({
+  return {
     total: page.total,
     count: page.count,
     offset: page.offset,
@@ -289,6 +315,33 @@ export function listExamples(input: ListExamplesInput): string {
     has_more: page.has_more,
     ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
     hint: "Call comfyui_get_example_workflow with an example's name to fetch its runnable workflow JSON.",
+  };
+}
+
+export function renderExamples(
+  result: ListExamplesResult,
+  input: ListExamplesInput
+): string {
+  const filters = [
+    input.search ? `search '${input.search}'` : null,
+    input.category ? `category '${input.category}'` : null,
+  ].filter(Boolean);
+
+  return renderListing({
+    title: filters.length ? `Example Workflows - ${filters.join(", ")}` : "Example Workflows",
+    facets: result.categories,
+    rows: result.examples.map((e) => {
+      const description = e.description ? ` - ${e.description}` : "";
+      const models = e.requiredModels?.length
+        ? ` _(needs ${e.requiredModels.length} model(s))_`
+        : "";
+      return `- **${e.name}** _(${e.category})_${description}${models}`;
+    }),
+    page: result,
+    empty: filters.length
+      ? `No example workflows for ${filters.join(" and ")}. Call comfyui_list_examples with no filter to see the catalogue.`
+      : "No example workflows are bundled with this build.",
+    next: result.hint,
   });
 }
 

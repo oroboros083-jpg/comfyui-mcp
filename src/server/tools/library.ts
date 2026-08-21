@@ -10,11 +10,18 @@ import { readFile, stat } from "fs/promises";
 
 import { defineTool } from "../register.js";
 import { ensureConnected } from "../connection.js";
-import { dataResult, textResult, errorResult } from "../../utils/response.js";
+import {
+  dataResult,
+  textResult,
+  errorResult,
+  formattedResult,
+  paginatedOutputSchema,
+} from "../../utils/response.js";
 import { safeFetch } from "../../utils/safe-fetch.js";
 import {
   listExamplesSchema,
   listExamples,
+  renderExamples,
   getExampleWorkflowSchema,
   getExampleWorkflow,
   extractWorkflowFromPng,
@@ -23,6 +30,7 @@ import {
   formatWorkflowRecommendation,
   searchTemplatesSchema,
   searchTemplates,
+  renderTemplateSearch,
   getTemplateSchema,
   getTemplate,
   saveTemplateSchema,
@@ -62,14 +70,20 @@ export function registerLibraryTools(server: McpServer): void {
     annotations: {
       title: "List Example Workflows",
       readOnlyHint: true,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
-    handler: (input) =>
-      textResult(
-        listExamples(input),
+    outputSchema: paginatedOutputSchema("examples"),
+    handler: (input) => {
+      const result = listExamples(input);
+      return formattedResult(
+        input.response_format,
+        result as unknown as Record<string, unknown>,
+        () => renderExamples(result, input),
         "Narrow with 'search'/'category', lower 'detail', or page with 'offset'."
-      ),
+      );
+    },
   });
 
   defineTool(server, {
@@ -230,11 +244,20 @@ export function registerLibraryTools(server: McpServer): void {
     annotations: {
       title: "Search Workflow Templates",
       readOnlyHint: true,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
-    handler: (input) =>
-      textResult(searchTemplates(input), "Add filters, or page with 'offset'."),
+    outputSchema: paginatedOutputSchema("results"),
+    handler: (input) => {
+      const result = searchTemplates(input);
+      return formattedResult(
+        input.response_format,
+        result as unknown as Record<string, unknown>,
+        () => renderTemplateSearch(result),
+        "Add filters, or page with 'offset'."
+      );
+    },
   });
 
   defineTool(server, {

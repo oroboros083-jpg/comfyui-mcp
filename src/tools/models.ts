@@ -3,8 +3,11 @@ import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
 import {
   paginate,
   paginationFields,
+  responseFormatField,
   jsonText,
+  PageEnvelope,
 } from "../utils/response.js";
+import { renderListing, renderGroups } from "../utils/render.js";
 
 /** How many category counts to report alongside a node listing. */
 const TOP_CATEGORIES = 20;
@@ -41,14 +44,20 @@ export const listModelsSchema = z.object({
     .optional()
     .describe("Only return model filenames containing this substring (case-insensitive)"),
   ...paginationFields,
+  response_format: responseFormatField,
 }).strict();
 
 export type ListModelsInput = z.infer<typeof listModelsSchema>;
 
+/** A page of installed models, regrouped under the type each one belongs to. */
+export type ListModelsResult = PageEnvelope & {
+  models: Record<string, string[]>;
+};
+
 export async function listModels(
   client: ComfyUIClient,
   input: ListModelsInput
-): Promise<Record<string, unknown>> {
+): Promise<ListModelsResult> {
   const models = await client.getModels();
   const search = input.search?.toLowerCase();
   const match = (name: string) => !search || name.toLowerCase().includes(search);
@@ -82,6 +91,18 @@ export async function listModels(
   };
 }
 
+export function renderModels(result: ListModelsResult, input: ListModelsInput): string {
+  const scope = input.type === "all" ? "" : ` (${input.type})`;
+  return renderListing({
+    title: `Installed Models${scope}`,
+    rows: renderGroups(result.models),
+    page: result,
+    empty: input.search
+      ? `No models matching '${input.search}'. Try a shorter search term, or type:'all'.`
+      : "No models installed. Use comfyui_get_model_guide for what to download and where to put it.",
+  });
+}
+
 export const listNodesSchema = z.object({
   category: z
     .string()
@@ -97,9 +118,26 @@ export const listNodesSchema = z.object({
         "'full' (adds the description). Use 'names' to survey what exists, then comfyui_get_node_info for specifics."
     ),
   ...paginationFields,
+  response_format: responseFormatField,
 }).strict();
 
 export type ListNodesInput = z.infer<typeof listNodesSchema>;
+
+/** One node as listed, projected to the caller's requested `detail`. */
+export interface NodeRow {
+  name: string;
+  displayName?: string;
+  category?: string;
+  description?: string;
+}
+
+export type ListNodesResult = PageEnvelope & {
+  categoryCount: number;
+  topCategories: Record<string, number>;
+  /** Bare names when detail is 'names', otherwise objects. */
+  nodes: Array<NodeRow | string>;
+  hint?: string;
+};
 
 /**
  * List node types, filtered and paged.
@@ -112,7 +150,7 @@ export type ListNodesInput = z.infer<typeof listNodesSchema>;
 export async function listNodes(
   client: ComfyUIClient,
   input: ListNodesInput
-): Promise<Record<string, unknown>> {
+): Promise<ListNodesResult> {
   const objectInfo = await client.getObjectInfo();
 
   let nodes = Object.entries(objectInfo).map(([name, info]) => ({
@@ -173,6 +211,33 @@ export async function listNodes(
         }
       : {}),
   };
+}
+
+/** Markdown line for one listed node, at whichever detail it was projected to. */
+function nodeRow(node: NodeRow | string): string {
+  if (typeof node === "string") return `- \`${node}\``;
+  const label = node.displayName && node.displayName !== node.name ? ` - ${node.displayName}` : "";
+  const category = node.category ? ` _(${node.category})_` : "";
+  const description = node.description ? `\n  ${node.description}` : "";
+  return `- \`${node.name}\`${label}${category}${description}`;
+}
+
+export function renderNodes(result: ListNodesResult, input: ListNodesInput): string {
+  const filters = [
+    input.search ? `search '${input.search}'` : null,
+    input.category ? `category '${input.category}'` : null,
+  ].filter(Boolean);
+
+  return renderListing({
+    title: filters.length ? `Nodes matching ${filters.join(" and ")}` : "Available Nodes",
+    facets: { categories: result.categoryCount, ...result.topCategories },
+    rows: result.nodes.map(nodeRow),
+    page: result,
+    empty: filters.length
+      ? `No nodes matching ${filters.join(" and ")}. Try a shorter search term.`
+      : "ComfyUI reported no node types, which usually means it is still starting up.",
+    next: "Call comfyui_get_node_info with a node name for its inputs and outputs.",
+  });
 }
 
 // === Node Info Tool ===
@@ -451,25 +516,46 @@ export const findNodesByTypeSchema = z.object({
     .optional()
     .describe("Find nodes that produce this output type (e.g., 'MODEL', 'LATENT', 'IMAGE', 'CONDITIONING')"),
   ...paginationFields,
+  response_format: responseFormatField,
 }).strict();
 
 export type FindNodesByTypeInput = z.infer<typeof findNodesByTypeSchema>;
 
+/** One node matched by the types it accepts or produces. */
+export interface MatchedNodeRow {
+  name: string;
+  displayName?: string;
+  category: string;
+  matchedInputs?: string[];
+  matchedOutputs?: string[];
+}
+
+export type FindNodesResult = PageEnvelope & {
+  query: { inputType: string | null; outputType: string | null };
+  categoryCount: number;
+  topCategories: Record<string, number>;
+  nodes: MatchedNodeRow[];
+};
+
+/**
+ * Raised when neither type filter is supplied.
+ *
+ * Both fields are individually optional - either one alone is a valid query -
+ * so Zod cannot express the requirement that at least one be present without
+ * turning the schema into a ZodEffects that registerTool will not take.
+ */
+export class NoTypeFilterError extends Error {
+  constructor() {
+    super("find_nodes_by_type needs inputType, outputType, or both");
+    this.name = "NoTypeFilterError";
+  }
+}
+
 export async function findNodesByType(
   client: ComfyUIClient,
   input: FindNodesByTypeInput
-): Promise<Record<string, unknown>> {
-  if (!input.inputType && !input.outputType) {
-    return {
-      error: "Must specify either inputType or outputType (or both).",
-      hint: "e.g. { outputType: 'IMAGE' } for nodes that produce an image.",
-      total: 0,
-      count: 0,
-      offset: 0,
-      nodes: [],
-      has_more: false,
-    };
-  }
+): Promise<FindNodesResult> {
+  if (!input.inputType && !input.outputType) throw new NoTypeFilterError();
 
   const objectInfo = await client.getObjectInfo();
   const inputTypeUpper = input.inputType?.toUpperCase();
@@ -558,6 +644,34 @@ export async function findNodesByType(
     has_more: page.has_more,
     ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
   };
+}
+
+export function renderFoundNodes(result: FindNodesResult): string {
+  const { inputType, outputType } = result.query;
+  const criteria = [
+    inputType ? `accept **${inputType}**` : null,
+    outputType ? `produce **${outputType}**` : null,
+  ]
+    .filter(Boolean)
+    .join(" and ");
+
+  return renderListing({
+    title: "Nodes by Type",
+    lead: `Nodes that ${criteria}.`,
+    facets: { categories: result.categoryCount, ...result.topCategories },
+    rows: result.nodes.map((n) => {
+      const io = [
+        n.matchedInputs?.length ? `in: ${n.matchedInputs.join(", ")}` : null,
+        n.matchedOutputs?.length ? `out: ${n.matchedOutputs.join(", ")}` : null,
+      ]
+        .filter(Boolean)
+        .join("; ");
+      return `- \`${n.name}\` _(${n.category})_${io ? ` - ${io}` : ""}`;
+    }),
+    page: result,
+    empty: `No node ${criteria.replace(/\*\*/g, "'")}. Check the type name with comfyui_get_node_info on a node you know uses it.`,
+    next: "Call comfyui_build_node to generate JSON for one of these.",
+  });
 }
 
 // === Build Node Tool ===

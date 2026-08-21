@@ -11,6 +11,7 @@ import { getCapabilitySummary } from "../../capabilities/index.js";
 import {
   dataResult,
   textResult,
+  errorResult,
   formattedResult,
   paginatedOutputSchema,
 } from "../../utils/response.js";
@@ -18,12 +19,16 @@ import { z } from "zod";
 import {
   listModelsSchema,
   listModels,
+  renderModels,
   listNodesSchema,
   listNodes,
+  renderNodes,
   getNodeInfoSchema,
   getNodeInfo,
   findNodesByTypeSchema,
   findNodesByType,
+  renderFoundNodes,
+  NoTypeFilterError,
   buildNodeSchema,
   buildNode,
 } from "../../tools/models.js";
@@ -116,8 +121,11 @@ export function registerDiscoveryTools(server: McpServer): void {
     outputSchema: paginatedOutputSchema("models", z.record(z.array(z.string()))),
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return dataResult(
-        await listModels(client, input),
+      const result = await listModels(client, input);
+      return formattedResult(
+        input.response_format,
+        result as unknown as Record<string, unknown>,
+        () => renderModels(result, input),
         "Filter with 'type' or 'search', or page with 'offset'."
       );
     },
@@ -141,8 +149,11 @@ export function registerDiscoveryTools(server: McpServer): void {
     outputSchema: paginatedOutputSchema("nodes"),
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return dataResult(
-        await listNodes(client, input),
+      const result = await listNodes(client, input);
+      return formattedResult(
+        input.response_format,
+        result as unknown as Record<string, unknown>,
+        () => renderNodes(result, input),
         "Narrow with 'search'/'category', lower 'detail', or page with 'offset'."
       );
     },
@@ -190,10 +201,23 @@ export function registerDiscoveryTools(server: McpServer): void {
     outputSchema: paginatedOutputSchema("nodes"),
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return dataResult(
-        await findNodesByType(client, input),
-        "Constrain with both inputType and outputType, or page with 'offset'."
-      );
+      try {
+        const result = await findNodesByType(client, input);
+        return formattedResult(
+          input.response_format,
+          result as unknown as Record<string, unknown>,
+          () => renderFoundNodes(result),
+          "Constrain with both inputType and outputType, or page with 'offset'."
+        );
+      } catch (error) {
+        if (error instanceof NoTypeFilterError) {
+          return errorResult(
+            error.message,
+            "e.g. { outputType: 'IMAGE' } for nodes that produce an image."
+          );
+        }
+        throw error;
+      }
     },
   });
 

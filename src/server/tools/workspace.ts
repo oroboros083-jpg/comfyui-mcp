@@ -11,10 +11,24 @@ import { ensureConnected } from "../connection.js";
 import {
   dataResult,
   errorResult,
+  formattedResult,
   paginate,
   paginationFields,
+  responseFormatField,
 } from "../../utils/response.js";
+import { renderListing } from "../../utils/render.js";
 import * as db from "../../db/index.js";
+
+/**
+ * One note as a markdown line. Notes can be long, so the line identifies the
+ * note and shows its opening; comfyui_get_notes with a topic brings the rest.
+ */
+function noteRow(note: db.Note): string {
+  const firstLine = note.content.split("\n")[0];
+  const preview = firstLine.length > 140 ? `${firstLine.slice(0, 140)}...` : firstLine;
+  const tags = note.tags.length ? ` _[${note.tags.join(", ")}]_` : "";
+  return `- **${note.topic}** (#${note.id}) - ${preview}${tags}`;
+}
 import { renderSvgSchema, renderSvg } from "../../tools/svg.js";
 import {
   downloadFontSchema,
@@ -73,12 +87,14 @@ export function registerWorkspaceTools(server: McpServer): void {
       .object({
         topic: z.string().optional().describe("Only return notes under this topic"),
         ...paginationFields,
+        response_format: responseFormatField,
       })
       .strict(),
     requiresConnection: false,
     annotations: {
       title: "Get Notes",
       readOnlyHint: true,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
@@ -88,16 +104,19 @@ export function registerWorkspaceTools(server: McpServer): void {
       const notes = input.topic
         ? db.getNotesByTopic(input.topic)
         : db.getAllNotes(1000);
-      const page = paginate(notes, input.limit, input.offset);
+      const { items, ...envelope } = paginate(notes, input.limit, input.offset);
+      const data = { ...envelope, notes: items };
 
-      return dataResult({
-        total: page.total,
-        count: page.count,
-        offset: page.offset,
-        notes: page.items,
-        has_more: page.has_more,
-        ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
-      });
+      return formattedResult(input.response_format, data, () =>
+        renderListing({
+          title: input.topic ? `Notes on ${input.topic}` : "Notes",
+          rows: items.map(noteRow),
+          page: envelope,
+          empty: input.topic
+            ? `No notes under '${input.topic}'. Call comfyui_list_topics to see which topics exist.`
+            : "No notes saved yet. Use comfyui_save_note to record something.",
+        })
+      );
     },
   });
 
@@ -108,30 +127,32 @@ export function registerWorkspaceTools(server: McpServer): void {
       "Returns: { query, total, count, offset, notes, has_more, next_offset }",
     schema: z
       .object({
-        query: z.string().min(1).describe("Search terms"),
+        query: z.string().min(1, "query must not be empty").describe("Search terms"),
         ...paginationFields,
+        response_format: responseFormatField,
       })
       .strict(),
     requiresConnection: false,
     annotations: {
       title: "Search Notes",
       readOnlyHint: true,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
     handler: (input) => {
       const notes = db.searchNotes(input.query, 1000);
-      const page = paginate(notes, input.limit, input.offset);
+      const { items, ...envelope } = paginate(notes, input.limit, input.offset);
+      const data = { query: input.query, ...envelope, notes: items };
 
-      return dataResult({
-        query: input.query,
-        total: page.total,
-        count: page.count,
-        offset: page.offset,
-        notes: page.items,
-        has_more: page.has_more,
-        ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
-      });
+      return formattedResult(input.response_format, data, () =>
+        renderListing({
+          title: `Notes matching '${input.query}'`,
+          rows: items.map(noteRow),
+          page: envelope,
+          empty: `No notes match '${input.query}'. Try fewer or broader terms, or comfyui_list_topics.`,
+        })
+      );
     },
   });
 
