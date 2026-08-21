@@ -56,8 +56,9 @@ function getConfigPath(): string {
 export async function loadConfig(): Promise<Config> {
   const configPath = getConfigPath();
 
-  // Check environment variable first
+  // Check environment variables first
   const envUrl = process.env.COMFYUI_URL;
+  const envApiKey = process.env.COMFYUI_API_KEY;
 
   let fileConfig: Partial<Config> = {};
 
@@ -79,9 +80,17 @@ export async function loadConfig(): Promise<Config> {
     },
   };
 
-  // Environment variable overrides config file
+  // Environment variables override the config file.
+  //
+  // COMFYUI_API_KEY is read here because requestFailureHint names it as the
+  // remedy for a 401/403 from ComfyUI. It was never read, so following that
+  // advice changed nothing and the key could only be supplied by hand-editing
+  // config.json - which the hint does not mention.
   if (envUrl) {
     config.comfyui.url = envUrl;
+  }
+  if (envApiKey) {
+    config.comfyui.apiKey = envApiKey;
   }
 
   return config;

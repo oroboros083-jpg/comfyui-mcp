@@ -316,6 +316,36 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
 // TabBridge + userdata calls
 // ---------------------------------------------------------------------------
 
+/**
+ * Which ComfyUI to talk to, and how to authenticate to it.
+ *
+ * These calls used to take a bare base url and send no Authorization header,
+ * unlike ComfyUIClient. Against an instance with an API key configured every
+ * one of them got a 401 and swallowed it: list_open_workflows reported
+ * "TabBridge is not installed" when it was installed and working, and
+ * read_workflow answered { found: false } for a workflow that exists - which
+ * left write_workflow with nothing to diff, so it overwrote the human's file
+ * and reported no changes. That is exactly the loss this module exists to
+ * prevent, so the credential travels with the target rather than being
+ * something each call site can forget.
+ *
+ * A key that is merely *wrong* is caught earlier: every one of these tools is
+ * connection-gated, and the gate's health probe fails on the 401 first.
+ */
+export interface ComfyUITarget {
+  baseUrl: string;
+  apiKey?: string;
+}
+
+function targetHeaders(
+  target: ComfyUITarget,
+  extra: Record<string, string> = {}
+): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  if (target.apiKey) headers["Authorization"] = `Bearer ${target.apiKey}`;
+  return headers;
+}
+
 export interface TabState {
   clients: number;
   open_workflows: Array<{
@@ -332,9 +362,11 @@ const NO_BRIDGE =
   "tabs cannot be seen or steered. Writes still work, but a tab holding this " +
   "workflow will keep showing the old graph and may autosave it back.";
 
-export async function getTabState(baseUrl: string): Promise<TabState | null> {
+export async function getTabState(target: ComfyUITarget): Promise<TabState | null> {
   try {
-    const res = await fetch(`${baseUrl}/tabs/state`);
+    const res = await fetch(`${target.baseUrl}/tabs/state`, {
+      headers: targetHeaders(target),
+    });
     if (!res.ok) return null;
     return (await res.json()) as TabState;
   } catch {
@@ -343,14 +375,14 @@ export async function getTabState(baseUrl: string): Promise<TabState | null> {
 }
 
 async function postBridge(
-  baseUrl: string,
+  target: ComfyUITarget,
   route: string,
   body: Record<string, unknown>
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${baseUrl}${route}`, {
+    const res = await fetch(`${target.baseUrl}${route}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: targetHeaders(target, { "Content-Type": "application/json" }),
       body: JSON.stringify(body),
     });
     return res.ok;
@@ -367,21 +399,21 @@ async function postBridge(
  * so a timeout is the normal quiet case rather than a failure.
  */
 export async function flushWorkflow(
-  baseUrl: string,
+  target: ComfyUITarget,
   path: string,
   waitSeconds = 4
 ): Promise<{ requested: boolean; wasModified: boolean; settled: boolean }> {
-  const before = await getTabState(baseUrl);
+  const before = await getTabState(target);
   const entry = before?.open_workflows.find((w) => w.path === path);
   const wasModified = !!entry?.modified;
-  const requested = await postBridge(baseUrl, "/tabs/flush", { path });
+  const requested = await postBridge(target, "/tabs/flush", { path });
   if (!requested || !wasModified) {
     return { requested, wasModified, settled: !wasModified };
   }
   const deadline = Date.now() + waitSeconds * 1000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 250));
-    const now = await getTabState(baseUrl);
+    const now = await getTabState(target);
     const e = now?.open_workflows.find((w) => w.path === path);
     if (!e?.modified) return { requested, wasModified, settled: true };
   }
@@ -389,23 +421,25 @@ export async function flushWorkflow(
 }
 
 export async function reloadWorkflow(
-  baseUrl: string,
+  target: ComfyUITarget,
   path: string,
   saveFirst = true
 ): Promise<boolean> {
-  return postBridge(baseUrl, "/tabs/reload", { path, save_first: saveFirst });
+  return postBridge(target, "/tabs/reload", { path, save_first: saveFirst });
 }
 
 export async function readWorkflowFile(
-  baseUrl: string,
+  target: ComfyUITarget,
   path: string,
   grantedDirs: string[]
 ): Promise<unknown | null> {
   if (isUserdataPath(path)) {
     // Cache-busted: a plain GET can return a stale copy, which defeats the
     // point of reading before a write.
-    const url = `${baseUrl}/api/userdata/${encodeURIComponent(path)}?t=${Date.now()}`;
-    const res = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
+    const url = `${target.baseUrl}/api/userdata/${encodeURIComponent(path)}?t=${Date.now()}`;
+    const res = await fetch(url, {
+      headers: targetHeaders(target, { "Cache-Control": "no-cache" }),
+    });
     if (!res.ok) return null;
     return (await res.json()) as unknown;
   }
@@ -415,17 +449,17 @@ export async function readWorkflowFile(
 }
 
 export async function writeWorkflowFile(
-  baseUrl: string,
+  target: ComfyUITarget,
   path: string,
   workflow: unknown,
   grantedDirs: string[]
 ): Promise<string> {
   const blob = JSON.stringify(workflow, null, 2);
   if (isUserdataPath(path)) {
-    const url = `${baseUrl}/api/userdata/${encodeURIComponent(path)}?overwrite=true`;
+    const url = `${target.baseUrl}/api/userdata/${encodeURIComponent(path)}?overwrite=true`;
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: targetHeaders(target, { "Content-Type": "application/json" }),
       body: blob,
     });
     if (!res.ok) {

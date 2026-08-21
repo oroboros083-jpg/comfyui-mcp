@@ -24,6 +24,7 @@ import {
   diffWorkflows,
   WriteNotPermittedError,
   BRIDGE_MISSING_HINT,
+  ComfyUITarget,
 } from "../../tools/workflow-files.js";
 import { ServerContext } from "../../context.js";
 
@@ -55,6 +56,15 @@ export function imagesToContent(
   }
 
   return { content } as unknown as ToolResult;
+}
+
+/**
+ * Which ComfyUI the workflow-file tools should talk to, with the credential.
+ * Built here rather than passed as a bare url so an authenticated instance
+ * cannot silently 401 its way into "TabBridge is not installed".
+ */
+function workflowTarget(c: ServerContext): ComfyUITarget {
+  return { baseUrl: c.discoveredUrl!, apiKey: c.config.comfyui.apiKey };
 }
 
 export function registerGenerationTools(
@@ -185,7 +195,7 @@ export function registerGenerationTools(
       openWorldHint: true,
     },
     handler: async () => {
-      const state = await getTabState(ctx().discoveredUrl!);
+      const state = await getTabState(workflowTarget(ctx()));
       if (!state) return dataResult({ available: false, hint: BRIDGE_MISSING_HINT });
       return dataResult(state);
     },
@@ -208,7 +218,7 @@ export function registerGenerationTools(
     },
     handler: async (input) => {
       const result = await flushWorkflow(
-        ctx().discoveredUrl!,
+        workflowTarget(ctx()),
         input.path,
         input.wait_seconds ?? 4
       );
@@ -236,7 +246,7 @@ export function registerGenerationTools(
     },
     handler: async (input) => {
       const ok = await reloadWorkflow(
-        ctx().discoveredUrl!,
+        workflowTarget(ctx()),
         input.path,
         input.save_first !== false
       );
@@ -260,7 +270,7 @@ export function registerGenerationTools(
     handler: async (input) => {
       const c = ctx();
       const wf = await readWorkflowFile(
-        c.discoveredUrl!,
+        workflowTarget(c),
         input.path,
         c.config.workflowWriteDirs ?? []
       );
@@ -293,7 +303,7 @@ export function registerGenerationTools(
     },
     handler: async (input) => {
       const c = ctx();
-      const base = c.discoveredUrl!;
+      const base = workflowTarget(c);
       const granted = c.config.workflowWriteDirs ?? [];
 
       // 1. Flush, so unsaved hand edits land on disk and show up in the
