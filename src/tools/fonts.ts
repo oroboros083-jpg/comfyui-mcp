@@ -288,8 +288,15 @@ export async function getFontBase64(fontName: string): Promise<{
     const files = await readdir(FONTS_DIR);
     const safeName = fontName.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
 
-    // Find matching font file
-    const fontFile = files.find((f) => f.toLowerCase().startsWith(safeName));
+    // Match the whole name, not a prefix of it. Downloads are saved as
+    // `<safeName>.<ext>` or `<safeName>_<weight>.<ext>`, so a startsWith check
+    // resolved "Cinzel" to cinzel_decorative_400.woff2 whenever the decorative
+    // face happened to be cached and the plain one was not - and readdir order
+    // decided which of several prefix matches won.
+    const stemMatches = new RegExp(`^${safeName}(_\\d+)?$`);
+    const fontFile = files.find((f) =>
+      stemMatches.test(f.toLowerCase().replace(/\.[^.]+$/, ""))
+    );
     if (!fontFile) {
       return null;
     }

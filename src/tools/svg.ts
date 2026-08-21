@@ -1,6 +1,7 @@
 import { z } from "zod";
 import sharp from "sharp";
 import { generateFontFaceCSS } from "./fonts.js";
+import { ToolError } from "../utils/errors.js";
 
 export const renderSvgSchema = z.object({
   svg: z.string().describe("SVG content to render (full SVG markup including <svg> tags)"),
@@ -77,12 +78,26 @@ export async function renderSvg(
     // Embed fonts if specified
     if (input.fonts && input.fonts.length > 0) {
       const fontFaces: string[] = [];
+      const missing: string[] = [];
 
       for (const font of input.fonts) {
         const css = await generateFontFaceCSS(font.name, font.family);
         if (css) {
           fontFaces.push(css);
+        } else {
+          missing.push(font.name);
         }
+      }
+
+      // A font that is not in the cache used to be skipped in silence, and the
+      // render came back success:true in the renderer's default sans-serif -
+      // so the caller shipped an image believing its typography had applied.
+      // The whole point of naming a font here is that it should be used.
+      if (missing.length > 0) {
+        throw new ToolError(
+          `Not downloaded: ${missing.join(", ")}. Rendering would silently substitute a default face.`,
+          `Call comfyui_download_font for each of them first, or comfyui_list_fonts to see what is already cached under a different name.`
+        );
       }
 
       if (fontFaces.length > 0) {
@@ -150,6 +165,10 @@ export async function renderSvg(
       buffer: pngBuffer,
     };
   } catch (error) {
+    // A ToolError already knows what the caller should do next; swallowing it
+    // into this result's bare `error` string would replace that with the
+    // handler's generic "check the SVG markup" hint.
+    if (error instanceof ToolError) throw error;
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

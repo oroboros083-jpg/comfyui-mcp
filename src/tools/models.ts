@@ -721,6 +721,28 @@ export async function buildNode(
     throw new NodeNotFoundError(input.nodeType);
   }
 
+  // Reject inputs this node does not have, rather than dropping them.
+  //
+  // `inputs` is a free-form record - the keys are the node's own input names,
+  // so the schema cannot be .strict() about them the way every other tool
+  // here is. Without this check a misspelling like `denoise_strength` for
+  // `denoise` was silently discarded and the node came back carrying the
+  // default, which the caller then wired into a workflow believing their
+  // value had applied.
+  const knownInputs = new Set([
+    ...Object.keys(nodeInfo.input.required ?? {}),
+    ...Object.keys(nodeInfo.input.optional ?? {}),
+  ]);
+  const unknownInputs = Object.keys(input.inputs ?? {}).filter(
+    (name) => !knownInputs.has(name)
+  );
+  if (unknownInputs.length > 0) {
+    throw new ToolError(
+      `${input.nodeType} has no input named ${unknownInputs.map((n) => `'${n}'`).join(", ")}.`,
+      `Its inputs are: ${[...knownInputs].join(", ")}. comfyui_get_node_info has each one's type, default and range.`
+    );
+  }
+
   // Start with defaults from node info
   const nodeInputs: Record<string, unknown> = {};
   const missingConnections: Array<{ input: string; type: string; description: string }> = [];

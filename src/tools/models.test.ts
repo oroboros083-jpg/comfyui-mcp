@@ -14,6 +14,7 @@ import {
   buildNode,
 } from "./models.js";
 import type { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
+import { ToolError } from "../utils/errors.js";
 import { ResponseFormat } from "../utils/response.js";
 
 /**
@@ -234,4 +235,55 @@ test("buildNode fills a current-form combo instead of faking a connection", asyn
     undefined,
     "a model dropdown is not something to wire from another node"
   );
+});
+
+test("buildNode rejects an input the node does not have", async () => {
+  // `inputs` is a free-form record, so the schema cannot be .strict() about
+  // its keys. A misspelling used to be dropped in silence and the node came
+  // back carrying the default.
+  const client = clientReturning({
+    KSampler: node({
+      name: "KSampler",
+      input: {
+        required: { denoise: ["FLOAT", { default: 1.0 }] },
+        optional: {},
+      },
+    }),
+  });
+
+  await assert.rejects(
+    () =>
+      buildNode(client, {
+        nodeType: "KSampler",
+        nodeId: "5",
+        inputs: { denoise_strength: 0.5 },
+      }),
+    (err: unknown) =>
+      err instanceof ToolError &&
+      /denoise_strength/.test(err.message) &&
+      /denoise/.test(err.hint ?? "")
+  );
+});
+
+test("buildNode still accepts optional inputs the node declares", async () => {
+  const client = clientReturning({
+    Sampler: node({
+      name: "Sampler",
+      input: {
+        required: { steps: ["INT", { default: 20 }] },
+        optional: { denoise: ["FLOAT", { default: 1.0 }] },
+      },
+    }),
+  });
+
+  const built = JSON.parse(
+    await buildNode(client, {
+      nodeType: "Sampler",
+      nodeId: "5",
+      inputs: { denoise: 0.5 },
+    })
+  );
+
+  assert.equal(built.node["5"].inputs.denoise, 0.5);
+  assert.equal(built.node["5"].inputs.steps, 20, "unspecified inputs keep their default");
 });
