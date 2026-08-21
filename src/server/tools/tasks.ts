@@ -33,7 +33,7 @@ import {
   renderHistory,
   isHistoryDetail,
 } from "../../tools/queue.js";
-import { processImageForTransfer } from "../../utils/image.js";
+import { completeJobFromHistory } from "../../jobs/reconcile.js";
 import { ServerContext } from "../../context.js";
 import { imagesToContent } from "./generation.js";
 
@@ -419,8 +419,9 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     description:
       "Retrieve a generation by the name assigned via comfyui_run_workflow's 'name' or " +
       "comfyui_name_generation. Returns images, the same as comfyui_get_task_result.\n\n" +
-      "If the task was recorded as timed out but ComfyUI actually finished it, this recovers the " +
-      "output from ComfyUI's history rather than reporting a failure.",
+      "If the task was recorded as failed but ComfyUI actually finished it - a dropped connection " +
+      "or a restarted server - this recovers the output from ComfyUI's history rather than " +
+      "reporting a failure.",
     schema: z
       .object({ name: z.string().min(1).describe("The name assigned to the generation") })
       .strict(),
@@ -452,15 +453,24 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       }
 
       if (job.status === "failed") {
-        // A timeout on our side does not mean ComfyUI failed - it may have
-        // finished after we stopped waiting. Check before reporting failure.
-        const recovered = job.error?.includes("timed out")
-          ? await recoverTimedOutJob(c, job.promptId, job.taskId)
+        // Our record of a failure is not authoritative - a dropped socket or a
+        // restarted server marks a job failed while ComfyUI goes on to finish
+        // it. Ask ComfyUI before reporting the failure. This used to be gated
+        // on the error containing "timed out", which nothing ever writes, so
+        // the recovery this tool advertises could never fire.
+        const recovered = c.client
+          ? await completeJobFromHistory(
+              c.client,
+              c.jobManager,
+              job,
+              c.config.outputDir,
+              c.config.outputSizeThreshold
+            ).catch(() => null)
           : null;
 
         if (recovered) {
           return imagesToContent(
-            `Generation "${input.name}" recovered from timeout. ${recovered.length} image(s).`,
+            `Generation "${input.name}" recovered from ComfyUI's history. ${recovered.length} image(s).`,
             recovered
           );
         }
@@ -491,52 +501,4 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       );
     },
   });
-}
-
-/**
- * Pull a job's output from ComfyUI's history after our own wait timed out.
- * Returns null when it genuinely did not complete.
- */
-async function recoverTimedOutJob(
-  c: ServerContext,
-  promptId: string,
-  taskId: string
-): Promise<Array<{ filename: string; data?: string; mimeType?: string }> | null> {
-  if (!c.client) return null;
-
-  try {
-    const history = await c.client.getHistory(promptId);
-    const entry = history[promptId];
-    if (!entry?.status?.completed || !entry.outputs) return null;
-
-    const images: Array<{ filename: string; data?: string; mimeType?: string }> = [];
-    for (const output of Object.values(entry.outputs)) {
-      const nodeOutput = output as {
-        images?: Array<{ filename: string; subfolder: string; type: string }>;
-      };
-      for (const img of nodeOutput.images ?? []) {
-        const raw = await c.client.getImage(img.filename, img.subfolder, img.type);
-        const processed = await processImageForTransfer(Buffer.from(raw), {
-          format: "jpeg",
-          quality: 85,
-        });
-        images.push({
-          filename: img.filename,
-          data: processed.data,
-          mimeType: processed.mimeType,
-        });
-      }
-    }
-
-    c.jobManager.completeJob(taskId, {
-      success: true,
-      promptId,
-      outputs: entry.outputs,
-      images,
-    });
-
-    return images;
-  } catch {
-    return null;
-  }
 }

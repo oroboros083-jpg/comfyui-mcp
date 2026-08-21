@@ -1,6 +1,6 @@
 import { ComfyUIClient } from "../client/comfyui.js";
 import { JobManager, Job } from "./manager.js";
-import { processImageForTransfer } from "../utils/image.js";
+import { collectOutputImages, OutputImage } from "../tools/outputs.js";
 
 /**
  * A job is orphaned when this process lost track of its execution: either
@@ -24,13 +24,59 @@ function isOrphanCandidate(job: Job): boolean {
 }
 
 /**
+ * Complete a job from ComfyUI's history, if ComfyUI says it actually finished.
+ *
+ * Our record of a job is not authoritative - the process can be restarted, the
+ * socket can drop mid-execution - but ComfyUI's history is. Returns the images
+ * on success and null when history does not show the prompt complete, so the
+ * caller can report the failure it already had.
+ *
+ * Outputs go through collectOutputImages, the same path a live run uses. Two
+ * hand-rolled copies of that logic lived here and in server/tools/tasks.ts;
+ * both hardcoded jpeg/85, always inlined base64, never wrote a file and never
+ * set `path`, so a job recovered this way ignored the outputMode, imageFormat
+ * and imageQuality the caller originally asked for.
+ */
+export async function completeJobFromHistory(
+  client: ComfyUIClient,
+  jobManager: JobManager,
+  job: Job,
+  outputDir: string,
+  sizeThreshold: number
+): Promise<OutputImage[] | null> {
+  const history = await client.getHistory(job.promptId);
+  const entry = history[job.promptId];
+  if (!entry?.status?.completed || !entry.outputs) return null;
+
+  const images = await collectOutputImages(
+    client,
+    entry.outputs,
+    job.request.input,
+    job.request.input.workflow,
+    outputDir,
+    sizeThreshold
+  );
+
+  jobManager.completeJob(job.taskId, {
+    success: true,
+    promptId: job.promptId,
+    outputs: entry.outputs,
+    images,
+  });
+
+  return images;
+}
+
+/**
  * Reconcile jobs whose real outcome is unknown against ComfyUI's queue and
  * history. Called after a successful (re)connect, so tasks never sit in
  * "working" reporting phantom in-flight work.
  */
 export async function reconcileOrphanedJobs(
   client: ComfyUIClient,
-  jobManager: JobManager
+  jobManager: JobManager,
+  outputDir: string,
+  sizeThreshold: number
 ): Promise<ReconcileSummary> {
   const summary: ReconcileSummary = {
     checked: 0,
@@ -75,13 +121,7 @@ export async function reconcileOrphanedJobs(
 
     if (historyEntry?.status?.completed && historyEntry.outputs) {
       try {
-        const images = await collectImages(client, historyEntry.outputs);
-        jobManager.completeJob(job.taskId, {
-          success: true,
-          promptId: job.promptId,
-          outputs: historyEntry.outputs,
-          images,
-        });
+        await completeJobFromHistory(client, jobManager, job, outputDir, sizeThreshold);
         summary.completed++;
         continue;
       } catch {
@@ -105,33 +145,4 @@ export async function reconcileOrphanedJobs(
   }
 
   return summary;
-}
-
-async function collectImages(
-  client: ComfyUIClient,
-  outputs: Record<string, unknown>
-): Promise<Array<{ filename: string; data?: string; mimeType?: string }>> {
-  const images: Array<{ filename: string; data?: string; mimeType?: string }> = [];
-
-  for (const output of Object.values(outputs)) {
-    const nodeOutput = output as {
-      images?: Array<{ filename: string; subfolder: string; type: string }>;
-    };
-    if (!nodeOutput.images) continue;
-
-    for (const img of nodeOutput.images) {
-      const imageData = await client.getImage(img.filename, img.subfolder, img.type);
-      const processed = await processImageForTransfer(Buffer.from(imageData), {
-        format: "jpeg",
-        quality: 85,
-      });
-      images.push({
-        filename: img.filename,
-        data: processed.data,
-        mimeType: processed.mimeType,
-      });
-    }
-  }
-
-  return images;
 }

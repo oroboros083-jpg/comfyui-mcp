@@ -254,7 +254,12 @@ export function unreachableError(): string {
 export async function reconcileAfterConnect(): Promise<ReconcileSummary | undefined> {
   if (!ctx.client) return undefined;
   try {
-    const summary = await reconcileOrphanedJobs(ctx.client, ctx.jobManager);
+    const summary = await reconcileOrphanedJobs(
+      ctx.client,
+      ctx.jobManager,
+      ctx.config.outputDir,
+      ctx.config.outputSizeThreshold
+    );
     if (summary.completed > 0 || summary.failed > 0) {
       info(
         `Reconciled interrupted tasks: ${summary.completed} completed, ${summary.failed} failed, ${summary.stillRunning} still running`,
