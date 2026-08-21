@@ -2,7 +2,7 @@ import { ToolError } from "../utils/errors.js";
 import { z } from "zod";
 import { realpath, readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
-import { dirname, extname, isAbsolute, relative, resolve, sep } from "path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "path";
 
 /**
  * NOTE ON HTTP: these call ComfyUI directly with plain `fetch`, NOT
@@ -177,7 +177,12 @@ export async function resolveGrantedPath(
     throw new WriteNotPermittedError(`Directory does not exist: ${parent}`);
   }
   const realParent = await realpath(parent);
-  const realTarget = realParent + sep + abs.slice(parent.length + 1);
+  // join, not realParent + sep + abs.slice(parent.length + 1): dirname()
+  // returns a root WITH its trailing separator ("C:\", "/"), so slicing past
+  // it ate the first character of the filename and "C:\pipeline.json" resolved
+  // to "C:\\ipeline.json" - a path that still passed the containment check and
+  // was written to, then reported back as if it were the requested one.
+  const realTarget = join(realParent, basename(abs));
 
   for (const dir of grantedDirs) {
     if (!existsSync(dir)) continue;

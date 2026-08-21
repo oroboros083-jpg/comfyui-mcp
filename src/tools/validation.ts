@@ -193,22 +193,24 @@ export async function validateWorkflow(
     }
   }
 
-  // Check for output nodes (SaveImage, PreviewImage, etc.)
-  const outputNodeTypes = [
-    "SaveImage",
-    "PreviewImage",
-    "SaveAnimatedWEBP",
-    "SaveAnimatedPNG",
-    "SaveVideo",
-    "PreviewVideo",
-    "SaveAudio",
-    "PreviewAudio",
-  ];
-  const hasOutputNode = Object.values(workflow).some((node) =>
-    outputNodeTypes.some(
-      (t) => node.class_type === t || node.class_type?.includes("Save") || node.class_type?.includes("Preview")
-    )
-  );
+  // Check for output nodes.
+  //
+  // ComfyUI publishes OUTPUT_NODE per node type, so ask it rather than
+  // guessing from the class name. The name heuristic this replaced matched
+  // only "Save"/"Preview" substrings, which misses every sink a custom pack
+  // supplies - VHS_VideoCombine, the standard video output node, contains
+  // neither - so correct video workflows were told their results might not be
+  // retrievable. The heuristic stays as a fallback for builds old enough not
+  // to publish the flag.
+  const hasOutputNode = Object.values(workflow).some((node) => {
+    const info = objectInfo[node.class_type];
+    if (info?.output_node !== undefined) return info.output_node;
+    return (
+      node.class_type?.includes("Save") ||
+      node.class_type?.includes("Preview") ||
+      node.class_type?.includes("Combine")
+    );
+  });
 
   if (!hasOutputNode) {
     warnings.push({

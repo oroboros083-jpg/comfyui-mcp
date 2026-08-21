@@ -64,6 +64,14 @@ export interface ObjectInfo {
     display_name: string;
     description: string;
     category: string;
+    /**
+     * ComfyUI's own OUTPUT_NODE flag - whether executing this node produces a
+     * result rather than feeding another node. Authoritative, and the only way
+     * to recognise the sinks custom node packs supply (VHS_VideoCombine and
+     * friends) without guessing from the class name. Optional because very old
+     * builds omit it.
+     */
+    output_node?: boolean;
   };
 }
 

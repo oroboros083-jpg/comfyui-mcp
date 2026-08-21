@@ -157,7 +157,18 @@ export async function analyzeUserOutputs(outputPath: string): Promise<UserPrefer
   for (const filePath of pngFiles) {
     try {
       const fileData = await readFile(filePath);
-      const metadata = await extractWorkflowFromPng(fileData.buffer as ArrayBuffer);
+      // Slice to the Buffer's own view rather than handing over `.buffer`.
+      // The async readFile allocates exactly, so today the two are the same -
+      // but readFileSync serves anything under 32 KB from a shared 64 KB pool
+      // at a non-zero byteOffset, and extractWorkflowFromPng reads from offset
+      // 0. Swapping this call for the sync one would silently break every
+      // small PNG's signature check, and cap MAX_PNG_SIZE against the pool.
+      const metadata = await extractWorkflowFromPng(
+        fileData.buffer.slice(
+          fileData.byteOffset,
+          fileData.byteOffset + fileData.byteLength
+        ) as ArrayBuffer
+      );
 
       if (!metadata) continue;
 
