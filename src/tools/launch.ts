@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { spawn } from "child_process";
 import { platform, homedir } from "os";
-import { existsSync } from "fs";
+import { existsSync, statSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
 
 /**
@@ -322,6 +322,101 @@ export async function spawnComfyUI(target: LaunchTarget): Promise<LaunchResult> 
   child.unref();
 
   return { pid: child.pid, exited: () => exit };
+}
+
+/**
+ * Where ComfyUI writes its startup log, by install kind.
+ *
+ * The desktop app logs under the Electron user-data directory; a source or
+ * portable checkout logs under its own `user/` directory. Both are checked
+ * because the launcher that was used does not reliably tell us which one the
+ * running process is.
+ */
+function startupLogCandidates(target: LaunchTarget | null): string[] {
+  const home = homedir();
+  const paths: string[] = [];
+
+  if (target?.cwd) {
+    paths.push(join(target.cwd, "user", "comfyui.log"));
+    paths.push(join(target.cwd, "comfyui.log"));
+  }
+
+  if (isWindows()) {
+    const appData = process.env.APPDATA ?? join(home, "AppData", "Roaming");
+    paths.push(join(appData, "ComfyUI", "logs", "comfyui.log"));
+  } else if (platform() === "darwin") {
+    paths.push(join(home, "Library", "Logs", "ComfyUI", "comfyui.log"));
+    paths.push(join(home, "Library", "Application Support", "ComfyUI", "logs", "comfyui.log"));
+  } else {
+    paths.push(join(home, ".config", "ComfyUI", "logs", "comfyui.log"));
+  }
+
+  return paths;
+}
+
+/** How much of the log tail is worth putting in front of the agent. */
+const LOG_TAIL_LINES = 30;
+const LOG_READ_BYTES = 64 * 1024;
+
+export interface StartupLogTail {
+  path: string;
+  /** The last lines of the log, error lines preferred. */
+  lines: string[];
+}
+
+/**
+ * Read the tail of ComfyUI's startup log after a launch fails to answer.
+ *
+ * Without this the tool can only say "it did not answer, run it in a terminal
+ * to see why" - which is a dead end for an agent that cannot watch a terminal.
+ * ComfyUI writes the actual cause (a missing model path, a broken custom node,
+ * a port already bound) to this file, so the tool reads it and hands it over.
+ */
+export function readStartupLogTail(target: LaunchTarget | null): StartupLogTail | null {
+  const existing = startupLogCandidates(target).filter((p) => existsSync(p));
+  if (!existing.length) return null;
+
+  // Several may exist from different installs; the one just written to is the
+  // one that belongs to this launch.
+  let newest = existing[0];
+  for (const candidate of existing.slice(1)) {
+    try {
+      if (statSync(candidate).mtimeMs > statSync(newest).mtimeMs) newest = candidate;
+    } catch {
+      // Unreadable candidate: keep the one already chosen.
+    }
+  }
+
+  let text: string;
+  try {
+    // Read only the tail: a long session's log can be megabytes, and none of
+    // the earlier part explains a failure that just happened.
+    const size = statSync(newest).size;
+    const start = Math.max(0, size - LOG_READ_BYTES);
+    const fd = openSync(newest, "r");
+    try {
+      const buffer = Buffer.alloc(Math.min(size, LOG_READ_BYTES));
+      readSync(fd, buffer, 0, buffer.length, start);
+      text = buffer.toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (!lines.length) return null;
+
+  // A traceback is what actually explains the failure, so prefer the error
+  // lines when there are any and fall back to the plain tail when there
+  // are not.
+  const errors = lines.filter((line) =>
+    /error|traceback|exception|failed|cannot|no such|refused/i.test(line)
+  );
+  const chosen = errors.length ? errors : lines;
+
+  return { path: newest, lines: chosen.slice(-LOG_TAIL_LINES) };
 }
 
 /**

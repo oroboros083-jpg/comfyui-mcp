@@ -30,6 +30,7 @@ import {
   resolveLaunchTarget,
   spawnComfyUI,
   launchBlockedReason,
+  readStartupLogTail,
 } from "../../tools/launch.js";
 import { restartComfyUISchema } from "../../tools/restart.js";
 import { ServerContext } from "../../context.js";
@@ -205,11 +206,23 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
 
       if (!recovery.connected) {
         const exit = launch.exited();
+        // ComfyUI writes why it died to its own log. Without reading it the
+        // only advice available is "run it in a terminal", which an agent
+        // cannot act on.
+        const log = readStartupLogTail(target);
+
+        const hint = exit
+          ? "The launcher exited before ComfyUI answered, so it likely failed to start."
+          : "The process is still running but has not answered yet - a cold start can take a while, so comfyui_reconnect may succeed shortly.";
+
         return errorResult(
-          `Launched ${target.label} (pid ${launch.pid}) but it has not answered after ${elapsedSeconds}s: ${recovery.error ?? ""}`,
-          exit
-            ? "The launcher exited before ComfyUI answered, so it likely failed to start. Run the command in a terminal to see its output."
-            : "The process is still running but has not answered yet - a cold start can take a while. Call comfyui_reconnect in a moment."
+          `Launched ${target.label} (pid ${launch.pid}) but it has not answered after ${elapsedSeconds}s: ${recovery.error ?? ""}` +
+            (log
+              ? `\n\nLast errors from ${log.path}:\n${log.lines.join("\n")}`
+              : ""),
+          log
+            ? `${hint} The log above is from ComfyUI itself - fix what it reports, then call comfyui_start_comfyui again.`
+            : `${hint} No ComfyUI startup log was found to explain it; run the command in a terminal to see its output.`
         );
       }
 
@@ -271,8 +284,16 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
       const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
 
       if (!recovery.connected) {
+        // A restart that fails to come back fails for the same reasons a cold
+        // start does - a broken model path, a custom node that stopped
+        // importing - and ComfyUI records it in the same log.
+        const log = readStartupLogTail(null);
+
         return errorResult(
-          `Restart was accepted via ${endpoint} but ComfyUI has not come back after ${elapsedSeconds}s: ${recovery.error ?? ""}`,
+          `Restart was accepted via ${endpoint} but ComfyUI has not come back after ${elapsedSeconds}s: ${recovery.error ?? ""}` +
+            (log
+              ? `\n\nLast errors from ${log.path}:\n${log.lines.join("\n")}`
+              : ""),
           observedShutdown
             ? "ComfyUI shut down but has not returned yet. It may still be loading - call comfyui_reconnect in a moment. This server does not need restarting."
             : "ComfyUI never went offline, so the restart may not have been accepted. Check ComfyUI's console output."
