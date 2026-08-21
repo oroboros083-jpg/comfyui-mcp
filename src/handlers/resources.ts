@@ -13,6 +13,8 @@ import {
 import { EXAMPLE_WORKFLOWS, fetchExampleWorkflow } from "../tools/examples/index.js";
 import { getCapabilitySummary } from "../capabilities/index.js";
 import { jsonText, capText } from "../utils/response.js";
+import { ToolError } from "../utils/errors.js";
+import { nextStepWhenDown } from "../server/connection.js";
 
 /**
  * A resource body costs the reader context exactly as a tool response does,
@@ -176,7 +178,10 @@ export async function readResource(
         ],
       };
     }
-    throw new Error(`Unknown model type: ${modelType}`);
+    throw new ToolError(
+      `Unknown prompting guide: ${modelType}`,
+      "Read comfyui://guides for the list, or call comfyui_get_prompting_guide, which also accepts a model filename."
+    );
   }
 
   // Example workflows
@@ -188,17 +193,26 @@ export async function readResource(
     );
 
     if (!example) {
-      throw new Error(`Example not found: ${slug}`);
+      throw new ToolError(
+        `Example not found: ${slug}`,
+        "Call comfyui_list_examples to see the available examples and their exact names."
+      );
     }
 
     if (example.imageUrls.length === 0) {
-      throw new Error(`No workflow images available for: ${example.name}`);
+      throw new ToolError(
+        `No workflow images available for: ${example.name}`,
+        "This example is documentation-only. comfyui_search_templates may have a runnable equivalent."
+      );
     }
 
     // Fetch the workflow from the first image
     const result = await fetchExampleWorkflow(example.imageUrls[0]);
     if (!result.success || !result.prompt) {
-      throw new Error(`Failed to extract workflow: ${result.error}`);
+      throw new ToolError(
+        `Failed to extract workflow: ${result.error}`,
+        "The documentation image may have moved or been re-encoded. comfyui_get_example_workflow reports the same failure with more detail."
+      );
     }
 
     return jsonResource(
@@ -219,7 +233,7 @@ export async function readResource(
   // Dynamic resources (require connection)
   if (uri.startsWith("comfyui://models/")) {
     if (!ctx.client) {
-      throw new Error("ComfyUI is not connected");
+      throw new ToolError("ComfyUI is not connected", nextStepWhenDown());
     }
 
     const modelType = uri.split("/").pop();
@@ -255,13 +269,16 @@ export async function readResource(
       );
     }
 
-    throw new Error(`Unknown model type: ${modelType}`);
+    throw new ToolError(
+      `Unknown model type: ${modelType}`,
+      "Valid types: checkpoints, loras, vae, controlnet, embeddings, clip, unet, or 'all'. comfyui_list_models filters and pages them."
+    );
   }
 
   // Capabilities
   if (uri === "comfyui://capabilities") {
     if (!ctx.capabilities) {
-      throw new Error("ComfyUI is not connected");
+      throw new ToolError("ComfyUI is not connected", nextStepWhenDown());
     }
 
     // userPreferences carries every analysed workflow and can run to hundreds
@@ -288,5 +305,8 @@ export async function readResource(
     );
   }
 
-  throw new Error(`Resource not found: ${uri}`);
+  throw new ToolError(
+    `Resource not found: ${uri}`,
+    "Resource URIs are comfyui://capabilities, comfyui://models/<type>, comfyui://guides/<architecture> and comfyui://examples/<slug>."
+  );
 }

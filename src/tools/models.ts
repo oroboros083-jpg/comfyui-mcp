@@ -8,6 +8,7 @@ import {
   PageEnvelope,
 } from "../utils/response.js";
 import { renderListing, renderGroups } from "../utils/render.js";
+import { ToolError } from "../utils/errors.js";
 
 /** How many category counts to report alongside a node listing. */
 const TOP_CATEGORIES = 20;
@@ -436,7 +437,9 @@ export async function getNodeInfo(
     if (match) {
       return getNodeInfo(client, { node: match });
     }
-    return JSON.stringify({ error: `Node '${input.node}' not found` });
+    // Was a success result carrying an `error` field, so the caller could not
+    // tell a missing node from a node whose info happens to say "error".
+    throw new NodeNotFoundError(input.node);
   }
 
   // Parse inputs into structured format
@@ -537,10 +540,23 @@ export type FindNodesResult = PageEnvelope & {
  * so Zod cannot express the requirement that at least one be present without
  * turning the schema into a ZodEffects that registerTool will not take.
  */
-export class NoTypeFilterError extends Error {
+/** Raised when a named node type is not installed on this ComfyUI. */
+export class NodeNotFoundError extends ToolError {
+  constructor(public readonly node: string) {
+    super(
+      `Node type '${node}' is not installed on this ComfyUI`,
+      `Search for it with comfyui_list_nodes({ search: '${node.slice(0, 20)}' }). ` +
+        "If nothing matches, the node comes from a custom node pack that is not installed."
+    );
+  }
+}
+
+export class NoTypeFilterError extends ToolError {
   constructor() {
-    super("find_nodes_by_type needs inputType, outputType, or both");
-    this.name = "NoTypeFilterError";
+    super(
+      "find_nodes_by_type needs inputType, outputType, or both",
+      "e.g. { outputType: 'IMAGE' } for nodes that produce an image."
+    );
   }
 }
 
@@ -696,10 +712,7 @@ export async function buildNode(
     if (match) {
       return buildNode(client, { ...input, nodeType: match });
     }
-    return JSON.stringify({
-      error: `Node type '${input.nodeType}' not found`,
-      suggestion: "Use comfyui_list_nodes or comfyui_get_node_info to find available node types",
-    });
+    throw new NodeNotFoundError(input.nodeType);
   }
 
   // Start with defaults from node info

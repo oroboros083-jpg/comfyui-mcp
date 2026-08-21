@@ -1,3 +1,4 @@
+import { ToolError } from "../utils/errors.js";
 import { z } from "zod";
 import { realpath, readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
@@ -428,7 +429,10 @@ export async function writeWorkflowFile(
       body: blob,
     });
     if (!res.ok) {
-      throw new Error(`ComfyUI refused the write: ${res.status} ${res.statusText}`);
+      throw new ToolError(
+        `ComfyUI refused the write: ${res.status} ${res.statusText}`,
+        "The path may be outside ComfyUI's userdata directory, or the file may be open and locked. comfyui_list_open_workflows shows what is open."
+      );
     }
     return path;
   }

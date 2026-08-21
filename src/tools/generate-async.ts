@@ -1,3 +1,4 @@
+import { ToolError } from "../utils/errors.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { ComfyUIClient } from "../client/comfyui.js";
 import { ComfyUIWebSocket, PromptResult } from "../client/websocket.js";
@@ -87,7 +88,10 @@ export async function runWorkflowAsync(
   const queueResponse = await client.queuePrompt(input.workflow);
 
   if (Object.keys(queueResponse.node_errors).length > 0) {
-    throw new Error(`Workflow errors: ${JSON.stringify(queueResponse.node_errors)}`);
+    throw new ToolError(
+      `Workflow errors: ${JSON.stringify(queueResponse.node_errors)}`,
+      "Run comfyui_validate_workflow on this workflow - it names the offending nodes and inputs before submission."
+    );
   }
 
   const promptId = queueResponse.prompt_id;

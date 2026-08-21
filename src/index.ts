@@ -45,6 +45,7 @@ import {
   readResource,
 } from "./handlers/resources.js";
 import { listPrompts, getPrompt } from "./handlers/prompts.js";
+import { describeError } from "./utils/errors.js";
 import {
   initLogging,
   setLogLevel,
@@ -105,7 +106,13 @@ lowLevel.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   if (uri.startsWith("comfyui://models/") || uri === "comfyui://capabilities") {
     await ensureConnected().catch(() => {});
   }
-  return await readResource(ctx, uri);
+  // Resources have no ToolResult to carry a hint, so it is folded into the
+  // message - otherwise a ToolError's guidance is dropped on this path.
+  try {
+    return await readResource(ctx, uri);
+  } catch (error) {
+    throw new Error(describeError(error));
+  }
 });
 
 lowLevel.setRequestHandler(ListPromptsRequestSchema, async () => ({
@@ -114,7 +121,11 @@ lowLevel.setRequestHandler(ListPromptsRequestSchema, async () => ({
 
 lowLevel.setRequestHandler(GetPromptRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  return await getPrompt(name, args || {});
+  try {
+    return await getPrompt(name, args || {});
+  } catch (error) {
+    throw new Error(describeError(error));
+  }
 });
 
 lowLevel.setRequestHandler(SetLevelRequestSchema, async (request) => {

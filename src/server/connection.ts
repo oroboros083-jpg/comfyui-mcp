@@ -14,6 +14,7 @@ import { join } from "path";
 
 import { discoverComfyUI, getCandidateUrls } from "../discovery/index.js";
 import { launchBlockedReason } from "../tools/launch.js";
+import { ToolError } from "../utils/errors.js";
 import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
 import { ComfyUIWebSocket } from "../client/websocket.js";
 import {
@@ -296,7 +297,12 @@ export async function resolveConnection(): Promise<ConnectionHandles> {
 
   const connected = await initializeComfyUI();
   if (!connected || !isFullyInitialized()) {
-    throw new Error(unreachableError());
+    // Message and remedy split, so defineTool reports the remedy as a hint
+    // rather than leaving it buried mid-sentence.
+    throw new ToolError(
+      `ComfyUI is not reachable. Tried: ${getCandidateUrls(ctx.config.comfyui.url).join(", ")}.`,
+      nextStepWhenDown()
+    );
   }
 
   if (previousUrl && previousUrl !== ctx.discoveredUrl) {

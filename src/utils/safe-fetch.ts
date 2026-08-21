@@ -1,3 +1,4 @@
+import { ToolError } from "./errors.js";
 import { lookup } from "dns/promises";
 import { isIP } from "net";
 
@@ -44,7 +45,14 @@ function isForbiddenIp(ip: string): boolean {
   return true;
 }
 
-export class UnsafeUrlError extends Error {}
+export class UnsafeUrlError extends ToolError {
+  constructor(message: string) {
+    super(
+      message,
+      "Only public http(s) URLs are fetched. Pass a documentation URL, or use a local .png path where the tool accepts one."
+    );
+  }
+}
 
 async function assertUrlIsSafe(urlStr: string): Promise<void> {
   let url: URL;

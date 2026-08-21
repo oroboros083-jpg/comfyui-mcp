@@ -1,3 +1,4 @@
+import { ToolError } from "../utils/errors.js";
 import { randomUUID } from "crypto";
 
 export interface QueuePromptResponse {
@@ -135,6 +136,28 @@ export function comboOptions(spec: unknown): string[] {
  */
 const OBJECT_INFO_TTL_MS = 10_000;
 
+/**
+ * What to do about an HTTP failure from ComfyUI, by status.
+ *
+ * Deliberately specific: "Failed to get queue: 404" told the agent nothing,
+ * and a 401 needs a different response from a 500.
+ */
+export function requestFailureHint(status: number): string {
+  if (status === 401 || status === 403) {
+    return "ComfyUI rejected the credentials. Set COMFYUI_API_KEY to the key this instance expects.";
+  }
+  if (status === 404) {
+    return "That endpoint is missing on this ComfyUI build - it may be older than this server expects, or the feature needs a custom node. comfyui_get_status reports the version in use.";
+  }
+  if (status === 413) {
+    return "The request body was too large for ComfyUI. Send a smaller workflow or image.";
+  }
+  if (status >= 500) {
+    return "ComfyUI failed internally. Its console log has the traceback; comfyui_get_queue shows whether it is still processing.";
+  }
+  return "Check the arguments against comfyui_get_node_info, or comfyui_get_status if ComfyUI itself may be unhealthy.";
+}
+
 export class ComfyUIClient {
   private baseUrl: string;
   private clientId: string;
@@ -158,6 +181,44 @@ export class ComfyUIClient {
     return headers;
   }
 
+  /**
+   * One fetch against ComfyUI, with the failure turned into a ToolError that
+   * says what to do about it.
+   *
+   * Ten methods repeated this block, each throwing a bare Error whose message
+   * reached the agent as "comfyui_x failed: Not Found" with nothing to act
+   * on. Status is mapped here once: an auth failure and a missing endpoint
+   * need different responses, and neither is "try again".
+   */
+  private async request(
+    path: string,
+    label: string,
+    init?: RequestInit & { signal?: AbortSignal }
+  ): Promise<Response> {
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        headers: this.getHeaders(),
+        ...init,
+      });
+    } catch (cause) {
+      throw new ToolError(
+        `Could not reach ComfyUI at ${this.baseUrl} while trying to ${label}`,
+        "ComfyUI may have stopped or moved. Call comfyui_get_status to check, then comfyui_start_comfyui or comfyui_reconnect.",
+        { cause }
+      );
+    }
+
+    if (!response.ok) {
+      throw new ToolError(
+        `Failed to ${label}: ${response.status} ${response.statusText}`,
+        requestFailureHint(response.status)
+      );
+    }
+
+    return response;
+  }
+
   getClientId(): string {
     return this.clientId;
   }
@@ -167,13 +228,7 @@ export class ComfyUIClient {
   }
 
   async getSystemStats(signal?: AbortSignal): Promise<SystemStats> {
-    const response = await fetch(`${this.baseUrl}/system_stats`, {
-      headers: this.getHeaders(),
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to get system stats: ${response.statusText}`);
-    }
+    const response = await this.request("/system_stats", "get system stats", { signal });
     return response.json() as Promise<SystemStats>;
   }
 
@@ -200,12 +255,7 @@ export class ComfyUIClient {
     // download when concurrent callers both miss.
     if (!this.objectInfoInFlight) {
       this.objectInfoInFlight = (async () => {
-        const response = await fetch(`${this.baseUrl}/object_info`, {
-          headers: this.getHeaders(),
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to get object info: ${response.statusText}`);
-        }
+        const response = await this.request("/object_info", "get the node catalogue");
         return (await response.json()) as ObjectInfo;
       })();
 
@@ -238,45 +288,36 @@ export class ComfyUIClient {
       }),
     });
     if (!response.ok) {
+      // ComfyUI puts per-node validation errors in the body; that detail is
+      // far more useful than the status, so it is kept rather than mapped.
       const error = await response.text();
-      throw new Error(`Failed to queue prompt: ${response.statusText} - ${error}`);
+      throw new ToolError(
+        `ComfyUI rejected the workflow: ${response.status} ${response.statusText} - ${error}`,
+        "Run comfyui_validate_workflow on this workflow - it reports missing nodes, bad connections and type mismatches before submission."
+      );
     }
     return response.json() as Promise<QueuePromptResponse>;
   }
 
   async getQueue(): Promise<QueueStatus> {
-    const response = await fetch(`${this.baseUrl}/queue`, {
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to get queue: ${response.statusText}`);
-    }
+    const response = await this.request("/queue", "get the queue");
     return response.json() as Promise<QueueStatus>;
   }
 
   async getHistory(promptId?: string): Promise<Record<string, HistoryEntry>> {
-    const url = promptId
-      ? `${this.baseUrl}/history/${promptId}`
-      : `${this.baseUrl}/history`;
-    const response = await fetch(url, {
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to get history: ${response.statusText}`);
-    }
+    const response = await this.request(
+      promptId ? `/history/${promptId}` : "/history",
+      "get generation history"
+    );
     return response.json() as Promise<Record<string, HistoryEntry>>;
   }
 
   async cancelQueue(promptId?: string): Promise<void> {
     const body = promptId ? { delete: [promptId] } : { clear: true };
-    const response = await fetch(`${this.baseUrl}/queue`, {
+    await this.request("/queue", "cancel queued jobs", {
       method: "POST",
-      headers: this.getHeaders(),
       body: JSON.stringify(body),
     });
-    if (!response.ok) {
-      throw new Error(`Failed to cancel queue: ${response.statusText}`);
-    }
   }
 
   /**
@@ -322,34 +363,30 @@ export class ComfyUIClient {
       }
 
       if (response.status === 403) {
-        throw new Error(
-          "ComfyUI-Manager refused the restart (403 Forbidden). Its security level " +
-            "forbids remote reboots - lower `security_level` in ComfyUI-Manager's " +
-            "config.ini (it must be 'middle' or weaker) and try again."
+        throw new ToolError(
+          "ComfyUI-Manager refused the restart (403 Forbidden)",
+          "Its security level forbids remote reboots - lower `security_level` in " +
+            "ComfyUI-Manager's config.ini (it must be 'middle' or weaker) and try again. " +
+            "Restarting ComfyUI by hand also works; call comfyui_reconnect afterwards."
         );
       }
 
-      throw new Error(
-        `ComfyUI refused the restart: ${response.status} ${response.statusText}`
+      throw new ToolError(
+        `ComfyUI refused the restart: ${response.status} ${response.statusText}`,
+        requestFailureHint(response.status)
       );
     }
 
-    throw new Error(
-      `ComfyUI has no restart endpoint (HTTP ${lastStatus} at ${paths.join(" and ")}). ` +
-        "Restarting on request is provided by ComfyUI-Manager, which does not appear to be " +
+    throw new ToolError(
+      `ComfyUI has no restart endpoint (HTTP ${lastStatus} at ${paths.join(" and ")})`,
+      "Restarting on request is provided by ComfyUI-Manager, which does not appear to be " +
         "installed. Install it from https://github.com/Comfy-Org/ComfyUI-Manager, or restart " +
-        "ComfyUI yourself - this server will reconnect on its own."
+        "ComfyUI yourself and call comfyui_reconnect - this server does not need restarting."
     );
   }
 
   async interrupt(): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/interrupt`, {
-      method: "POST",
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to interrupt: ${response.statusText}`);
-    }
+    await this.request("/interrupt", "interrupt the running job", { method: "POST" });
   }
 
   async getImage(
@@ -362,12 +399,7 @@ export class ComfyUIClient {
       subfolder,
       type,
     });
-    const response = await fetch(`${this.baseUrl}/view?${params}`, {
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to get image: ${response.statusText}`);
-    }
+    const response = await this.request(`/view?${params}`, `fetch ${filename}`);
     return response.arrayBuffer();
   }
 
@@ -391,7 +423,12 @@ export class ComfyUIClient {
       body: formData,
     });
     if (!response.ok) {
-      throw new Error(`Failed to upload image: ${response.statusText}`);
+      // Not routed through request(): this one posts FormData, so it builds
+      // its own headers rather than the JSON ones.
+      throw new ToolError(
+        `Failed to upload image: ${response.status} ${response.statusText}`,
+        requestFailureHint(response.status)
+      );
     }
     return response.json() as Promise<{ name: string; subfolder: string; type: string }>;
   }

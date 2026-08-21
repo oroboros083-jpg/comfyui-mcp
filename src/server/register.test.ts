@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { defineTool, noArgs, TOOL_PREFIX } from "./register.js";
+import { ToolError } from "../utils/errors.js";
 
 interface Registered {
   name: string;
@@ -160,4 +161,55 @@ test("a throwing handler is reported as a tool error, not a protocol error", asy
 
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /comfyui_explodes failed: underlying failure/);
+});
+
+test("a ToolError's hint reaches the caller", async () => {
+  const { server, tools } = recorder();
+
+  defineTool(server, {
+    name: "explodes_with_advice",
+    description: "d",
+    schema: z.object({}).strict(),
+    annotations: {
+      title: "Explodes With Advice",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    handler: () => {
+      throw new ToolError("the thing failed", "call comfyui_reconnect first");
+    },
+  });
+
+  const result = await tools[0].handler({});
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /the thing failed/);
+  // Without this, the remedy is undiscoverable at the moment it is needed.
+  assert.match(result.content[0].text, /Hint: call comfyui_reconnect first/);
+});
+
+test("a plain Error still reports, just without a hint", async () => {
+  const { server, tools } = recorder();
+
+  defineTool(server, {
+    name: "explodes_plainly",
+    description: "d",
+    schema: z.object({}).strict(),
+    annotations: {
+      title: "Explodes Plainly",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    handler: () => {
+      throw new Error("bare failure");
+    },
+  });
+
+  const result = await tools[0].handler({});
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /bare failure/);
+  assert.doesNotMatch(result.content[0].text, /Hint:/);
 });

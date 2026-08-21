@@ -11,7 +11,6 @@ import { getCapabilitySummary, promptingAdviceFor } from "../../capabilities/ind
 import {
   dataResult,
   textResult,
-  errorResult,
   formattedResult,
   paginatedOutputSchema,
 } from "../../utils/response.js";
@@ -28,7 +27,6 @@ import {
   findNodesByTypeSchema,
   findNodesByType,
   renderFoundNodes,
-  NoTypeFilterError,
   buildNodeSchema,
   buildNode,
 } from "../../tools/models.js";
@@ -190,23 +188,14 @@ export function registerDiscoveryTools(server: McpServer): void {
     outputSchema: paginatedOutputSchema("nodes"),
     handler: async (input) => {
       const { client } = await ensureConnected();
-      try {
-        const result = await findNodesByType(client, input);
-        return formattedResult(
-          input.response_format,
-          result,
-          () => renderFoundNodes(result),
-          "Constrain with both inputType and outputType, or page with 'offset'."
-        );
-      } catch (error) {
-        if (error instanceof NoTypeFilterError) {
-          return errorResult(
-            error.message,
-            "e.g. { outputType: 'IMAGE' } for nodes that produce an image."
-          );
-        }
-        throw error;
-      }
+      // NoTypeFilterError carries its own hint; defineTool surfaces it.
+      const result = await findNodesByType(client, input);
+      return formattedResult(
+        input.response_format,
+        result,
+        () => renderFoundNodes(result),
+        "Constrain with both inputType and outputType, or page with 'offset'."
+      );
     },
   });
 

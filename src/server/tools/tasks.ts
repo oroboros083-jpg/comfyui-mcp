@@ -32,7 +32,6 @@ import {
   getHistory,
   renderHistory,
   isHistoryDetail,
-  PromptNotFoundError,
 } from "../../tools/queue.js";
 import { processImageForTransfer } from "../../utils/image.js";
 import { ServerContext } from "../../context.js";
@@ -135,25 +134,16 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     },
     handler: async (input) => {
       const { client } = await ensureConnected();
-      try {
-        const result = await getHistory(client, input);
-        return formattedResult(
-          input.response_format,
-          result,
-          () => renderHistory(result),
-          isHistoryDetail(result)
-            ? "This prompt produced an unusually large output set."
-            : "Page with 'offset'."
-        );
-      } catch (error) {
-        if (error instanceof PromptNotFoundError) {
-          return errorResult(
-            error.message,
-            "Call comfyui_get_history without a promptId to list the ids ComfyUI still remembers."
-          );
-        }
-        throw error;
-      }
+      // PromptNotFoundError carries its own hint; defineTool surfaces it.
+      const result = await getHistory(client, input);
+      return formattedResult(
+        input.response_format,
+        result,
+        () => renderHistory(result),
+        isHistoryDetail(result)
+          ? "This prompt produced an unusually large output set."
+          : "Page with 'offset'."
+      );
     },
   });
 

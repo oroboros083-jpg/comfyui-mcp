@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { ensureConnected } from "./connection.js";
 import { errorResult, ToolResult } from "../utils/response.js";
+import { hintFor } from "../utils/errors.js";
 
 /**
  * Tool names carry the service prefix so this server can sit alongside others
@@ -94,8 +95,13 @@ export function defineTool<S extends z.ZodTypeAny>(
         return await spec.handler(input);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        // Report the name the agent actually called, prefix included.
-        return errorResult(`${TOOL_PREFIX}${spec.name} failed: ${message}`);
+        // Report the name the agent actually called, prefix included, and
+        // carry the hint when the error brought one. Handlers used to catch
+        // their own error classes purely to attach a hint here.
+        return errorResult(
+          `${TOOL_PREFIX}${spec.name} failed: ${message}`,
+          hintFor(error)
+        );
       }
     }) as never
   );

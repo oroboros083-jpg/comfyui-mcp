@@ -1,3 +1,4 @@
+import { ToolError } from "../utils/errors.js";
 /**
  * MCP Prompts Handler
  *
@@ -234,6 +235,9 @@ export async function getPrompt(
     }
 
     default:
-      throw new Error(`Unknown prompt: ${name}`);
+      throw new ToolError(
+        `Unknown prompt: ${name}`,
+        `Available prompts: ${listPrompts().map((prompt) => prompt.name).join(", ")}.`
+      );
   }
 }

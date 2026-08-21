@@ -17,6 +17,7 @@ import {
   responseFormatField,
 } from "../utils/response.js";
 import { renderListing } from "../utils/render.js";
+import { ToolError } from "../utils/errors.js";
 
 /** One queued job, flattened from ComfyUI's positional tuple. */
 export interface QueuedJob {
@@ -185,10 +186,12 @@ export type HistoryListing = PageEnvelope & { entries: HistoryRow[] };
 export type HistoryResult = HistoryDetail | HistoryListing;
 
 /** Raised when a specific promptId is not in ComfyUI's history. */
-export class PromptNotFoundError extends Error {
+export class PromptNotFoundError extends ToolError {
   constructor(public readonly promptId: string) {
-    super(`No prompt ${promptId} in ComfyUI's history`);
-    this.name = "PromptNotFoundError";
+    super(
+      `No prompt ${promptId} in ComfyUI's history`,
+      "Call comfyui_get_history without a promptId to list the ids ComfyUI still remembers."
+    );
   }
 }
 

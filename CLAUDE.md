@@ -76,6 +76,7 @@ src/
 │   └── registry.ts         # ARCHITECTURES: detection, shape, guide, advice
 └── utils/
     ├── image.ts            # Image processing utilities
+    ├── errors.ts           # ToolError: failures that carry their remedy
     ├── response.ts         # Pagination, compact JSON, truncation, formats
     ├── render.ts           # Shared markdown rendering for listings
     └── logging.ts          # MCP logging utilities
@@ -202,10 +203,18 @@ with a refactor cannot be reverted without losing the fix.
    `error` field - the caller has to be able to tell the two apart
 7. If another tool resolves the failure, **name it**. An error that describes
    a problem and does not name the tool that fixes it makes that tool
-   undiscoverable at the one moment it is needed. Every "ComfyUI is not
-   reachable" message once said "Start ComfyUI and call comfyui_reconnect",
-   naming the two tools that cannot help while omitting comfyui_start_comfyui,
-   which can. Check the hint answers "so what do I call now?"
+   undiscoverable at the one moment it is needed. Check the hint answers
+   "so what do I call now?"
+
+   Throw a `ToolError` (`utils/errors.ts`) with the hint as its second
+   argument, rather than a bare `Error`. `defineTool` surfaces it, so the
+   guidance lives next to the code that knows why the failure happened, and
+   no handler needs a `catch` to attach it. Subclass `ToolError` when the
+   same failure is raised from several places - `PromptNotFoundError`,
+   `NodeNotFoundError`, `NoTypeFilterError` all do.
+
+   Resources and prompts have no ToolResult, so `index.ts` folds the hint
+   into the message with `describeError` on those paths.
 
 Do not add the `comfyui_` prefix by hand — `defineTool` applies it.
 
@@ -308,12 +317,6 @@ Recorded so it is not rediscovered every time:
   path, and only the sync path sets `path` on returned images even though
   both share `RunWorkflowResult`. Sync is async plus a wait, not a peer;
   unifying deletes the duplication and the divergence.
-- **Errors are mostly untyped.** ~24 bare `throw new Error` against four
-  typed classes, so most failures reach `register.ts` and flatten to a
-  message with no hint - which is what the "name the tool that fixes it"
-  rule above asks for. A `ToolError` carrying `hint`/`remedyTool` would let
-  `register.ts` surface it uniformly.
-
 ## Environment
 
 - Node.js 18+
