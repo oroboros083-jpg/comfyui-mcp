@@ -13,6 +13,7 @@ import {
   waitForRestart,
   waitForShutdown,
   ensureConnected,
+  unreachableError,
 } from "../connection.js";
 import { getCandidateUrls } from "../../discovery/index.js";
 import { getCapabilitySummary } from "../../capabilities/index.js";
@@ -51,7 +52,10 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
     description:
       "Get the current status of the ComfyUI connection and installation. Probes live rather than " +
       "reporting cached state, so it answers 'is this working right now'. Returns connection state, " +
-      "the URL in use, detected capabilities, and - when disconnected - every URL that was tried.",
+      "the URL in use, detected capabilities, and - when disconnected - every URL that was tried " +
+      "plus the next step to take.\n\n" +
+      "If this reports comfyuiConnected:false, comfyui_start_comfyui launches ComfyUI on this " +
+      "machine and connects; comfyui_reconnect only helps when it is already running.",
     schema: getStatusSchema,
     requiresConnection: false,
     annotations: {
@@ -102,9 +106,12 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
   defineTool(server, {
     name: "reconnect",
     description:
-      "Re-discover and reconnect to ComfyUI, refreshing the cached model and node lists. Use after " +
-      "restarting ComfyUI, or when a tool reports it unreachable. Also resolves tasks interrupted by " +
-      "the restart. Rediscovers from scratch, so it finds an instance that came back on a different port.",
+      "Re-discover and reconnect to a ComfyUI that is ALREADY RUNNING, refreshing the cached model " +
+      "and node lists. Use after restarting ComfyUI yourself, or when a tool reports it unreachable " +
+      "but you know it is up. Rediscovers from scratch, so it finds an instance that came back on a " +
+      "different port, and resolves tasks interrupted by the restart.\n\n" +
+      "This does NOT start ComfyUI. If nothing is running, call comfyui_start_comfyui instead - " +
+      "reconnecting cannot succeed while there is nothing to connect to.",
     schema: noArgs,
     requiresConnection: false,
     annotations: {
@@ -118,10 +125,11 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
       const refresh = await refreshConnection();
 
       if (!refresh.connected) {
-        return errorResult(
-          `Could not reach ComfyUI. Tried: ${getCandidateUrls(ctx().config.comfyui.url).join(", ")}. ${refresh.error ?? ""}`,
-          "Start ComfyUI and call comfyui_reconnect again. comfyui_get_install_guide has setup help."
-        );
+        // refresh.error is already unreachableError(): the URLs that were
+        // tried and the next step to take. Wrapping it in another sentence
+        // that repeats the URL list, and then appending the same guidance as
+        // a hint, said everything three times.
+        return errorResult(refresh.error ?? unreachableError());
       }
 
       return dataResult({
@@ -138,10 +146,22 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
   defineTool(server, {
     name: "start_comfyui",
     description:
-      "Start ComfyUI on this machine if it is not already running, then wait for it and connect. " +
-      "Auto-detects the desktop app, a portable launcher, or a source install; pass 'command' to launch " +
-      "something else. Returns alreadyRunning if an instance is already reachable - it never starts a " +
-      "second one. To restart a running instance use comfyui_restart_comfyui instead.",
+      "Launch ComfyUI on this machine and connect to it. This is the tool to reach for whenever " +
+      "ComfyUI is not running - when comfyui_get_status reports comfyuiConnected:false, or any tool " +
+      "fails with 'ComfyUI is not reachable'. Nothing else in this server can bring it up.\n\n" +
+      "Auto-detects the ComfyUI desktop app, a portable launcher or a source checkout, starts it " +
+      "detached so it outlives this server, waits for it to answer, then connects and re-reads the " +
+      "model and node lists. Pass 'command'/'args'/'cwd' to launch something else, or " +
+      "'timeoutSeconds' for an install whose cold start is slow.\n\n" +
+      "Safe to call speculatively: it probes first and returns alreadyRunning:true without launching " +
+      "anything if an instance is already reachable, so it never starts a second one on a second " +
+      "port. Do note it starts a real GPU process on the user's machine.\n\n" +
+      "Use comfyui_restart_comfyui instead to restart an instance that is already running, and " +
+      "comfyui_reconnect if ComfyUI is up but this server lost track of it.\n\n" +
+      "Errors: if the launch never answers, the failure includes the tail of ComfyUI's own startup " +
+      "log, which is normally where the real cause is - a bad model path, a custom node that fails " +
+      "to import, a port already in use. Reports the reason instead when a local launch cannot help " +
+      "at all: this server running in Docker, or COMFYUI_URL pointing at another host.",
     schema: startComfyUISchema,
     requiresConnection: false,
     annotations: {

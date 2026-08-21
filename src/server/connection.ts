@@ -13,6 +13,7 @@
 import { join } from "path";
 
 import { discoverComfyUI, getCandidateUrls } from "../discovery/index.js";
+import { launchBlockedReason } from "../tools/launch.js";
 import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
 import { ComfyUIWebSocket } from "../client/websocket.js";
 import {
@@ -71,11 +72,7 @@ export async function initializeComfyUI(): Promise<boolean> {
   const discovered = await discoverComfyUI(ctx.config.comfyui.url);
 
   if (!discovered) {
-    info(
-      "ComfyUI is not running. Use comfyui_get_install_guide or comfyui_get_status for help.",
-      undefined,
-      "init"
-    );
+    info(`ComfyUI is not running. ${nextStepWhenDown()}`, undefined, "init");
     clearConnectionState();
     return false;
   }
@@ -201,15 +198,43 @@ export async function probeCurrentClient(): Promise<boolean> {
 }
 
 /**
- * Error text for a genuinely unreachable ComfyUI: name where we looked and how
- * to retry without restarting the MCP server.
+ * What to actually do about a ComfyUI that is down.
+ *
+ * This is the server's main disclosure point for comfyui_start_comfyui:
+ * every connection-gated tool reaches it through unreachableError(), and it
+ * is usually the first thing an agent sees when ComfyUI is not running. It
+ * used to say "Start ComfyUI and call comfyui_reconnect", which reads as an
+ * instruction to go and do it by hand - naming the two tools that cannot
+ * help (reconnect only works once something is already listening) while
+ * omitting the one that can.
+ *
+ * When a local launch is impossible - inside Docker, or a COMFYUI_URL that
+ * points at another host - it says so instead, rather than advertising a tool
+ * that would fail.
+ */
+export function nextStepWhenDown(): string {
+  const blocked = launchBlockedReason(
+    process.env.COMFYUI_URL || ctx.config.comfyui.url
+  );
+  if (blocked) return blocked;
+
+  return (
+    "Call comfyui_start_comfyui to launch it on this machine - it auto-detects " +
+    "the desktop app, a portable launcher or a source checkout, waits for it, " +
+    "and connects. If you would rather start it yourself, call comfyui_reconnect " +
+    "afterwards. comfyui_get_install_guide covers installing it in the first place."
+  );
+}
+
+/**
+ * Error text for a genuinely unreachable ComfyUI: name where we looked, and
+ * what to do about it.
  */
 export function unreachableError(): string {
   const candidates = getCandidateUrls(ctx.config.comfyui.url);
   return (
     `ComfyUI is not reachable. Tried: ${candidates.join(", ")}. ` +
-    "Start ComfyUI (or set COMFYUI_URL) and call 'comfyui_reconnect' to retry - " +
-    "the MCP server does not need to be restarted. See 'comfyui_get_install_guide' for setup help."
+    `${nextStepWhenDown()} The MCP server itself does not need restarting.`
   );
 }
 
