@@ -74,8 +74,13 @@ src/
 │   └── hash.ts             # Workflow hashing
 └── utils/
     ├── image.ts            # Image processing utilities
-    ├── response.ts         # Pagination, compact JSON, truncation
+    ├── response.ts         # Pagination, compact JSON, truncation, formats
+    ├── render.ts           # Shared markdown rendering for listings
     └── logging.ts          # MCP logging utilities
+
+evals/                       # Q/A suites for whether a model can use the tools
+├── README.md
+└── library.xml              # Stable; needs no running ComfyUI
 ```
 
 ## Key Concepts
@@ -143,6 +148,12 @@ For end-to-end checks:
 2. Use `npm run inspector` to interact with tools
 3. Or configure in Claude Desktop and test via Claude
 
+Unit tests answer "does this function behave"; the suites in `evals/` answer
+"can a model get the job done with these tools", which is the thing an MCP
+server is actually judged on. `evals/library.xml` needs no running ComfyUI.
+See `evals/README.md` for how to run it and how to write a question that is
+worth adding.
+
 ## Git Workflow
 
 This repo has high risk-bearing capacity. Push directly to `main`:
@@ -174,12 +185,19 @@ with a refactor cannot be reverted without losing the fix.
 ### Adding a New Tool
 1. Define the Zod schema in the appropriate `tools/*.ts` file, ending in
    `.strict()` so misspelled arguments are rejected rather than ignored
-2. Implement the tool function there; return an object, not a JSON string
+2. Implement the tool function there; return a **declared interface**, not a
+   `Record<string, unknown>` and never a JSON string. A tool that returns a
+   string cannot populate `structuredContent`, and a renderer cannot be
+   written over it without casts
 3. Register it with `defineTool` in the matching `server/tools/*.ts` module
 4. Give it a `title`, a description covering args/returns/errors, and
-   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
-   `openWorldHint`)
+   `readOnlyHint` / `idempotentHint` / `openWorldHint`. Those three are
+   required by the type; `destructiveHint` is derived from `readOnlyHint`, so
+   set it by hand only on a writing tool that is *not* destructive
 5. Set `requiresConnection: true` if it touches ComfyUI
+6. Report a failure by throwing a named error class and mapping it to
+   `errorResult` with a hint, not by returning a success that carries an
+   `error` field - the caller has to be able to tell the two apart
 
 Do not add the `comfyui_` prefix by hand — `defineTool` applies it.
 
@@ -216,7 +234,19 @@ helpers in `utils/response.ts` exist to prevent that — use them.
 - **Cap category/facet maps.** A modded install has ~400 node categories;
   the full map cost 4x the page of nodes it labelled.
 - **Never return the same data twice** in one response (e.g. a rendered
-  markdown view plus the raw JSON of the same object).
+  markdown view plus the raw JSON of the same object). This is also why
+  `PageEnvelope` is separate from `Page<T>`: a tool spreads the envelope and
+  names its own item key, so a page is never emitted as both `items` and
+  `jobs`.
+- **Offer `response_format`** on data tools by spreading `responseFormatField`
+  and returning through `formattedResult`. The default is `json`, not the
+  markdown the MCP guidance suggests — the reader is a model, and compact
+  JSON is both smaller than the equivalent markdown and directly parseable.
+  The reasoning is recorded on `responseFormatField`; do not "correct" the
+  default without reading it.
+- **Render listings through `utils/render.ts`.** `renderListing` owns the
+  title/facets/rows/footer shape, so every listing reads the same way and the
+  footer always names the next offset. Supply rows, not a whole document.
 
 Measure before and after when changing a response shape — against a live
 ComfyUI where the tool needs one. Put the numbers in the commit message.
