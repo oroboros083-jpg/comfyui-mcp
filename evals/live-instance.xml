@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Evaluation questions that require a running ComfyUI.
+
+  MACHINE-SPECIFIC. Every answer here describes one particular install and
+  goes stale the moment a model is added or removed. Do not treat a failure as
+  a regression without first checking that the install still matches.
+
+  Derived and verified against a live instance on 2026-08-21:
+    ComfyUI desktop, http://127.0.0.1:8000, 1945 node types
+    6 checkpoints, 19 LoRAs, 13 diffusion models, 12 text encoders,
+    4 VAEs, 4 ControlNets, 2 upscale models, 6 embeddings
+
+  To regenerate for a different install, ask each question of the instance and
+  rewrite the answers - do not adjust them by hand. Questions are phrased by
+  role ("the low-noise pass", "the segmentation model") rather than by exact
+  filename, so most survive a version bump of the same model.
+
+  These exercise the connected tools: comfyui_list_models with its type and
+  search filters, comfyui_get_capabilities, comfyui_get_node_info and
+  comfyui_list_nodes. All are read-only; none queue a generation.
+-->
+<evaluation>
+  <qa_pair>
+    <question>This ComfyUI has two Wan 2.2 Lightning I2V 4-step LoRAs installed, one for the high-noise pass and one for the low-noise pass, and it also has the matching Wan 2.2 image-to-video diffusion models. Give the exact filename of the diffusion model for the LOW noise pass.</question>
+    <answer>wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Exactly one ControlNet model installed on this ComfyUI is intended for inpainting with a Qwen image model. Give its exact filename.</question>
+    <answer>Qwen-Image-InstantX-ControlNet-Inpainting.safetensors</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>One of the files in this ComfyUI's checkpoints folder is a segmentation model rather than a diffusion checkpoint. Give its exact filename.</question>
+    <answer>sam3.1_multiplex_fp16.safetensors</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Exactly one diffusion model installed on this ComfyUI is a Flux model, and it is the inpainting/fill variant rather than the base one. Give its exact filename.</question>
+    <answer>flux1-fill-dev.safetensors</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Count the LoRA files and the checkpoint files installed on this ComfyUI. How many more LoRAs are there than checkpoints?</question>
+    <answer>13</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Every textual-inversion embedding installed on this ComfyUI begins with the same four-letter prefix. What is that prefix?</question>
+    <answer>lazy</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Using this ComfyUI's own node definitions rather than any general guide, how many sampler options does the KSampler node offer?</question>
+    <answer>44</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Two upscale models are installed on this ComfyUI. One of them is a RealESRGAN model. Give the exact filename of the other one.</question>
+    <answer>remacri_original.safetensors</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Two checkpoints installed on this ComfyUI have "Illustrious" in their filenames. Give the exact filename of the one whose name also identifies it as SDXL.</question>
+    <answer>waiIllustriousSDXL_v170.safetensors</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>A Wan video workflow needs a matching VAE. Exactly one VAE installed on this ComfyUI is a Wan VAE. Give its exact filename.</question>
+    <answer>wan_2.1_vae.safetensors</answer>
+  </qa_pair>
+</evaluation>

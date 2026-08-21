@@ -16,9 +16,16 @@ tools that work with ComfyUI stopped — `comfyui_list_examples`,
 `comfyui_search_templates`, `comfyui_get_download_url` — which is also the
 path a new user hits before they have anything installed.
 
-`live-instance.xml`, if present, was generated against one particular
-ComfyUI install. Its answers go stale the moment a model is added or removed,
-so re-derive it rather than trusting a checked-in copy.
+`live-instance.xml` was generated against one particular ComfyUI install
+(2026-08-21: 6 checkpoints, 19 LoRAs, 13 diffusion models, 1945 node types).
+Its answers go stale the moment a model is added or removed, so a failure
+there is not automatically a regression - check the install first. Questions
+are phrased by role ("the low-noise pass", "the segmentation model") rather
+than by filename, so most survive a version bump of the same model.
+
+Every live answer was verified twice: derived from ComfyUI's API, then
+answered again through the MCP tools themselves, to confirm the questions are
+reachable with the tools an agent actually has.
 
 ## Writing a question
 
@@ -43,6 +50,13 @@ The harness lives in the `mcp-builder` skill, not in this repo:
 
 ```bash
 python ~/.claude/skills/scripts/evaluation.py evals/library.xml -t stdio -c node -a dist/index.js
+```
+
+For the live suite, start ComfyUI first (`comfyui_start_comfyui`, or launch it
+yourself):
+
+```bash
+python ~/.claude/skills/scripts/evaluation.py evals/live-instance.xml -t stdio -c node -a dist/index.js
 ```
 
 Build first — the harness runs `dist/index.js`, not the TypeScript sources.
