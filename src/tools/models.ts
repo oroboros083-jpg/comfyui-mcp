@@ -48,7 +48,7 @@ export type ListModelsInput = z.infer<typeof listModelsSchema>;
 export async function listModels(
   client: ComfyUIClient,
   input: ListModelsInput
-): Promise<string> {
+): Promise<Record<string, unknown>> {
   const models = await client.getModels();
   const search = input.search?.toLowerCase();
   const match = (name: string) => !search || name.toLowerCase().includes(search);
@@ -72,14 +72,14 @@ export async function listModels(
     (grouped[type] ??= []).push(name);
   }
 
-  return jsonText({
+  return {
     total: page.total,
     count: page.count,
     offset: page.offset,
     models: grouped,
     has_more: page.has_more,
     ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
-  });
+  };
 }
 
 export const listNodesSchema = z.object({
@@ -112,7 +112,7 @@ export type ListNodesInput = z.infer<typeof listNodesSchema>;
 export async function listNodes(
   client: ComfyUIClient,
   input: ListNodesInput
-): Promise<string> {
+): Promise<Record<string, unknown>> {
   const objectInfo = await client.getObjectInfo();
 
   let nodes = Object.entries(objectInfo).map(([name, info]) => ({
@@ -158,7 +158,7 @@ export async function listNodes(
     return { name: n.name, displayName: n.displayName, category: n.category };
   };
 
-  return jsonText({
+  return {
     total: page.total,
     count: page.count,
     offset: page.offset,
@@ -172,7 +172,7 @@ export async function listNodes(
           hint: `${page.total - (page.offset + page.count)} more nodes. Narrow with 'search'/'category', or page with offset: ${page.next_offset}.`,
         }
       : {}),
-  });
+  };
 }
 
 // === Node Info Tool ===
@@ -458,9 +458,17 @@ export type FindNodesByTypeInput = z.infer<typeof findNodesByTypeSchema>;
 export async function findNodesByType(
   client: ComfyUIClient,
   input: FindNodesByTypeInput
-): Promise<string> {
+): Promise<Record<string, unknown>> {
   if (!input.inputType && !input.outputType) {
-    return JSON.stringify({ error: "Must specify either inputType or outputType (or both)" });
+    return {
+      error: "Must specify either inputType or outputType (or both).",
+      hint: "e.g. { outputType: 'IMAGE' } for nodes that produce an image.",
+      total: 0,
+      count: 0,
+      offset: 0,
+      nodes: [],
+      has_more: false,
+    };
   }
 
   const objectInfo = await client.getObjectInfo();
@@ -536,7 +544,7 @@ export async function findNodesByType(
 
   const page = paginate(matches, input.limit, input.offset);
 
-  return jsonText({
+  return {
     query: {
       inputType: input.inputType || null,
       outputType: input.outputType || null,
@@ -549,7 +557,7 @@ export async function findNodesByType(
     nodes: page.items,
     has_more: page.has_more,
     ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
-  });
+  };
 }
 
 // === Build Node Tool ===

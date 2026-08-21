@@ -33,6 +33,14 @@ export interface ToolSpec<S extends z.ZodTypeAny> {
   schema: S;
   annotations: ToolAnnotations;
   /**
+   * Shape of `structuredContent`, for clients that consume the typed channel.
+   *
+   * Declaring this makes the SDK validate every response against it, so only
+   * set it where the shape is genuinely stable - the paginated envelope is,
+   * a free-form guide is not.
+   */
+  outputSchema?: z.ZodTypeAny;
+  /**
    * Gate the handler behind a live ComfyUI connection. The gate rediscovers a
    * moved or restarted instance and fails with an actionable message when it
    * is genuinely gone, so handlers can assume they are connected.
@@ -58,6 +66,7 @@ export function defineTool<S extends z.ZodTypeAny>(
       title: spec.annotations.title,
       description: spec.description,
       inputSchema: spec.schema,
+      ...(spec.outputSchema ? { outputSchema: spec.outputSchema } : {}),
       annotations: spec.annotations,
     },
     (async (input: z.infer<S>) => {

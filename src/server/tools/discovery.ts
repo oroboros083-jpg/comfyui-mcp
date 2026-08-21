@@ -8,7 +8,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { defineTool, noArgs } from "../register.js";
 import { ensureConnected } from "../connection.js";
 import { getCapabilitySummary } from "../../capabilities/index.js";
-import { dataResult, textResult } from "../../utils/response.js";
+import {
+  dataResult,
+  textResult,
+  paginatedOutputSchema,
+} from "../../utils/response.js";
+import { z } from "zod";
 import {
   listModelsSchema,
   listModels,
@@ -103,9 +108,10 @@ export function registerDiscoveryTools(server: McpServer): void {
       idempotentHint: true,
       openWorldHint: true,
     },
+    outputSchema: paginatedOutputSchema("models", z.record(z.array(z.string()))),
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(
+      return dataResult(
         await listModels(client, input),
         "Filter with 'type' or 'search', or page with 'offset'."
       );
@@ -127,9 +133,10 @@ export function registerDiscoveryTools(server: McpServer): void {
       idempotentHint: true,
       openWorldHint: true,
     },
+    outputSchema: paginatedOutputSchema("nodes"),
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(
+      return dataResult(
         await listNodes(client, input),
         "Narrow with 'search'/'category', lower 'detail', or page with 'offset'."
       );
@@ -175,9 +182,10 @@ export function registerDiscoveryTools(server: McpServer): void {
       idempotentHint: true,
       openWorldHint: true,
     },
+    outputSchema: paginatedOutputSchema("nodes"),
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(
+      return dataResult(
         await findNodesByType(client, input),
         "Constrain with both inputType and outputType, or page with 'offset'."
       );

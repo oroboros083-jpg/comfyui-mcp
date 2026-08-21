@@ -150,6 +150,39 @@ export function errorResult(message: string, hint?: string): ToolResult {
   };
 }
 
+/**
+ * Output schema for the paginated envelope every list/search tool returns.
+ *
+ * The rows themselves are left loose by default: tools project them to
+ * different shapes depending on the caller's `detail`, and pinning that here
+ * would make the schema lie. The envelope is what clients navigate by, and it
+ * is identical everywhere.
+ *
+ * `itemsSchema` exists because not every tool returns a flat array - list_models
+ * groups its page by model type, so its container is a record of arrays. Declare
+ * the real shape: the SDK validates each response against this and fails the
+ * call outright on a mismatch.
+ */
+export function paginatedOutputSchema(
+  itemsKey: string,
+  itemsSchema: z.ZodTypeAny = z.array(z.unknown())
+) {
+  return z
+    .object({
+      total: z.number().int().describe("Total matches, ignoring pagination"),
+      count: z.number().int().describe("Number of items in this response"),
+      offset: z.number().int().describe("Offset this page starts at"),
+      [itemsKey]: itemsSchema.describe("This page of results"),
+      has_more: z.boolean().describe("Whether further pages exist"),
+      next_offset: z
+        .number()
+        .int()
+        .optional()
+        .describe("Offset to pass for the next page; absent on the final page"),
+    })
+    .passthrough();
+}
+
 /** Standard pagination footer for markdown renderings. */
 export function pageFooter(page: Page<unknown>): string {
   if (!page.has_more) {
