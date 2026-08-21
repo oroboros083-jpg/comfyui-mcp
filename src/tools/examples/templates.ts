@@ -18,6 +18,7 @@ import {
   WorkflowTemplate,
 } from "../../workflows/builder.js";
 import { ComfyUIClient } from "../../client/comfyui.js";
+import { ToolError } from "../../utils/errors.js";
 import {
   saveTemplate as dbSaveTemplate,
   listTemplates as dbListTemplates,
@@ -342,25 +343,72 @@ export const getTemplateSchema = z.object({
 
 export type GetTemplateInput = z.infer<typeof getTemplateSchema>;
 
+/**
+ * A template resolved to runnable workflow JSON.
+ *
+ * A declared interface rather than a JSON string: a tool that returns a string
+ * cannot populate structuredContent, and a renderer cannot be written over one
+ * without casting the typing away.
+ */
+export interface GetTemplateResult {
+  templateId: string;
+  templateName: string;
+  source: "builtin" | "custom";
+  appliedParameters: Record<string, unknown>;
+  defaultSettings: unknown;
+  workflow: Record<string, unknown>;
+  useCount?: number;
+  usage: string;
+}
+
+/** Raised when the id names an example workflow rather than a template. */
+export class TemplateIsExampleError extends ToolError {
+  constructor(templateId: string, exampleName: string) {
+    super(
+      `'${templateId}' is an example workflow, not a template`,
+      `Call comfyui_get_example_workflow({ name: "${exampleName}" }) instead.`
+    );
+  }
+}
+
+/** Raised when nothing - built-in, custom or example - answers to the id. */
+export class TemplateNotFoundError extends ToolError {
+  constructor(templateId: string) {
+    super(
+      `Template '${templateId}' not found`,
+      `Call comfyui_search_templates to find one. The built-in ids are: ${BUILTIN_TEMPLATES.map(
+        (t) => t.id
+      ).join(", ")}.`
+    );
+  }
+}
+
 export async function getTemplate(
   client: ComfyUIClient,
   input: GetTemplateInput
-): Promise<string> {
+): Promise<GetTemplateResult> {
   // First check built-in templates
   const builtInTemplate = getTemplateById(input.templateId);
 
   if (builtInTemplate) {
-    // Build the workflow from the template
+    // Build the workflow from the template. buildFromTemplate throws a
+    // ToolError of its own when the instance has no model the template can
+    // use, which says which model to install; that is more useful than
+    // anything this layer could add, so it is left to propagate.
     const objectInfo = await client.getObjectInfo();
     const workflow = buildFromTemplate(input.templateId, input.parameters || {}, objectInfo);
 
     if (!workflow) {
-      return JSON.stringify({
-        error: `Failed to build workflow from template '${input.templateId}'`,
-      });
+      // A built-in template with no builder branch. Reported as a failure
+      // rather than a success carrying an `error` field, so the caller can
+      // tell the two apart.
+      throw new ToolError(
+        `Template '${input.templateId}' is listed but cannot be built.`,
+        "This is a gap in the server, not in your request. comfyui_search_templates lists the others, and comfyui_list_examples has documented workflows that need no builder."
+      );
     }
 
-    return JSON.stringify({
+    return {
       templateId: input.templateId,
       templateName: builtInTemplate.name,
       source: "builtin",
@@ -368,55 +416,48 @@ export async function getTemplate(
       defaultSettings: builtInTemplate.defaultSettings,
       workflow,
       usage: "Pass the 'workflow' object to comfyui_run_workflow() to execute it",
-    });
+    };
   }
 
   // Check custom templates in database
+  let customTemplate;
   try {
-    const customTemplate = dbGetTemplateById(input.templateId);
-    if (customTemplate) {
-      // Increment use count
-      incrementTemplateUseCount(input.templateId);
-
-      // Apply parameters to the workflow
-      let workflow = customTemplate.workflow;
-
-      // If parameters provided, try to apply them to CLIPTextEncode nodes
-      if (input.parameters) {
-        workflow = applyParametersToWorkflow(workflow, input.parameters);
-      }
-
-      return JSON.stringify({
-        templateId: input.templateId,
-        templateName: customTemplate.name,
-        source: "custom",
-        appliedParameters: input.parameters || {},
-        defaultSettings: customTemplate.defaultSettings,
-        workflow,
-        useCount: customTemplate.useCount + 1,
-        usage: "Pass the 'workflow' object to comfyui_run_workflow() to execute it",
-      });
-    }
+    customTemplate = dbGetTemplateById(input.templateId);
   } catch {
     // Database not available
+  }
+
+  if (customTemplate) {
+    // Increment use count
+    incrementTemplateUseCount(input.templateId);
+
+    // Apply parameters to the workflow
+    let workflow = customTemplate.workflow;
+
+    // If parameters provided, try to apply them to CLIPTextEncode nodes
+    if (input.parameters) {
+      workflow = applyParametersToWorkflow(workflow, input.parameters);
+    }
+
+    return {
+      templateId: input.templateId,
+      templateName: customTemplate.name,
+      source: "custom",
+      appliedParameters: input.parameters || {},
+      defaultSettings: customTemplate.defaultSettings,
+      workflow,
+      useCount: customTemplate.useCount + 1,
+      usage: "Pass the 'workflow' object to comfyui_run_workflow() to execute it",
+    };
   }
 
   // Check if it's an example workflow name instead
   const example = EXAMPLE_WORKFLOWS.find(
     (e) => e.name.toLowerCase().replace(/[^a-z0-9]+/g, "_") === input.templateId
   );
-  if (example) {
-    return JSON.stringify({
-      error: `'${input.templateId}' is an example workflow, not a template`,
-      suggestion: `Use comfyui_get_example_workflow({ name: "${example.name}" }) to fetch the example workflow`,
-    });
-  }
+  if (example) throw new TemplateIsExampleError(input.templateId, example.name);
 
-  return JSON.stringify({
-    error: `Template '${input.templateId}' not found`,
-    availableBuiltIn: BUILTIN_TEMPLATES.map((t) => t.id),
-    hint: "Use comfyui_search_templates to find available templates",
-  });
+  throw new TemplateNotFoundError(input.templateId);
 }
 
 /**

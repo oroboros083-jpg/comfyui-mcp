@@ -275,7 +275,13 @@ export function registerLibraryTools(server: McpServer): void {
     },
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(await getTemplate(client, input));
+      // Not-found and cannot-build are ToolErrors now; defineTool surfaces
+      // them with their hints. This used to be a success carrying an `error`
+      // field, which the caller could not distinguish from a real result.
+      return dataResult(
+        await getTemplate(client, input),
+        "This workflow is very large; comfyui_search_templates has smaller ones."
+      );
     },
   });
 
