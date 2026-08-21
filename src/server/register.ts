@@ -18,12 +18,24 @@ import { errorResult, ToolResult } from "../utils/response.js";
  */
 export const TOOL_PREFIX = "comfyui_";
 
+/**
+ * Behaviour hints published with the tool.
+ *
+ * Three of the four are required rather than optional. Every one of them has
+ * a spec default that applies when it is missing, so an omitted hint is not
+ * "unspecified" - it is a claim, just one nobody chose. Making them required
+ * means the compiler asks the question for each new tool.
+ *
+ * `destructiveHint` is the exception: it is derived below, because it is only
+ * meaningful for a tool that is not read-only.
+ */
 export interface ToolAnnotations {
   title: string;
-  readOnlyHint?: boolean;
+  readOnlyHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+  /** Only set this on a writing tool; a read-only tool derives `false`. */
   destructiveHint?: boolean;
-  idempotentHint?: boolean;
-  openWorldHint?: boolean;
 }
 
 export interface ToolSpec<S extends z.ZodTypeAny> {
@@ -67,7 +79,14 @@ export function defineTool<S extends z.ZodTypeAny>(
       description: spec.description,
       inputSchema: spec.schema,
       ...(spec.outputSchema ? { outputSchema: spec.outputSchema } : {}),
-      annotations: spec.annotations,
+      annotations: {
+        ...spec.annotations,
+        // destructiveHint defaults to *true* in the spec, so a read-only tool
+        // that leaves it unset advertises the opposite of what it does. 25 of
+        // them did exactly that, which is why this is derived here rather than
+        // written out at each call site.
+        destructiveHint: spec.annotations.destructiveHint ?? !spec.annotations.readOnlyHint,
+      },
     },
     (async (input: z.infer<S>) => {
       try {
