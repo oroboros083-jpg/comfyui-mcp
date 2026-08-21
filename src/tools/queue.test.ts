@@ -10,7 +10,7 @@ import {
   renderQueue,
   renderHistory,
 } from "./queue.js";
-import { ResponseFormat } from "../utils/response.js";
+import { ResponseFormat, paginatedOutputSchema } from "../utils/response.js";
 
 /**
  * These tools front two unbounded ComfyUI endpoints, so the client is stubbed
@@ -203,4 +203,27 @@ test("renderHistory tells the caller how to reach the next page", async () => {
   });
 
   assert.match(renderHistory(result), /offset: 10/);
+});
+
+test("every getQueue page satisfies the declared outputSchema", async () => {
+  // get_queue declares an outputSchema, and the SDK fails the whole call when
+  // a response does not match it - including on the branches that are easy to
+  // forget. Each of these is one of those branches.
+  const schema = paginatedOutputSchema("jobs");
+
+  const cases: Array<[string, QueueStatus, number]> = [
+    ["empty queue", queueOf(0, 0), 0],
+    ["single page", queueOf(1, 3), 0],
+    ["first of many", queueOf(1, 100), 0],
+    ["final page", queueOf(1, 30), 25],
+  ];
+
+  for (const [label, queue, offset] of cases) {
+    const page = await getQueue(stubClient({ queue }), {
+      limit: 25,
+      offset,
+      response_format: ResponseFormat.JSON,
+    });
+    assert.equal(schema.safeParse(page).success, true, label);
+  }
 });
