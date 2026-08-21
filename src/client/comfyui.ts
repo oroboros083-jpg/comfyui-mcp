@@ -351,7 +351,13 @@ export class ComfyUIClient {
   async getModels(): Promise<ModelInfo> {
     // ComfyUI has no endpoint that lists models. The options of each loader
     // node's combo input are the list, so they are read out of object_info.
-    const objectInfo = await this.getObjectInfo();
+    // Independent requests, and /object_info is the largest document ComfyUI
+    // serves - waiting for it before opening the embeddings socket cost the
+    // sum of both latencies rather than the larger of the two.
+    const [objectInfo, embeddings] = await Promise.all([
+      this.getObjectInfo(),
+      this.getEmbeddings(),
+    ]);
 
     const models: ModelInfo = {
       checkpoints: [],
@@ -372,9 +378,8 @@ export class ComfyUIClient {
 
     // Embeddings are the exception: no loader node lists them, because they
     // are referenced from inside a prompt rather than loaded by a node. They
-    // have their own endpoint, and without it this field is always empty -
-    // which reads as "none installed" rather than "never looked".
-    models.embeddings = await this.getEmbeddings();
+    // have their own endpoint, fetched above alongside object_info.
+    models.embeddings = embeddings;
 
     return models;
   }

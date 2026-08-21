@@ -306,14 +306,12 @@ export function listExamples(input: ListExamplesInput): ListExamplesResult {
     return base;
   };
 
+  const { items, ...envelope } = page;
+
   return {
-    total: page.total,
-    count: page.count,
-    offset: page.offset,
+    ...envelope,
     categories: categoryCounts,
-    examples: page.items.map(project),
-    has_more: page.has_more,
-    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+    examples: items.map(project),
     hint: "Call comfyui_get_example_workflow with an example's name to fetch its runnable workflow JSON.",
   };
 }

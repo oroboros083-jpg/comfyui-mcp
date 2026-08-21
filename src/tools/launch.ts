@@ -420,6 +420,15 @@ export function readStartupLogTail(target: LaunchTarget | null): StartupLogTail 
 }
 
 /**
+ * The log tail as a block to append to a failure message. Returns "" when
+ * there is no log, so callers can concatenate unconditionally.
+ */
+export function formatStartupLogTail(log: StartupLogTail | null): string {
+  if (!log) return "";
+  return `\n\nLast errors from ${log.path}:\n${log.lines.join("\n")}`;
+}
+
+/**
  * Whether a URL points at this machine. Launching a local process cannot help
  * a ComfyUI that lives somewhere else.
  */

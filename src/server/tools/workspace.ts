@@ -19,6 +19,15 @@ import {
 import { renderListing } from "../../utils/render.js";
 import * as db from "../../db/index.js";
 
+import { renderSvgSchema, renderSvg } from "../../tools/svg.js";
+import {
+  downloadFontSchema,
+  downloadFont,
+  listFontsSchema,
+  listFonts,
+  RECOMMENDED_MAP_FONTS,
+} from "../../tools/fonts.js";
+
 /**
  * One note as a markdown line. Notes can be long, so the line identifies the
  * note and shows its opening; comfyui_get_notes with a topic brings the rest.
@@ -29,14 +38,6 @@ function noteRow(note: db.Note): string {
   const tags = note.tags.length ? ` _[${note.tags.join(", ")}]_` : "";
   return `- **${note.topic}** (#${note.id}) - ${preview}${tags}`;
 }
-import { renderSvgSchema, renderSvg } from "../../tools/svg.js";
-import {
-  downloadFontSchema,
-  downloadFont,
-  listFontsSchema,
-  listFonts,
-  RECOMMENDED_MAP_FONTS,
-} from "../../tools/fonts.js";
 
 export function registerWorkspaceTools(server: McpServer): void {
   // === Notes ===
@@ -94,7 +95,6 @@ export function registerWorkspaceTools(server: McpServer): void {
     annotations: {
       title: "Get Notes",
       readOnlyHint: true,
-      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
@@ -136,7 +136,6 @@ export function registerWorkspaceTools(server: McpServer): void {
     annotations: {
       title: "Search Notes",
       readOnlyHint: true,
-      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },

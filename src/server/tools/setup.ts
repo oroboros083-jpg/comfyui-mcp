@@ -32,6 +32,7 @@ import {
   spawnComfyUI,
   launchBlockedReason,
   readStartupLogTail,
+  formatStartupLogTail,
 } from "../../tools/launch.js";
 import { restartComfyUISchema } from "../../tools/restart.js";
 import { ServerContext } from "../../context.js";
@@ -73,7 +74,7 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
         c.discoveredUrl || undefined,
         c.discoverySource || undefined,
         c.capabilities ? getCapabilitySummary(c.capabilities) : undefined
-      )) as unknown as Record<string, unknown>;
+      ));
 
       if (!refresh.connected) {
         status.error = refresh.error;
@@ -237,9 +238,7 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
 
         return errorResult(
           `Launched ${target.label} (pid ${launch.pid}) but it has not answered after ${elapsedSeconds}s: ${recovery.error ?? ""}` +
-            (log
-              ? `\n\nLast errors from ${log.path}:\n${log.lines.join("\n")}`
-              : ""),
+            formatStartupLogTail(log),
           log
             ? `${hint} The log above is from ComfyUI itself - fix what it reports, then call comfyui_start_comfyui again.`
             : `${hint} No ComfyUI startup log was found to explain it; run the command in a terminal to see its output.`
@@ -311,9 +310,7 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
 
         return errorResult(
           `Restart was accepted via ${endpoint} but ComfyUI has not come back after ${elapsedSeconds}s: ${recovery.error ?? ""}` +
-            (log
-              ? `\n\nLast errors from ${log.path}:\n${log.lines.join("\n")}`
-              : ""),
+            formatStartupLogTail(log),
           observedShutdown
             ? "ComfyUI shut down but has not returned yet. It may still be loading - call comfyui_reconnect in a moment. This server does not need restarting."
             : "ComfyUI never went offline, so the restart may not have been accepted. Check ComfyUI's console output."

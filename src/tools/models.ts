@@ -74,21 +74,16 @@ export async function listModels(
 
   const page = paginate(flat, input.limit, input.offset);
 
+  const { items, ...envelope } = page;
+
   // Regroup the page by type: the agent reads "checkpoints: [...]" more
   // easily than a flat list of pairs.
   const grouped: Record<string, string[]> = {};
-  for (const { type, name } of page.items) {
+  for (const { type, name } of items) {
     (grouped[type] ??= []).push(name);
   }
 
-  return {
-    total: page.total,
-    count: page.count,
-    offset: page.offset,
-    models: grouped,
-    has_more: page.has_more,
-    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
-  };
+  return { ...envelope, models: grouped };
 }
 
 export function renderModels(result: ListModelsResult, input: ListModelsInput): string {
@@ -196,15 +191,13 @@ export async function listNodes(
     return { name: n.name, displayName: n.displayName, category: n.category };
   };
 
+  const { items, ...envelope } = page;
+
   return {
-    total: page.total,
-    count: page.count,
-    offset: page.offset,
+    ...envelope,
     categoryCount: ranked.length,
     topCategories,
-    nodes: page.items.map(project),
-    has_more: page.has_more,
-    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+    nodes: items.map(project),
     ...(page.has_more
       ? {
           hint: `${page.total - (page.offset + page.count)} more nodes. Narrow with 'search'/'category', or page with offset: ${page.next_offset}.`,
@@ -630,19 +623,17 @@ export async function findNodesByType(
 
   const page = paginate(matches, input.limit, input.offset);
 
+  const { items, ...envelope } = page;
+
   return {
     query: {
       inputType: input.inputType || null,
       outputType: input.outputType || null,
     },
-    total: page.total,
-    count: page.count,
-    offset: page.offset,
+    ...envelope,
     categoryCount: ranked.length,
     topCategories: Object.fromEntries(ranked.slice(0, TOP_CATEGORIES)),
-    nodes: page.items,
-    has_more: page.has_more,
-    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+    nodes: items,
   };
 }
 

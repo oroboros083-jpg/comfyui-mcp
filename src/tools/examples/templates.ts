@@ -304,14 +304,12 @@ export function searchTemplates(input: SearchTemplatesInput): SearchTemplatesRes
     ...(r.useCount !== undefined ? { useCount: r.useCount } : {}),
   }));
 
+  const { items: _items, ...envelope } = page;
+
   return {
     query: input,
-    total: page.total,
-    count: page.count,
-    offset: page.offset,
+    ...envelope,
     results: slim,
-    has_more: page.has_more,
-    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
     hint: "Call comfyui_get_template with a result's id for its parameters, default settings and runnable workflow JSON.",
   };
 }

@@ -11,12 +11,12 @@ import { z } from "zod";
 
 import { ComfyUIClient } from "../client/comfyui.js";
 import {
-  Page,
+  PageEnvelope,
   paginate,
   paginationFields,
   responseFormatField,
-  pageFooter,
 } from "../utils/response.js";
+import { renderListing } from "../utils/render.js";
 
 /** One queued job, flattened from ComfyUI's positional tuple. */
 export interface QueuedJob {
@@ -48,7 +48,7 @@ export type GetQueueInput = z.infer<typeof getQueueSchema>;
  * The paginated envelope with the page held under `jobs` rather than `items`,
  * so the response names what it carries and carries it exactly once.
  */
-export type QueueResult = Omit<Page<QueuedJob>, "items"> & {
+export type QueueResult = PageEnvelope & {
   running: number;
   pending: number;
   jobs: QueuedJob[];
@@ -86,19 +86,15 @@ export async function getQueue(
 }
 
 export function renderQueue(result: QueueResult): string {
-  if (result.total === 0) return "Queue is empty. Nothing running, nothing pending.";
-
-  const lines = [
-    `# ComfyUI Queue`,
-    "",
-    `${result.running} running, ${result.pending} pending.`,
-    "",
-  ];
-  for (const job of result.jobs) {
-    lines.push(`- **${job.state}** #${job.position} - \`${job.promptId}\``);
-  }
-  lines.push(pageFooter(result));
-  return lines.join("\n");
+  return renderListing({
+    title: "ComfyUI Queue",
+    facets: { running: result.running, pending: result.pending },
+    rows: result.jobs.map(
+      (job) => `- **${job.state}** #${job.position} - \`${job.promptId}\``
+    ),
+    page: result,
+    empty: "Queue is empty. Nothing running, nothing pending.",
+  });
 }
 
 // === cancel_job ===
@@ -186,7 +182,7 @@ export interface HistoryDetail {
   outputs: Record<string, unknown>;
 }
 
-export type HistoryListing = Omit<Page<HistoryRow>, "items"> & { entries: HistoryRow[] };
+export type HistoryListing = PageEnvelope & { entries: HistoryRow[] };
 
 export type HistoryResult = HistoryDetail | HistoryListing;
 
@@ -245,14 +241,14 @@ export function renderHistory(result: HistoryResult): string {
     ].join("\n");
   }
 
-  if (result.total === 0) return "ComfyUI's history is empty.";
-
-  const lines = ["# Generation History", ""];
-  for (const row of result.entries) {
-    const outputs = row.hasOutputs ? "has outputs" : "no outputs";
-    lines.push(`- \`${row.promptId}\` - ${row.status} (${outputs})`);
-  }
-  lines.push(pageFooter(result));
-  lines.push("\nPass a promptId to see one prompt's output files.");
-  return lines.join("\n");
+  return renderListing({
+    title: "Generation History",
+    rows: result.entries.map((row) => {
+      const outputs = row.hasOutputs ? "has outputs" : "no outputs";
+      return `- \`${row.promptId}\` - ${row.status} (${outputs})`;
+    }),
+    page: result,
+    empty: "ComfyUI's history is empty.",
+    next: "Pass a promptId to see one prompt's output files.",
+  });
 }

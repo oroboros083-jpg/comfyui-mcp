@@ -256,7 +256,14 @@ helpers in `utils/response.ts` exist to prevent that — use them.
   three times.
 - **Render listings through `utils/render.ts`.** `renderListing` owns the
   title/facets/rows/footer shape, so every listing reads the same way and the
-  footer always names the next offset. Supply rows, not a whole document.
+  footer always names the next offset. Supply rows, not a whole document. The
+  renderer lives beside the logic in `tools/*` where a logic module exists,
+  and inline in `server/tools/*` where the handler reads the db or job manager
+  directly.
+- **Build the envelope by destructuring**, not by re-listing its fields:
+  `const { items, ...envelope } = paginate(...)`, then `{ ...envelope, jobs: items }`.
+  Re-listing `total/count/offset/has_more` invites getting the optional
+  `next_offset` wrong.
 
 Measure before and after when changing a response shape — against a live
 ComfyUI where the tool needs one. Put the numbers in the commit message.

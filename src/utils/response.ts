@@ -115,7 +115,12 @@ export function capText(text: string, narrowingHint: string): string {
 
 export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
-  structuredContent?: Record<string, unknown>;
+  /**
+   * Typed channel for clients that read it. Any object: on the wire this is
+   * a JSON object, and requiring Record<string, unknown> only meant every
+   * caller with a declared result interface had to cast the typing away.
+   */
+  structuredContent?: object;
   isError?: boolean;
 }
 
@@ -132,8 +137,8 @@ export function textResult(text: string, narrowingHint = "Narrow the request."):
  * copy, and clients that consume it do not pay context for it the way the
  * text channel does.
  */
-export function dataResult(
-  data: Record<string, unknown>,
+export function dataResult<T extends object>(
+  data: T,
   narrowingHint = "Use 'limit' and 'offset', or add a filter."
 ): ToolResult {
   return {
@@ -147,9 +152,9 @@ export function dataResult(
  * `markdown` is a thunk so the (often more expensive) rendering is skipped
  * when JSON was requested.
  */
-export function formattedResult(
+export function formattedResult<T extends object>(
   format: ResponseFormat,
-  data: Record<string, unknown>,
+  data: T,
   markdown: () => string,
   narrowingHint = "Use 'limit' and 'offset', or add a filter."
 ): ToolResult {

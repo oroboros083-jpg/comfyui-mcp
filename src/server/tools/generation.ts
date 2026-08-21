@@ -197,7 +197,7 @@ export function registerGenerationTools(
     handler: async () => {
       const state = await getTabState(ctx().discoveredUrl!);
       if (!state) return dataResult({ available: false, hint: BRIDGE_MISSING_HINT });
-      return dataResult(state as unknown as Record<string, unknown>);
+      return dataResult(state);
     },
   });
 

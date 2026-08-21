@@ -70,7 +70,6 @@ export function registerLibraryTools(server: McpServer): void {
     annotations: {
       title: "List Example Workflows",
       readOnlyHint: true,
-      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
@@ -79,7 +78,7 @@ export function registerLibraryTools(server: McpServer): void {
       const result = listExamples(input);
       return formattedResult(
         input.response_format,
-        result as unknown as Record<string, unknown>,
+        result,
         () => renderExamples(result, input),
         "Narrow with 'search'/'category', lower 'detail', or page with 'offset'."
       );
@@ -226,7 +225,7 @@ export function registerLibraryTools(server: McpServer): void {
       // both doubled the cost of every call for no added information.
       return {
         content: [{ type: "text" as const, text: formatWorkflowRecommendation(recommendation) }],
-        structuredContent: recommendation as unknown as Record<string, unknown>,
+        structuredContent: recommendation,
       };
     },
   });
@@ -244,7 +243,6 @@ export function registerLibraryTools(server: McpServer): void {
     annotations: {
       title: "Search Workflow Templates",
       readOnlyHint: true,
-      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },
@@ -253,7 +251,7 @@ export function registerLibraryTools(server: McpServer): void {
       const result = searchTemplates(input);
       return formattedResult(
         input.response_format,
-        result as unknown as Record<string, unknown>,
+        result,
         () => renderTemplateSearch(result),
         "Add filters, or page with 'offset'."
       );

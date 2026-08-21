@@ -58,7 +58,6 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     annotations: {
       title: "Get Queue Status",
       readOnlyHint: true,
-      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true,
     },
@@ -68,7 +67,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       const result = await getQueue(client, input);
       return formattedResult(
         input.response_format,
-        result as unknown as Record<string, unknown>,
+        result,
         () => renderQueue(result),
         "Page with 'offset'."
       );
@@ -92,7 +91,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     handler: async (input) => {
       const { client } = await ensureConnected();
       return dataResult(
-        (await cancelJob(client, input)) as unknown as Record<string, unknown>
+        (await cancelJob(client, input))
       );
     },
   });
@@ -113,7 +112,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     },
     handler: async () => {
       const { client } = await ensureConnected();
-      return dataResult((await interrupt(client)) as unknown as Record<string, unknown>);
+      return dataResult((await interrupt(client)));
     },
   });
 
@@ -132,7 +131,6 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     annotations: {
       title: "Get Generation History",
       readOnlyHint: true,
-      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true,
     },
@@ -142,7 +140,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
         const result = await getHistory(client, input);
         return formattedResult(
           input.response_format,
-          result as unknown as Record<string, unknown>,
+          result,
           () => renderHistory(result),
           isHistoryDetail(result)
             ? "This prompt produced an unusually large output set."
@@ -298,7 +296,6 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     annotations: {
       title: "List Tasks",
       readOnlyHint: true,
-      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
     },

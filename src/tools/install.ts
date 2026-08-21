@@ -3,6 +3,8 @@ import { platform, homedir } from "os";
 import { existsSync } from "fs";
 import { join } from "path";
 
+import { ReconcileSummary } from "../jobs/reconcile.js";
+
 export interface InstallationStatus {
   installed: boolean;
   type?: "desktop" | "standalone" | "portable" | "unknown";
@@ -321,6 +323,13 @@ export interface ServerStatus {
   installationPath?: string;
   installationType?: string;
   capabilities?: string;
+  /** Set when disconnected: why, and where we looked. */
+  error?: string;
+  urlsTried?: string[];
+  /** Set when reconnecting resolved tasks interrupted by a restart. */
+  reconciledTasks?: ReconcileSummary;
+  /** Set when connected, to steer prompting before the first generation. */
+  promptingAdvice?: { detectedModelType: string; recommendation: string };
 }
 
 export async function getStatus(

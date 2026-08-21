@@ -124,7 +124,7 @@ export function registerDiscoveryTools(server: McpServer): void {
       const result = await listModels(client, input);
       return formattedResult(
         input.response_format,
-        result as unknown as Record<string, unknown>,
+        result,
         () => renderModels(result, input),
         "Filter with 'type' or 'search', or page with 'offset'."
       );
@@ -152,7 +152,7 @@ export function registerDiscoveryTools(server: McpServer): void {
       const result = await listNodes(client, input);
       return formattedResult(
         input.response_format,
-        result as unknown as Record<string, unknown>,
+        result,
         () => renderNodes(result, input),
         "Narrow with 'search'/'category', lower 'detail', or page with 'offset'."
       );
@@ -205,7 +205,7 @@ export function registerDiscoveryTools(server: McpServer): void {
         const result = await findNodesByType(client, input);
         return formattedResult(
           input.response_format,
-          result as unknown as Record<string, unknown>,
+          result,
           () => renderFoundNodes(result),
           "Constrain with both inputType and outputType, or page with 'offset'."
         );
@@ -260,7 +260,7 @@ export function registerDiscoveryTools(server: McpServer): void {
       const result = await validateWorkflow(client, input);
       return formattedResult(
         input.response_format,
-        result as unknown as Record<string, unknown>,
+        result,
         () => renderValidation(result),
         "Validate a smaller subgraph."
       );
