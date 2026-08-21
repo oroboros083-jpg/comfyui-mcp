@@ -15,17 +15,23 @@ import {
   dataResult,
   textResult,
   errorResult,
+  formattedResult,
   paginate,
   paginationFields,
+  paginatedOutputSchema,
 } from "../../utils/response.js";
 import {
   getQueueSchema,
   getQueue,
+  renderQueue,
   cancelJobSchema,
   cancelJob,
   interrupt,
   getHistorySchema,
   getHistory,
+  renderHistory,
+  isHistoryDetail,
+  PromptNotFoundError,
 } from "../../tools/queue.js";
 import { processImageForTransfer } from "../../utils/image.js";
 import { ServerContext } from "../../context.js";
@@ -40,18 +46,30 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     name: "get_queue",
     description:
       "Get ComfyUI's current queue: what is running now and what is pending. Reflects everything " +
-      "queued on the instance, including work submitted outside this server.",
+      "queued on the instance, including work submitted outside this server. Paginated, running " +
+      "jobs first.\n\n" +
+      "Returns: { total, count, offset, running, pending, jobs: [{ position, promptId, state }], " +
+      "has_more, next_offset }, where 'running'/'pending' count the whole queue and 'jobs' is this " +
+      "page of it.",
     schema: getQueueSchema,
     requiresConnection: true,
     annotations: {
       title: "Get Queue Status",
       readOnlyHint: true,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true,
     },
-    handler: async () => {
+    outputSchema: paginatedOutputSchema("jobs"),
+    handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(await getQueue(client));
+      const result = await getQueue(client, input);
+      return formattedResult(
+        input.response_format,
+        result as unknown as Record<string, unknown>,
+        () => renderQueue(result),
+        "Page with 'offset'."
+      );
     },
   });
 
@@ -71,7 +89,9 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     },
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(await cancelJob(client, input));
+      return dataResult(
+        (await cancelJob(client, input)) as unknown as Record<string, unknown>
+      );
     },
   });
 
@@ -91,26 +111,50 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     },
     handler: async () => {
       const { client } = await ensureConnected();
-      return textResult(await interrupt(client));
+      return dataResult((await interrupt(client)) as unknown as Record<string, unknown>);
     },
   });
 
   defineTool(server, {
     name: "get_history",
     description:
-      "Get ComfyUI's generation history: recent prompts and the output files they produced. Defaults to " +
-      "the most recent entries; raise 'limit' to look further back.",
+      "Get ComfyUI's generation history. Without 'promptId' this lists prompts - id, status, and " +
+      "whether outputs exist - paginated. With 'promptId' it returns that one prompt's full detail " +
+      "including its output files.\n\n" +
+      "Listing returns: { total, count, offset, entries: [{ promptId, status, completed, hasOutputs }], " +
+      "has_more, next_offset }\n" +
+      "Detail returns: { promptId, status, completed, outputs }\n\n" +
+      "Errors: reports a not-found message naming the id if the prompt is not in ComfyUI's history.",
     schema: getHistorySchema,
     requiresConnection: true,
     annotations: {
       title: "Get Generation History",
       readOnlyHint: true,
+      destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true,
     },
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(await getHistory(client, input), "Lower 'limit'.");
+      try {
+        const result = await getHistory(client, input);
+        return formattedResult(
+          input.response_format,
+          result as unknown as Record<string, unknown>,
+          () => renderHistory(result),
+          isHistoryDetail(result)
+            ? "This prompt produced an unusually large output set."
+            : "Page with 'offset'."
+        );
+      } catch (error) {
+        if (error instanceof PromptNotFoundError) {
+          return errorResult(
+            error.message,
+            "Call comfyui_get_history without a promptId to list the ids ComfyUI still remembers."
+          );
+        }
+        throw error;
+      }
     },
   });
 

@@ -1,100 +1,258 @@
+/**
+ * ComfyUI's queue and generation history.
+ *
+ * These tools front two endpoints that have no server-side paging: `/queue`
+ * returns every queued job and `/history` returns every prompt ComfyUI still
+ * remembers. Both are unbounded, so paging happens here - a busy instance can
+ * hold hundreds of entries, and none of them are worth a context window.
+ */
+
 import { z } from "zod";
+
 import { ComfyUIClient } from "../client/comfyui.js";
+import {
+  Page,
+  paginate,
+  paginationFields,
+  responseFormatField,
+  pageFooter,
+} from "../utils/response.js";
 
-export const getQueueSchema = z.object({}).strict();
-
-export async function getQueue(client: ComfyUIClient): Promise<string> {
-  const queue = await client.getQueue();
-
-  const running = queue.queue_running.map((item) => ({
-    number: item[0],
-    promptId: item[1],
-  }));
-
-  const pending = queue.queue_pending.map((item) => ({
-    number: item[0],
-    promptId: item[1],
-  }));
-
-  return JSON.stringify(
-    {
-      running: running.length,
-      pending: pending.length,
-      runningJobs: running,
-      pendingJobs: pending,
-    },
-    null,
-    2
-  );
+/** One queued job, flattened from ComfyUI's positional tuple. */
+export interface QueuedJob {
+  position: number;
+  promptId: string;
+  state: "running" | "pending";
 }
 
-export const cancelJobSchema = z.object({
-  promptId: z
-    .string()
-    .optional()
-    .describe("Specific prompt ID to cancel. If not provided, cancels all jobs."),
-}).strict();
+/** One history row. Identifies a prompt; `promptId` fetches its detail. */
+export interface HistoryRow {
+  promptId: string;
+  status: string;
+  completed: boolean;
+  hasOutputs: boolean;
+}
+
+// === get_queue ===
+
+export const getQueueSchema = z
+  .object({
+    ...paginationFields,
+    response_format: responseFormatField,
+  })
+  .strict();
+
+export type GetQueueInput = z.infer<typeof getQueueSchema>;
+
+/**
+ * The paginated envelope with the page held under `jobs` rather than `items`,
+ * so the response names what it carries and carries it exactly once.
+ */
+export type QueueResult = Omit<Page<QueuedJob>, "items"> & {
+  running: number;
+  pending: number;
+  jobs: QueuedJob[];
+};
+
+export async function getQueue(
+  client: ComfyUIClient,
+  input: GetQueueInput
+): Promise<QueueResult> {
+  const queue = await client.getQueue();
+
+  // Running first: it is what the caller almost always wants, and putting it
+  // on page one means the common case never needs a second call.
+  const jobs: QueuedJob[] = [
+    ...queue.queue_running.map(([position, promptId]) => ({
+      position,
+      promptId,
+      state: "running" as const,
+    })),
+    ...queue.queue_pending.map(([position, promptId]) => ({
+      position,
+      promptId,
+      state: "pending" as const,
+    })),
+  ];
+
+  const { items, ...envelope } = paginate(jobs, input.limit, input.offset);
+
+  return {
+    ...envelope,
+    running: queue.queue_running.length,
+    pending: queue.queue_pending.length,
+    jobs: items,
+  };
+}
+
+export function renderQueue(result: QueueResult): string {
+  if (result.total === 0) return "Queue is empty. Nothing running, nothing pending.";
+
+  const lines = [
+    `# ComfyUI Queue`,
+    "",
+    `${result.running} running, ${result.pending} pending.`,
+    "",
+  ];
+  for (const job of result.jobs) {
+    lines.push(`- **${job.state}** #${job.position} - \`${job.promptId}\``);
+  }
+  lines.push(pageFooter(result));
+  return lines.join("\n");
+}
+
+// === cancel_job ===
+
+export const cancelJobSchema = z
+  .object({
+    promptId: z
+      .string()
+      .min(1, "promptId must not be empty")
+      .optional()
+      .describe(
+        "Prompt ID of the queued job to cancel. Omit to clear the entire queue."
+      ),
+  })
+  .strict();
 
 export type CancelJobInput = z.infer<typeof cancelJobSchema>;
+
+export interface CancelJobResult {
+  success: true;
+  cancelled: string | "all";
+  message: string;
+}
 
 export async function cancelJob(
   client: ComfyUIClient,
   input: CancelJobInput
-): Promise<string> {
+): Promise<CancelJobResult> {
   await client.cancelQueue(input.promptId);
 
-  if (input.promptId) {
-    return JSON.stringify({ success: true, cancelled: input.promptId });
-  }
-  return JSON.stringify({ success: true, message: "All jobs cancelled" });
+  return input.promptId
+    ? {
+        success: true,
+        cancelled: input.promptId,
+        message: `Removed ${input.promptId} from the queue. A job already running is unaffected - use comfyui_interrupt for that.`,
+      }
+    : {
+        success: true,
+        cancelled: "all",
+        message:
+          "Cleared every pending job from the queue. A job already running is unaffected - use comfyui_interrupt for that.",
+      };
 }
+
+// === interrupt ===
 
 export const interruptSchema = z.object({}).strict();
 
-export async function interrupt(client: ComfyUIClient): Promise<string> {
-  await client.interrupt();
-  return JSON.stringify({ success: true, message: "Current job interrupted" });
+export interface InterruptResult {
+  success: true;
+  message: string;
 }
 
-export const getHistorySchema = z.object({
-  promptId: z.string().optional().describe("Specific prompt ID to get history for"),
-  limit: z.number().optional().default(10).describe("Maximum number of entries to return"),
-}).strict();
+export async function interrupt(client: ComfyUIClient): Promise<InterruptResult> {
+  await client.interrupt();
+  return {
+    success: true,
+    message:
+      "Interrupted the running job; its output is discarded. Pending jobs are untouched - use comfyui_cancel_job to clear those.",
+  };
+}
+
+// === get_history ===
+
+export const getHistorySchema = z
+  .object({
+    promptId: z
+      .string()
+      .min(1, "promptId must not be empty")
+      .optional()
+      .describe(
+        "Fetch one prompt's full detail, including its output files. Omit for a paginated listing."
+      ),
+    ...paginationFields,
+    response_format: responseFormatField,
+  })
+  .strict();
 
 export type GetHistoryInput = z.infer<typeof getHistorySchema>;
+
+export interface HistoryDetail {
+  promptId: string;
+  status: string;
+  completed: boolean;
+  outputs: Record<string, unknown>;
+}
+
+export type HistoryListing = Omit<Page<HistoryRow>, "items"> & { entries: HistoryRow[] };
+
+export type HistoryResult = HistoryDetail | HistoryListing;
+
+/** Raised when a specific promptId is not in ComfyUI's history. */
+export class PromptNotFoundError extends Error {
+  constructor(public readonly promptId: string) {
+    super(`No prompt ${promptId} in ComfyUI's history`);
+    this.name = "PromptNotFoundError";
+  }
+}
 
 export async function getHistory(
   client: ComfyUIClient,
   input: GetHistoryInput
-): Promise<string> {
+): Promise<HistoryResult> {
   const history = await client.getHistory(input.promptId);
 
   if (input.promptId) {
     const entry = history[input.promptId];
-    if (!entry) {
-      return JSON.stringify({ error: "Prompt not found in history" });
-    }
-    return JSON.stringify(
-      {
-        promptId: input.promptId,
-        status: entry.status.status_str,
-        completed: entry.status.completed,
-        outputs: entry.outputs,
-      },
-      null,
-      2
-    );
-  }
+    // ComfyUI answers /history/<unknown-id> with an empty object rather than a
+    // 404, so a missing key is the only signal that the id is wrong.
+    if (!entry) throw new PromptNotFoundError(input.promptId);
 
-  // Return limited history
-  const entries = Object.entries(history)
-    .slice(0, input.limit)
-    .map(([promptId, entry]) => ({
-      promptId,
+    return {
+      promptId: input.promptId,
       status: entry.status.status_str,
       completed: entry.status.completed,
-      hasOutputs: Object.keys(entry.outputs).length > 0,
-    }));
+      outputs: entry.outputs,
+    };
+  }
 
-  return JSON.stringify({ entries, total: Object.keys(history).length }, null, 2);
+  const rows: HistoryRow[] = Object.entries(history).map(([promptId, entry]) => ({
+    promptId,
+    status: entry.status.status_str,
+    completed: entry.status.completed,
+    hasOutputs: Object.keys(entry.outputs).length > 0,
+  }));
+
+  const { items, ...envelope } = paginate(rows, input.limit, input.offset);
+  return { ...envelope, entries: items };
+}
+
+export function isHistoryDetail(result: HistoryResult): result is HistoryDetail {
+  return "outputs" in result;
+}
+
+export function renderHistory(result: HistoryResult): string {
+  if (isHistoryDetail(result)) {
+    const nodes = Object.keys(result.outputs);
+    return [
+      `# Prompt ${result.promptId}`,
+      "",
+      `- **Status**: ${result.status}`,
+      `- **Completed**: ${result.completed ? "yes" : "no"}`,
+      `- **Output nodes**: ${nodes.length ? nodes.join(", ") : "none"}`,
+    ].join("\n");
+  }
+
+  if (result.total === 0) return "ComfyUI's history is empty.";
+
+  const lines = ["# Generation History", ""];
+  for (const row of result.entries) {
+    const outputs = row.hasOutputs ? "has outputs" : "no outputs";
+    lines.push(`- \`${row.promptId}\` - ${row.status} (${outputs})`);
+  }
+  lines.push(pageFooter(result));
+  lines.push("\nPass a promptId to see one prompt's output files.");
+  return lines.join("\n");
 }

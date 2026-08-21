@@ -11,6 +11,7 @@ import { getCapabilitySummary } from "../../capabilities/index.js";
 import {
   dataResult,
   textResult,
+  formattedResult,
   paginatedOutputSchema,
 } from "../../utils/response.js";
 import { z } from "zod";
@@ -26,7 +27,11 @@ import {
   buildNodeSchema,
   buildNode,
 } from "../../tools/models.js";
-import { validateWorkflowSchema, validateWorkflow } from "../../tools/validation.js";
+import {
+  validateWorkflowSchema,
+  validateWorkflow,
+  renderValidation,
+} from "../../tools/validation.js";
 
 export function registerDiscoveryTools(server: McpServer): void {
   defineTool(server, {
@@ -228,7 +233,13 @@ export function registerDiscoveryTools(server: McpServer): void {
     },
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(await validateWorkflow(client, input));
+      const result = await validateWorkflow(client, input);
+      return formattedResult(
+        input.response_format,
+        result as unknown as Record<string, unknown>,
+        () => renderValidation(result),
+        "Validate a smaller subgraph."
+      );
     },
   });
 }

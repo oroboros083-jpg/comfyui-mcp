@@ -1,29 +1,31 @@
 import { z } from "zod";
 import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
 import { WorkflowNode } from "../workflows/builder.js";
+import { responseFormatField } from "../utils/response.js";
 
 export const validateWorkflowSchema = z.object({
   workflow: z
     .record(z.unknown())
     .describe("The ComfyUI workflow JSON (API format) to validate"),
+  response_format: responseFormatField,
 }).strict();
 
 export type ValidateWorkflowInput = z.infer<typeof validateWorkflowSchema>;
 
-interface ValidationError {
+export interface ValidationError {
   nodeId: string;
   type: "unknown_node" | "missing_input" | "invalid_connection" | "type_mismatch" | "invalid_slot";
   message: string;
   details?: Record<string, unknown>;
 }
 
-interface ValidationWarning {
+export interface ValidationWarning {
   nodeId: string;
   type: "unused_output" | "deprecated_node" | "no_output_node" | "missing_optional";
   message: string;
 }
 
-interface ValidationResult {
+export interface ValidationResult {
   valid: boolean;
   errors: ValidationError[];
   warnings: ValidationWarning[];
@@ -52,7 +54,7 @@ function getInputType(spec: unknown): string {
 export async function validateWorkflow(
   client: ComfyUIClient,
   input: ValidateWorkflowInput
-): Promise<string> {
+): Promise<ValidationResult> {
   const objectInfo = await client.getObjectInfo();
   const workflow = input.workflow as Record<string, WorkflowNode>;
 
@@ -216,7 +218,7 @@ export async function validateWorkflow(
     });
   }
 
-  const result: ValidationResult = {
+  return {
     valid: errors.length === 0,
     errors,
     warnings,
@@ -228,6 +230,32 @@ export async function validateWorkflow(
           (warnings.length > 0 ? ` (${warnings.length} warnings)` : "")
         : `Workflow has ${errors.length} error(s) and ${warnings.length} warning(s)`,
   };
+}
 
-  return JSON.stringify(result, null, 2);
+/** Human-readable rendering of a validation result. */
+export function renderValidation(result: ValidationResult): string {
+  const lines = [
+    `# Workflow Validation: ${result.valid ? "PASSED" : "FAILED"}`,
+    "",
+    result.summary,
+    "",
+    `${result.nodeCount} nodes across ${result.nodeTypes.length} node types.`,
+  ];
+
+  if (result.errors.length) {
+    lines.push("", "## Errors");
+    for (const e of result.errors) {
+      lines.push(`- **${e.nodeId}** (${e.type}): ${e.message}`);
+    }
+  }
+  if (result.warnings.length) {
+    lines.push("", "## Warnings");
+    for (const w of result.warnings) {
+      lines.push(`- **${w.nodeId}** (${w.type}): ${w.message}`);
+    }
+  }
+  if (result.valid && !result.warnings.length) {
+    lines.push("", "No errors or warnings. Safe to run with comfyui_run_workflow.");
+  }
+  return lines.join("\n");
 }

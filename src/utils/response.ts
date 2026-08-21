@@ -15,12 +15,20 @@ export enum ResponseFormat {
   JSON = "json",
 }
 
-/** Reusable schema fields, spread into a tool's own z.object({...}). */
+/**
+ * Reusable schema fields, spread into a tool's own z.object({...}).
+ *
+ * The MCP guidance suggests markdown as the default format. This server
+ * defaults to JSON instead, deliberately: the reader here is a model, and for
+ * the listings these tools return, compact JSON is both smaller than the
+ * equivalent markdown and directly parseable. Markdown stays available for
+ * callers that surface tool output to a person.
+ */
 export const responseFormatField = z
   .nativeEnum(ResponseFormat)
-  .default(ResponseFormat.MARKDOWN)
+  .default(ResponseFormat.JSON)
   .describe(
-    "Output format: 'markdown' for compact human-readable text, 'json' for full structured data"
+    "Output format: 'json' (default) for compact structured data, 'markdown' for human-readable text"
   );
 
 export const paginationFields = {
@@ -39,13 +47,23 @@ export const paginationFields = {
     .describe("Number of results to skip, for paging through a large set"),
 };
 
-export interface Page<T> {
+/**
+ * The navigation half of a paginated response, without the rows.
+ *
+ * Tools name their own item key - `models`, `nodes`, `jobs`, `entries` - so
+ * they spread this and add that one field. Keeping the envelope separate is
+ * what stops a response carrying the same array under two names.
+ */
+export interface PageEnvelope {
   total: number;
   count: number;
   offset: number;
-  items: T[];
   has_more: boolean;
   next_offset?: number;
+}
+
+export interface Page<T> extends PageEnvelope {
+  items: T[];
 }
 
 /**
@@ -184,7 +202,7 @@ export function paginatedOutputSchema(
 }
 
 /** Standard pagination footer for markdown renderings. */
-export function pageFooter(page: Page<unknown>): string {
+export function pageFooter(page: PageEnvelope): string {
   if (!page.has_more) {
     return page.total > page.count
       ? `\n_Showing ${page.count} of ${page.total} (offset ${page.offset}). End of results._\n`
