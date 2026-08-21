@@ -198,6 +198,12 @@ with a refactor cannot be reverted without losing the fix.
 6. Report a failure by throwing a named error class and mapping it to
    `errorResult` with a hint, not by returning a success that carries an
    `error` field - the caller has to be able to tell the two apart
+7. If another tool resolves the failure, **name it**. An error that describes
+   a problem and does not name the tool that fixes it makes that tool
+   undiscoverable at the one moment it is needed. Every "ComfyUI is not
+   reachable" message once said "Start ComfyUI and call comfyui_reconnect",
+   naming the two tools that cannot help while omitting comfyui_start_comfyui,
+   which can. Check the hint answers "so what do I call now?"
 
 Do not add the `comfyui_` prefix by hand — `defineTool` applies it.
 
@@ -244,6 +250,10 @@ helpers in `utils/response.ts` exist to prevent that — use them.
   JSON is both smaller than the equivalent markdown and directly parseable.
   The reasoning is recorded on `responseFormatField`; do not "correct" the
   default without reading it.
+- **Say it once.** A hint that repeats what the message already said, or a
+  message that wraps a complete error in another sentence restating it, is
+  paid for twice. `reconnect` was emitting its URL list twice and its guidance
+  three times.
 - **Render listings through `utils/render.ts`.** `renderListing` owns the
   title/facets/rows/footer shape, so every listing reads the same way and the
   footer always names the next offset. Supply rows, not a whole document.

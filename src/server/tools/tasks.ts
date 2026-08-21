@@ -250,9 +250,26 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
         });
       }
 
-      if (job.status === "failed") return errorResult(`Task failed: ${job.error}`);
-      if (job.status === "cancelled") return errorResult("Task was cancelled.");
-      if (!job.result) return errorResult("Task completed but no result was recorded.");
+      if (job.status === "failed") {
+        return errorResult(
+          `Task failed: ${job.error}`,
+          "Run comfyui_validate_workflow on the workflow to find structural problems, then " +
+            "comfyui_run_workflow to try again."
+        );
+      }
+      if (job.status === "cancelled") {
+        return errorResult(
+          "Task was cancelled.",
+          "Submit it again with comfyui_run_workflow."
+        );
+      }
+      if (!job.result) {
+        return errorResult(
+          "Task completed but no result was recorded.",
+          "The workflow may have no output node - comfyui_validate_workflow warns about that. " +
+            "comfyui_get_history has what ComfyUI itself recorded for this prompt."
+        );
+      }
 
       return imagesToContent(
         `Task ${job.taskId} completed. Generated ${job.result.images.length} image(s).`,
@@ -347,7 +364,12 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
         );
       }
       if (job.status !== "working") {
-        return errorResult(`Task is not running (status: ${job.status}).`);
+        return errorResult(
+          `Task is not running (status: ${job.status}).`,
+          job.status === "completed"
+            ? "Nothing to cancel. Use comfyui_get_task_result to fetch its output."
+            : "Nothing to cancel. Use comfyui_list_tasks to see what is still working."
+        );
       }
 
       try {
@@ -386,10 +408,16 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     handler: (input) => {
       const c = ctx();
       if (!c.jobManager.getJob(input.taskId)) {
-        return errorResult(`Task not found: ${input.taskId}`);
+        return errorResult(
+          `Task not found: ${input.taskId}`,
+          "Use comfyui_list_tasks to see known task IDs."
+        );
       }
       if (!c.jobManager.setName(input.taskId, input.name)) {
-        return errorResult(`Could not set name for task: ${input.taskId}`);
+        return errorResult(
+          `Could not set name for task: ${input.taskId}`,
+          "The name may already be taken. Try another, or check comfyui_list_tasks for the names in use."
+        );
       }
 
       return dataResult({
@@ -451,14 +479,24 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
           );
         }
 
-        return errorResult(`Generation "${input.name}" failed: ${job.error}`);
+        return errorResult(
+          `Generation "${input.name}" failed: ${job.error}`,
+          "Run comfyui_validate_workflow on the workflow to find structural problems, then " +
+            "comfyui_run_workflow to try again."
+        );
       }
 
       if (job.status === "cancelled") {
-        return errorResult(`Generation "${input.name}" was cancelled.`);
+        return errorResult(
+          `Generation "${input.name}" was cancelled.`,
+          "Submit it again with comfyui_run_workflow."
+        );
       }
       if (!job.result) {
-        return errorResult(`Generation "${input.name}" completed but no result was recorded.`);
+        return errorResult(
+          `Generation "${input.name}" completed but no result was recorded.`,
+          "The workflow may have no output node - comfyui_validate_workflow warns about that."
+        );
       }
 
       return imagesToContent(
