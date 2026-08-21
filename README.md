@@ -1,5 +1,15 @@
 # ComfyUI MCP Server
 
+> **Upgrading from 0.1.x?** Every tool is now prefixed with `comfyui_`
+> (`get_status` is now `comfyui_get_status`), so the server can run alongside
+> other MCP servers without generic names like `get_status` or `interrupt`
+> colliding. Nothing to do unless you referenced tool names by hand — in a
+> permission allowlist, a saved prompt, or a script — in which case add the
+> prefix. See [Tools Reference](#tools-reference) for the full list.
+>
+> List tools are also paginated now: they take `limit`/`offset` and return
+> `has_more`/`next_offset` instead of the entire collection.
+
 - [ComfyUI MCP Server](#comfyui-mcp-server)
   - [Let Your AI Install This For You](#let-your-ai-install-this-for-you)
   - [What is This?](#what-is-this)
@@ -28,59 +38,59 @@
     - [Option 2: From Source](#option-2-from-source)
   - [Tools Reference](#tools-reference)
     - [Setup \& Status Tools](#setup--status-tools)
-      - [`get_status`](#get_status)
-      - [`reconnect`](#reconnect)
-      - [`start_comfyui`](#start_comfyui)
-      - [`restart_comfyui`](#restart_comfyui)
-      - [`get_install_guide`](#get_install_guide)
-      - [`get_model_guide`](#get_model_guide)
+      - [`comfyui_get_status`](#get_status)
+      - [`comfyui_reconnect`](#reconnect)
+      - [`comfyui_start_comfyui`](#start_comfyui)
+      - [`comfyui_restart_comfyui`](#restart_comfyui)
+      - [`comfyui_get_install_guide`](#get_install_guide)
+      - [`comfyui_get_model_guide`](#get_model_guide)
     - [Template \& Workflow Tools](#template--workflow-tools)
-      - [`search_templates`](#search_templates)
-      - [`get_template`](#get_template)
-      - [`save_template`](#save_template)
-      - [`delete_template`](#delete_template)
-      - [`list_examples`](#list_examples)
-      - [`get_example_workflow`](#get_example_workflow)
-      - [`extract_workflow`](#extract_workflow)
-      - [`recommend_workflow`](#recommend_workflow)
-      - [`get_download_url`](#get_download_url)
+      - [`comfyui_search_templates`](#search_templates)
+      - [`comfyui_get_template`](#get_template)
+      - [`comfyui_save_template`](#save_template)
+      - [`comfyui_delete_template`](#delete_template)
+      - [`comfyui_list_examples`](#list_examples)
+      - [`comfyui_get_example_workflow`](#get_example_workflow)
+      - [`comfyui_extract_workflow`](#extract_workflow)
+      - [`comfyui_recommend_workflow`](#recommend_workflow)
+      - [`comfyui_get_download_url`](#get_download_url)
     - [Prompting Guide Tools](#prompting-guide-tools)
-      - [`get_prompting_guide`](#get_prompting_guide)
+      - [`comfyui_get_prompting_guide`](#get_prompting_guide)
     - [Generation Tools](#generation-tools)
-      - [`run_workflow`](#run_workflow)
-      - [`validate_workflow`](#validate_workflow)
-      - [`get_image`](#get_image)
+      - [`comfyui_run_workflow`](#run_workflow)
+      - [`comfyui_validate_workflow`](#validate_workflow)
+      - [`comfyui_get_image`](#get_image)
     - [Workflow Composition Tools](#workflow-composition-tools-1)
-      - [`build_node`](#build_node)
-      - [`get_node_info`](#get_node_info)
-      - [`find_nodes_by_type`](#find_nodes_by_type)
-      - [`list_nodes`](#list_nodes)
+      - [`comfyui_build_node`](#build_node)
+      - [`comfyui_get_node_info`](#get_node_info)
+      - [`comfyui_find_nodes_by_type`](#find_nodes_by_type)
+      - [`comfyui_list_nodes`](#list_nodes)
     - [Discovery Tools](#discovery-tools)
-      - [`get_capabilities`](#get_capabilities)
-      - [`list_models`](#list_models)
+      - [`comfyui_get_capabilities`](#get_capabilities)
+      - [`comfyui_list_models`](#list_models)
     - [Task \& Queue Management](#task--queue-management)
-      - [`get_task`](#get_task)
-      - [`get_task_result`](#get_task_result)
-      - [`list_tasks`](#list_tasks)
-      - [`cancel_task`](#cancel_task)
-      - [`name_generation`](#name_generation)
-      - [`get_generation_by_name`](#get_generation_by_name)
-      - [`get_queue`](#get_queue)
-      - [`cancel_job`](#cancel_job)
-      - [`interrupt`](#interrupt)
-      - [`get_history`](#get_history)
+      - [`comfyui_get_task`](#get_task)
+      - [`comfyui_get_task_result`](#get_task_result)
+      - [`comfyui_list_tasks`](#list_tasks)
+      - [`comfyui_cancel_task`](#cancel_task)
+      - [`comfyui_name_generation`](#name_generation)
+      - [`comfyui_get_generation_by_name`](#get_generation_by_name)
+      - [`comfyui_get_queue`](#get_queue)
+      - [`comfyui_cancel_job`](#cancel_job)
+      - [`comfyui_interrupt`](#interrupt)
+      - [`comfyui_get_history`](#get_history)
     - [Agent Memory Tools](#agent-memory-tools)
-      - [`save_note`](#save_note)
-      - [`get_notes`](#get_notes)
-      - [`search_notes`](#search_notes)
-      - [`delete_note`](#delete_note)
-      - [`list_topics`](#list_topics)
+      - [`comfyui_save_note`](#save_note)
+      - [`comfyui_get_notes`](#get_notes)
+      - [`comfyui_search_notes`](#search_notes)
+      - [`comfyui_delete_note`](#delete_note)
+      - [`comfyui_list_topics`](#list_topics)
     - [User Preferences Tools](#user-preferences-tools)
-      - [`get_user_preferences`](#get_user_preferences)
+      - [`comfyui_get_user_preferences`](#get_user_preferences)
     - [SVG & Font Tools](#svg--font-tools)
-      - [`render_svg`](#render_svg)
-      - [`download_font`](#download_font)
-      - [`list_fonts`](#list_fonts)
+      - [`comfyui_render_svg`](#render_svg)
+      - [`comfyui_download_font`](#download_font)
+      - [`comfyui_list_fonts`](#list_fonts)
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
     - [Config File](#config-file)
@@ -163,7 +173,7 @@ Even if ComfyUI isn't installed or running, the server provides tools to:
 - Fetch example workflows from documentation
 
 ### Workflow-First Architecture
-All generation happens through `run_workflow`, giving you full control over the ComfyUI workflow. The server provides comprehensive tools for:
+All generation happens through `comfyui_run_workflow`, giving you full control over the ComfyUI workflow. The server provides comprehensive tools for:
 - **Templates**: Pre-built workflows for common tasks
 - **Node composition**: Build custom workflows node by node
 - **Validation**: Check workflows before running
@@ -186,10 +196,10 @@ Three sources of workflow templates:
 
 ### Workflow Composition Tools
 Build custom workflows programmatically:
-- **`build_node`**: Generate valid node JSON with proper defaults
-- **`get_node_info`**: Detailed node inputs/outputs with examples
-- **`find_nodes_by_type`**: Discover nodes by what they accept/produce
-- **`validate_workflow`**: Check validity before running
+- **`comfyui_build_node`**: Generate valid node JSON with proper defaults
+- **`comfyui_get_node_info`**: Detailed node inputs/outputs with examples
+- **`comfyui_find_nodes_by_type`**: Discover nodes by what they accept/produce
+- **`comfyui_validate_workflow`**: Check validity before running
 
 ---
 
@@ -449,14 +459,14 @@ Then configure your MCP client to use the built server:
 
 ### Setup & Status Tools
 
-#### `get_status`
+#### `comfyui_get_status`
 Get the current status of ComfyUI connection and installation. Always probes ComfyUI live rather than reporting a cached result.
 
 ```
 What's the status of ComfyUI?
 ```
 
-#### `reconnect`
+#### `comfyui_reconnect`
 Re-discover ComfyUI and refresh the cached model and node lists. ComfyUI can be
 restarted (or moved to a different port) at any time without restarting this
 server or your MCP client — tools reconnect on their own — but this forces it
@@ -467,7 +477,7 @@ left in flight by the restart.
 Reconnect to ComfyUI.
 ```
 
-#### `start_comfyui`
+#### `comfyui_start_comfyui`
 Start ComfyUI on this machine if nothing is answering, then wait for it to come
 up and connect. This is the one tool that launches a process rather than
 talking to a running instance.
@@ -475,7 +485,7 @@ talking to a running instance.
 It checks live first and returns `alreadyRunning` without launching anything if
 ComfyUI is reachable, so it is safe to call speculatively — it will never start
 a second instance alongside the first. To restart a running instance, use
-[`restart_comfyui`](#restart_comfyui).
+[`comfyui_restart_comfyui`](#restart_comfyui).
 
 Launch targets are auto-detected, best first: the desktop app, a portable
 `run_nvidia_gpu.bat` / `run_cpu.bat`, then a source checkout (`main.py` run with
@@ -502,7 +512,7 @@ running inside Docker — in both cases the process to start is not here.
 Start ComfyUI if it isn't already running.
 ```
 
-#### `restart_comfyui`
+#### `comfyui_restart_comfyui`
 Ask ComfyUI to restart itself, then wait for it to come back and reconnect
 automatically. This is a clean in-app restart through ComfyUI's own API — no
 killing processes — useful for loading newly installed custom nodes or models,
@@ -524,7 +534,7 @@ restart drops them.
 I just installed a custom node. Restart ComfyUI so it loads.
 ```
 
-#### `get_install_guide`
+#### `comfyui_get_install_guide`
 Get platform-specific installation instructions. Recommends the desktop app for most users.
 
 | Parameter | Type | Description |
@@ -535,7 +545,7 @@ Get platform-specific installation instructions. Recommends the desktop app for 
 How do I install ComfyUI on my Mac?
 ```
 
-#### `get_model_guide`
+#### `comfyui_get_model_guide`
 Get detailed guidance on downloading and installing models.
 
 | Parameter | Type | Description |
@@ -548,7 +558,7 @@ How do I set up Flux models?
 
 ### Template & Workflow Tools
 
-#### `search_templates`
+#### `comfyui_search_templates`
 Search for workflow templates across built-in, example, and custom sources.
 
 | Parameter | Type | Description |
@@ -565,7 +575,7 @@ Search for workflow templates across built-in, example, and custom sources.
 Find templates for Flux txt2img
 ```
 
-#### `get_template`
+#### `comfyui_get_template`
 Build a workflow from a template with your parameters.
 
 | Parameter | Type | Description |
@@ -577,7 +587,7 @@ Build a workflow from a template with your parameters.
 Get the flux_schnell_txt2img template with prompt "a sunset over mountains"
 ```
 
-#### `save_template`
+#### `comfyui_save_template`
 Save a workflow as a reusable custom template. Use descriptive names!
 
 | Parameter | Type | Description |
@@ -594,14 +604,14 @@ Save a workflow as a reusable custom template. Use descriptive names!
 Save this workflow as "portrait_lighting_studio"
 ```
 
-#### `delete_template`
+#### `comfyui_delete_template`
 Delete a custom saved template.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `id` | `string` | Template ID to delete |
 
-#### `list_examples`
+#### `comfyui_list_examples`
 List official ComfyUI example workflows. Over 70 workflows organized by model and use case.
 
 | Parameter | Type | Description |
@@ -612,7 +622,7 @@ List official ComfyUI example workflows. Over 70 workflows organized by model an
 Show me example workflows for Flux
 ```
 
-#### `get_example_workflow`
+#### `comfyui_get_example_workflow`
 Fetch an example workflow from the ComfyUI documentation.
 
 | Parameter | Type | Description |
@@ -624,7 +634,7 @@ Fetch an example workflow from the ComfyUI documentation.
 Get the Flux Schnell Checkpoint workflow
 ```
 
-#### `extract_workflow`
+#### `comfyui_extract_workflow`
 Extract workflow JSON from a ComfyUI-generated PNG image.
 
 | Parameter | Type | Description |
@@ -635,7 +645,7 @@ Extract workflow JSON from a ComfyUI-generated PNG image.
 Extract the workflow from this image: /path/to/comfyui_output.png
 ```
 
-#### `recommend_workflow`
+#### `comfyui_recommend_workflow`
 Get the correct workflow and settings for a model. **Call this BEFORE generating images** to ensure you're using the right workflow for your model (checkpoint vs UNET).
 
 | Parameter | Type | Description |
@@ -654,7 +664,7 @@ Returns:
 What workflow should I use for flux1-schnell-fp8.safetensors?
 ```
 
-#### `get_download_url`
+#### `comfyui_get_download_url`
 Get download URL for a model by name.
 
 | Parameter | Type | Description |
@@ -667,7 +677,7 @@ Where can I download flux1-schnell?
 
 ### Prompting Guide Tools
 
-#### `get_prompting_guide`
+#### `comfyui_get_prompting_guide`
 Get prompting best practices for different model architectures.
 
 | Parameter | Type | Description |
@@ -686,8 +696,8 @@ How should I write prompts for Flux?
 
 ### Generation Tools
 
-#### `run_workflow`
-Run a ComfyUI workflow (API format JSON). This is the primary generation tool. Returns immediately with a task ID by default (async). Use `get_task` to check progress and `get_task_result` to retrieve results.
+#### `comfyui_run_workflow`
+Run a ComfyUI workflow (API format JSON). This is the primary generation tool. Returns immediately with a task ID by default (async). Use `comfyui_get_task` to check progress and `comfyui_get_task_result` to retrieve results.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -702,7 +712,7 @@ Run a ComfyUI workflow (API format JSON). This is the primary generation tool. R
 Run this workflow: [paste JSON]
 ```
 
-#### `validate_workflow`
+#### `comfyui_validate_workflow`
 Validate a workflow before running. Checks node types, connections, and required inputs.
 
 | Parameter | Type | Description |
@@ -719,7 +729,7 @@ Returns:
 Check if this workflow is valid before I run it
 ```
 
-#### `get_image`
+#### `comfyui_get_image`
 Retrieve a generated image as base64. Use this to fetch images from ComfyUI's output directory.
 
 | Parameter | Type | Description |
@@ -736,7 +746,7 @@ Get the image named ComfyUI_00042_.png
 
 ### Workflow Composition Tools
 
-#### `build_node`
+#### `comfyui_build_node`
 Generate valid node JSON with proper defaults. Includes tips for certain nodes (e.g., SaveImage filename guidance).
 
 | Parameter | Type | Description |
@@ -755,7 +765,7 @@ Returns:
 Build a SaveImage node with ID "9"
 ```
 
-#### `get_node_info`
+#### `comfyui_get_node_info`
 Get detailed information about a node including inputs, outputs, example JSON, and tips.
 
 | Parameter | Type | Description |
@@ -773,7 +783,7 @@ Returns:
 What are the inputs for KSampler?
 ```
 
-#### `find_nodes_by_type`
+#### `comfyui_find_nodes_by_type`
 Find nodes by their input or output types. Useful for workflow composition.
 
 | Parameter | Type | Description |
@@ -785,7 +795,7 @@ Find nodes by their input or output types. Useful for workflow composition.
 What nodes can output a MODEL?
 ```
 
-#### `list_nodes`
+#### `comfyui_list_nodes`
 List available ComfyUI nodes.
 
 | Parameter | Type | Description |
@@ -799,14 +809,14 @@ What ControlNet nodes are available?
 
 ### Discovery Tools
 
-#### `get_capabilities`
+#### `comfyui_get_capabilities`
 Get the detected capabilities of the connected ComfyUI instance.
 
 ```
 What can this ComfyUI do? What models does it have?
 ```
 
-#### `list_models`
+#### `comfyui_list_models`
 List available models in ComfyUI.
 
 | Parameter | Type | Description |
@@ -819,35 +829,35 @@ What checkpoints do I have installed?
 
 ### Task & Queue Management
 
-#### `get_task`
+#### `comfyui_get_task`
 Get the status of an async generation task.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `taskId` | `string` | The task ID |
 
-#### `get_task_result`
+#### `comfyui_get_task_result`
 Get the result of a completed generation task.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `taskId` | `string` | The task ID |
 
-#### `list_tasks`
+#### `comfyui_list_tasks`
 List all generation tasks, optionally filtered by status.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `status` | `"working" \| "completed" \| "failed" \| "cancelled"?` | Filter by status |
 
-#### `cancel_task`
-Cancel an async generation task. For queued tasks, this cancels the ComfyUI job. For running tasks, use `interrupt` to stop the generation.
+#### `comfyui_cancel_task`
+Cancel an async generation task. For queued tasks, this cancels the ComfyUI job. For running tasks, use `comfyui_interrupt` to stop the generation.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `taskId` | `string` | The task ID to cancel |
 
-#### `name_generation`
+#### `comfyui_name_generation`
 Assign a descriptive name to a generation for easy retrieval.
 
 | Parameter | Type | Description |
@@ -855,21 +865,21 @@ Assign a descriptive name to a generation for easy retrieval.
 | `taskId` | `string` | The task ID to name |
 | `name` | `string` | Descriptive name (e.g., "landscape_sunset_warm") |
 
-#### `get_generation_by_name`
+#### `comfyui_get_generation_by_name`
 Retrieve a generation by its assigned name.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `name` | `string` | The name assigned to the generation |
 
-#### `get_queue`
+#### `comfyui_get_queue`
 Get the current ComfyUI queue status.
 
 ```
 What's in the generation queue?
 ```
 
-#### `cancel_job`
+#### `comfyui_cancel_job`
 Cancel a queued or running job.
 
 | Parameter | Type | Description |
@@ -880,14 +890,14 @@ Cancel a queued or running job.
 Cancel the current job
 ```
 
-#### `interrupt`
+#### `comfyui_interrupt`
 Interrupt the currently running job.
 
 ```
 Stop the current generation
 ```
 
-#### `get_history`
+#### `comfyui_get_history`
 Get generation history.
 
 | Parameter | Type | Description |
@@ -903,7 +913,7 @@ Show recent generations
 
 These tools help AI agents remember learnings across sessions.
 
-#### `save_note`
+#### `comfyui_save_note`
 Save a note about something learned during image generation.
 
 | Parameter | Type | Description |
@@ -916,7 +926,7 @@ Save a note about something learned during image generation.
 Remember that Flux works best with natural language prompts
 ```
 
-#### `get_notes`
+#### `comfyui_get_notes`
 Retrieve saved notes, optionally filtered by topic.
 
 | Parameter | Type | Description |
@@ -924,7 +934,7 @@ Retrieve saved notes, optionally filtered by topic.
 | `topic` | `string?` | Filter by topic |
 | `limit` | `number?` | Max notes to return |
 
-#### `search_notes`
+#### `comfyui_search_notes`
 Search notes using full-text search.
 
 | Parameter | Type | Description |
@@ -932,14 +942,14 @@ Search notes using full-text search.
 | `query` | `string` | Search query |
 | `limit` | `number?` | Max notes to return |
 
-#### `delete_note`
+#### `comfyui_delete_note`
 Delete a note by its ID.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `id` | `number` | The note ID to delete |
 
-#### `list_topics`
+#### `comfyui_list_topics`
 List all unique topics that have notes.
 
 ```
@@ -948,7 +958,7 @@ What topics have I saved notes about?
 
 ### User Preferences Tools
 
-#### `get_user_preferences`
+#### `comfyui_get_user_preferences`
 Get user preferences extracted from analyzing their ComfyUI output history. Returns commonly used workflows, frequently used models, and preferred settings.
 
 | Parameter | Type | Description |
@@ -967,7 +977,7 @@ What workflows and models do I use most often?
 
 These tools allow creating precise base images for img2img workflows using SVG.
 
-#### `render_svg`
+#### `comfyui_render_svg`
 Render SVG content to PNG and save to ComfyUI's input folder. Returns filename for use in LoadImage nodes.
 
 | Parameter | Type | Description |
@@ -983,7 +993,7 @@ Render SVG content to PNG and save to ComfyUI's input folder. Returns filename f
 Render this map SVG as a base for img2img
 ```
 
-#### `download_font`
+#### `comfyui_download_font`
 Download a font from Google Fonts or a direct URL for use in SVG rendering.
 
 | Parameter | Type | Description |
@@ -1002,7 +1012,7 @@ Download a font from Google Fonts or a direct URL for use in SVG rendering.
 
 Popular fantasy/map fonts available on Google Fonts: Cinzel, Pirata One, MedievalSharp, UnifrakturMaguntia, Almendra.
 
-#### `list_fonts`
+#### `comfyui_list_fonts`
 List all downloaded fonts available for use in SVG rendering.
 
 ```
@@ -1061,7 +1071,7 @@ On connection, the server queries ComfyUI's `/object_info` endpoint to detect:
 
 ### Workflow Execution
 
-When you call `run_workflow`, the server:
+When you call `comfyui_run_workflow`, the server:
 1. Validates the workflow structure
 2. Queues the workflow via WebSocket for real-time progress
 3. Tracks the task (async by default, or waits if sync=true)
@@ -1142,12 +1152,12 @@ npm run inspector
 ### Models not found
 1. Ensure models are in the correct ComfyUI subdirectory
 2. Restart ComfyUI after adding new models
-3. Use `list_models` to see what's detected
+3. Use `comfyui_list_models` to see what's detected
 
 ### Generation fails
-1. Use `validate_workflow` to check for issues
-2. Check `get_queue` for error messages
-3. Verify the model exists with `list_models`
+1. Use `comfyui_validate_workflow` to check for issues
+2. Check `comfyui_get_queue` for error messages
+3. Verify the model exists with `comfyui_list_models`
 4. Try simpler parameters (smaller size, fewer steps)
 
 ---
