@@ -70,6 +70,13 @@ export interface PromptResult {
   error?: string;
 }
 
+/**
+ * How many finished-but-unwaited results to hold. Enough to cover the gap
+ * between /prompt answering and the caller registering its waiter, small
+ * enough that prompts submitted by other clients cannot accumulate.
+ */
+const MAX_UNCLAIMED_RESULTS = 32;
+
 export class ComfyUIWebSocket extends EventEmitter {
   private ws: WebSocket | null = null;
   private url: string;
@@ -82,9 +89,27 @@ export class ComfyUIWebSocket extends EventEmitter {
     {
       resolve: (result: PromptResult) => void;
       reject: (error: Error) => void;
-      outputs: Record<string, unknown>;
     }
   > = new Map();
+
+  /**
+   * Outputs seen for a prompt so far, waiter or not.
+   *
+   * These used to hang off the pending entry, so an `executed` message that
+   * arrived before waitForPrompt was called was discarded.
+   */
+  private outputs: Map<string, Record<string, unknown>> = new Map();
+
+  /**
+   * Results that finished before anyone asked for them.
+   *
+   * A caller cannot register a waiter until /prompt has returned a prompt id,
+   * and a fully cached prompt can execute and finish inside that window. The
+   * terminal message then found no pending entry and was dropped, leaving a
+   * promise that - by design - has no timeout, so the job sat in "working"
+   * forever. Holding the result here closes that window.
+   */
+  private unclaimed: Map<string, PromptResult> = new Map();
 
   constructor(url: string) {
     super();
@@ -192,6 +217,43 @@ export class ComfyUIWebSocket extends EventEmitter {
       pending.reject(new Error(reason));
       this.pendingPrompts.delete(promptId);
     }
+    // Partial outputs from an execution we can no longer follow are not worth
+    // keeping; reconcile() resolves those against /history instead.
+    this.outputs.clear();
+  }
+
+  /** Accumulated outputs for a prompt, created on first sight. */
+  private outputsFor(promptId: string): Record<string, unknown> {
+    let outputs = this.outputs.get(promptId);
+    if (!outputs) {
+      outputs = {};
+      this.outputs.set(promptId, outputs);
+    }
+    return outputs;
+  }
+
+  /**
+   * Hand a finished prompt to its waiter, or hold it until one arrives.
+   */
+  private settle(result: PromptResult): void {
+    this.outputs.delete(result.promptId);
+
+    const pending = this.pendingPrompts.get(result.promptId);
+    if (pending) {
+      this.pendingPrompts.delete(result.promptId);
+      pending.resolve(result);
+      return;
+    }
+
+    this.unclaimed.set(result.promptId, result);
+    // Bounded: a result nobody ever claims is a prompt submitted by another
+    // client, and there is no upper limit on how many of those an instance
+    // serves. Map iterates in insertion order, so this drops the oldest.
+    while (this.unclaimed.size > MAX_UNCLAIMED_RESULTS) {
+      const oldest = this.unclaimed.keys().next().value;
+      if (oldest === undefined) break;
+      this.unclaimed.delete(oldest);
+    }
   }
 
   private handleMessage(message: ComfyUIMessage): void {
@@ -205,25 +267,18 @@ export class ComfyUIWebSocket extends EventEmitter {
       case "executing":
         if (message.data.node === null) {
           // Execution complete
-          const pending = this.pendingPrompts.get(message.data.prompt_id);
-          if (pending) {
-            pending.resolve({
-              success: true,
-              promptId: message.data.prompt_id,
-              outputs: pending.outputs,
-            });
-            this.pendingPrompts.delete(message.data.prompt_id);
-          }
+          this.settle({
+            success: true,
+            promptId: message.data.prompt_id,
+            outputs: this.outputsFor(message.data.prompt_id),
+          });
         } else {
           this.emit("executing", message.data);
         }
         break;
 
       case "executed":
-        const pending = this.pendingPrompts.get(message.data.prompt_id);
-        if (pending) {
-          pending.outputs[message.data.node] = message.data.output;
-        }
+        this.outputsFor(message.data.prompt_id)[message.data.node] = message.data.output;
         this.emit("executed", message.data);
         break;
 
@@ -236,30 +291,31 @@ export class ComfyUIWebSocket extends EventEmitter {
         break;
 
       case "execution_error":
-        const errorPending = this.pendingPrompts.get(message.data.prompt_id);
-        if (errorPending) {
-          errorPending.resolve({
-            success: false,
-            promptId: message.data.prompt_id,
-            outputs: errorPending.outputs,
-            error: message.data.exception_message,
-          });
-          this.pendingPrompts.delete(message.data.prompt_id);
-        }
+        this.settle({
+          success: false,
+          promptId: message.data.prompt_id,
+          outputs: this.outputsFor(message.data.prompt_id),
+          error: message.data.exception_message,
+        });
         this.emit("execution_error", message.data);
         break;
     }
   }
 
   waitForPrompt(promptId: string): Promise<PromptResult> {
+    // It may already have finished: see `unclaimed`. Checking first is what
+    // makes registering late safe, which callers cannot avoid doing - the
+    // prompt id only exists once /prompt has answered.
+    const alreadyFinished = this.unclaimed.get(promptId);
+    if (alreadyFinished) {
+      this.unclaimed.delete(promptId);
+      return Promise.resolve(alreadyFinished);
+    }
+
     return new Promise((resolve, reject) => {
       // No timeout - let ComfyUI run as long as needed
       // Video generation and large models can take hours
-      this.pendingPrompts.set(promptId, {
-        resolve,
-        reject,
-        outputs: {},
-      });
+      this.pendingPrompts.set(promptId, { resolve, reject });
     });
   }
 

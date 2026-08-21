@@ -153,18 +153,29 @@ export function insertJob(job: {
     INSERT INTO jobs (task_id, prompt_id, status, status_message, created_at, last_updated_at, result, error, request, name)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run(
-    job.taskId,
-    job.promptId,
-    job.status,
-    job.statusMessage ?? null,
-    job.createdAt,
-    job.lastUpdatedAt,
-    job.result ? JSON.stringify(job.result) : null,
-    job.error ?? null,
-    JSON.stringify(job.request),
-    job.name ?? null
-  );
+  // `name` is UNIQUE, and a reused one used to raise SQLITE_CONSTRAINT here -
+  // which is *after* the prompt was queued in ComfyUI. The caller saw a tool
+  // error and believed the run had failed, while ComfyUI generated it with no
+  // job row and no task id to reach it by. setJobName already resolves a
+  // collision by moving the name to the newer job; this does the same, so the
+  // two agree on what naming means.
+  const clearName = database.prepare("UPDATE jobs SET name = NULL WHERE name = ?");
+
+  database.transaction(() => {
+    if (job.name) clearName.run(job.name);
+    stmt.run(
+      job.taskId,
+      job.promptId,
+      job.status,
+      job.statusMessage ?? null,
+      job.createdAt,
+      job.lastUpdatedAt,
+      job.result ? JSON.stringify(job.result) : null,
+      job.error ?? null,
+      JSON.stringify(job.request),
+      job.name ?? null
+    );
+  })();
 }
 
 export function updateJob(
