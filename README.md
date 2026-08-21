@@ -443,18 +443,24 @@ Then configure your MCP client to use the built server:
 }
 ```
 
-**Claude Code** (`.mcp.json`):
+**Claude Code** (`.mcp.json`): the repo ships one, so cloning and building is
+enough. It uses a path relative to the repo, since that is where the file
+lives:
+
 ```json
 {
   "mcpServers": {
     "comfyui": {
       "type": "stdio",
       "command": "node",
-      "args": ["/path/to/comfyui-mcp/dist/index.js"]
+      "args": ["dist/index.js"]
     }
   }
 }
 ```
+
+Claude Desktop needs the absolute path above instead - it has no project
+directory to resolve a relative one against.
 
 ---
 

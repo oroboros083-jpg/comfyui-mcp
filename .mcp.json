@@ -3,7 +3,7 @@
     "comfyui": {
       "type": "stdio",
       "command": "node",
-      "args": ["/Users/shawnrushefsky/code/shawnrushefsky/comfyui-mcp/dist/index.js"],
+      "args": ["dist/index.js"],
       "env": {}
     }
   }
