@@ -1,5 +1,24 @@
 import { z } from "zod";
 import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
+import {
+  paginate,
+  paginationFields,
+  jsonText,
+} from "../utils/response.js";
+
+/**
+ * A ComfyUI output slot is usually a type name ("IMAGE"), but a node may
+ * declare a COMBO output as the array of its options. Normalise both to a
+ * comparable type name.
+ */
+/** How many category counts to report alongside a node listing. */
+const TOP_CATEGORIES = 20;
+
+export function outputTypeName(outType: unknown): string {
+  if (typeof outType === "string") return outType.toUpperCase();
+  if (Array.isArray(outType)) return "COMBO";
+  return String(outType).toUpperCase();
+}
 
 export const listModelsSchema = z.object({
   type: z
@@ -17,6 +36,11 @@ export const listModelsSchema = z.object({
     .optional()
     .default("all")
     .describe("Type of models to list"),
+  search: z
+    .string()
+    .optional()
+    .describe("Only return model filenames containing this substring (case-insensitive)"),
+  ...paginationFields,
 });
 
 export type ListModelsInput = z.infer<typeof listModelsSchema>;
@@ -26,23 +50,36 @@ export async function listModels(
   input: ListModelsInput
 ): Promise<string> {
   const models = await client.getModels();
+  const search = input.search?.toLowerCase();
+  const match = (name: string) => !search || name.toLowerCase().includes(search);
 
-  if (input.type === "all") {
-    const result: Record<string, string[]> = {};
-    for (const [key, value] of Object.entries(models)) {
-      if (value.length > 0) {
-        result[key] = value;
-      }
+  // Flatten to (type, filename) pairs so paging is over models rather than
+  // over categories - one category can hold hundreds of LoRAs on its own.
+  const flat: Array<{ type: string; name: string }> = [];
+  for (const [type, names] of Object.entries(models)) {
+    if (input.type !== "all" && type !== input.type) continue;
+    for (const name of names) {
+      if (match(name)) flat.push({ type, name });
     }
-    return JSON.stringify(result, null, 2);
   }
 
-  const typeModels = models[input.type as keyof typeof models];
-  if (!typeModels || typeModels.length === 0) {
-    return JSON.stringify({ [input.type]: [] });
+  const page = paginate(flat, input.limit, input.offset);
+
+  // Regroup the page by type: the agent reads "checkpoints: [...]" more
+  // easily than a flat list of pairs.
+  const grouped: Record<string, string[]> = {};
+  for (const { type, name } of page.items) {
+    (grouped[type] ??= []).push(name);
   }
 
-  return JSON.stringify({ [input.type]: typeModels }, null, 2);
+  return jsonText({
+    total: page.total,
+    count: page.count,
+    offset: page.offset,
+    models: grouped,
+    has_more: page.has_more,
+    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+  });
 }
 
 export const listNodesSchema = z.object({
@@ -51,10 +88,27 @@ export const listNodesSchema = z.object({
     .optional()
     .describe("Filter nodes by category (e.g., 'loaders', 'conditioning')"),
   search: z.string().optional().describe("Search term to filter node names"),
+  detail: z
+    .enum(["names", "summary", "full"])
+    .optional()
+    .default("summary")
+    .describe(
+      "How much to return per node: 'names' (node name only), 'summary' (name, display name, category), " +
+        "'full' (adds the description). Use 'names' to survey what exists, then get_node_info for specifics."
+    ),
+  ...paginationFields,
 });
 
 export type ListNodesInput = z.infer<typeof listNodesSchema>;
 
+/**
+ * List node types, filtered and paged.
+ *
+ * A modded ComfyUI install carries 2000+ node types; returning them all with
+ * descriptions is ~440KB, which is more than most context windows. So this is
+ * paginated and defaults to a summary projection, and callers that want one
+ * node's detail use get_node_info instead.
+ */
 export async function listNodes(
   client: ComfyUIClient,
   input: ListNodesInput
@@ -83,16 +137,42 @@ export async function listNodes(
     );
   }
 
-  // Group by category
-  const grouped: Record<string, typeof nodes> = {};
-  for (const node of nodes) {
-    if (!grouped[node.category]) {
-      grouped[node.category] = [];
-    }
-    grouped[node.category].push(node);
-  }
+  nodes.sort((a, b) => a.name.localeCompare(b.name));
 
-  return JSON.stringify(grouped, null, 2);
+  // Category counts describe the whole filtered set, not just this page, so
+  // an agent can pick a category to drill into without paging through first.
+  // Only the largest are listed: a modded install has ~400 categories, and
+  // the full map costs several times more than the page of nodes it labels.
+  const allCounts: Record<string, number> = {};
+  for (const node of nodes) {
+    allCounts[node.category] = (allCounts[node.category] || 0) + 1;
+  }
+  const ranked = Object.entries(allCounts).sort((a, b) => b[1] - a[1]);
+  const topCategories = Object.fromEntries(ranked.slice(0, TOP_CATEGORIES));
+
+  const page = paginate(nodes, input.limit, input.offset);
+
+  const project = (n: (typeof nodes)[number]) => {
+    if (input.detail === "names") return n.name;
+    if (input.detail === "full") return n;
+    return { name: n.name, displayName: n.displayName, category: n.category };
+  };
+
+  return jsonText({
+    total: page.total,
+    count: page.count,
+    offset: page.offset,
+    categoryCount: ranked.length,
+    topCategories,
+    nodes: page.items.map(project),
+    has_more: page.has_more,
+    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+    ...(page.has_more
+      ? {
+          hint: `${page.total - (page.offset + page.count)} more nodes. Narrow with 'search'/'category', or page with offset: ${page.next_offset}.`,
+        }
+      : {}),
+  });
 }
 
 // === Node Info Tool ===
@@ -317,13 +397,20 @@ export async function getNodeInfo(
     }
   }
 
-  // Format outputs
-  const outputs = nodeInfo.output.map((type, i) => ({
-    index: i,
-    name: nodeInfo.output_name[i] || type,
-    type,
-    isList: nodeInfo.output_is_list[i] || false,
-  }));
+  // Format outputs. A COMBO output arrives as its full array of options;
+  // report the type name and the option count rather than inlining a list
+  // that can run to hundreds of entries.
+  const rawOutputs = Array.isArray(nodeInfo.output) ? nodeInfo.output : [];
+  const outputs = rawOutputs.map((type, i) => {
+    const typeName = outputTypeName(type);
+    return {
+      index: i,
+      name: nodeInfo.output_name[i] || typeName,
+      type: typeName,
+      ...(Array.isArray(type) ? { optionCount: type.length } : {}),
+      isList: nodeInfo.output_is_list?.[i] || false,
+    };
+  });
 
   // Generate example JSON, connection guide, and tips
   const exampleJson = generateNodeExample(input.node, nodeInfo);
@@ -349,7 +436,7 @@ export async function getNodeInfo(
     result.tips = tips;
   }
 
-  return JSON.stringify(result, null, 2);
+  return jsonText(result);
 }
 
 // === Find Nodes by Type Tool ===
@@ -363,6 +450,7 @@ export const findNodesByTypeSchema = z.object({
     .string()
     .optional()
     .describe("Find nodes that produce this output type (e.g., 'MODEL', 'LATENT', 'IMAGE', 'CONDITIONING')"),
+  ...paginationFields,
 });
 
 export type FindNodesByTypeInput = z.infer<typeof findNodesByTypeSchema>;
@@ -408,11 +496,14 @@ export async function findNodesByType(
       }
     }
 
-    // Check outputs
+    // Check outputs. An output slot is normally a type name, but a COMBO
+    // output is declared as its array of options - calling .toUpperCase() on
+    // that array throws and used to take the whole tool down.
     if (outputTypeUpper) {
-      nodeInfo.output.forEach((outType, i) => {
-        if (outType.toUpperCase() === outputTypeUpper) {
-          matchedOutputs.push(nodeInfo.output_name[i] || outType);
+      const outputs = Array.isArray(nodeInfo.output) ? nodeInfo.output : [];
+      outputs.forEach((outType, i) => {
+        if (outputTypeName(outType) === outputTypeUpper) {
+          matchedOutputs.push(nodeInfo.output_name[i] || outputTypeName(outType));
         }
       });
     }
@@ -433,33 +524,32 @@ export async function findNodesByType(
     }
   }
 
-  // Group by category
-  const grouped: Record<string, typeof matches> = {};
+  matches.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Category counts cover every match, not just this page, so the agent can
+  // narrow by category without paging through the whole set first.
+  const allCounts: Record<string, number> = {};
   for (const node of matches) {
-    if (!grouped[node.category]) {
-      grouped[node.category] = [];
-    }
-    grouped[node.category].push(node);
+    allCounts[node.category] = (allCounts[node.category] || 0) + 1;
   }
+  const ranked = Object.entries(allCounts).sort((a, b) => b[1] - a[1]);
 
-  // Sort categories and nodes
-  const sortedResult: Record<string, typeof matches> = {};
-  for (const category of Object.keys(grouped).sort()) {
-    sortedResult[category] = grouped[category].sort((a, b) => a.name.localeCompare(b.name));
-  }
+  const page = paginate(matches, input.limit, input.offset);
 
-  return JSON.stringify(
-    {
-      query: {
-        inputType: input.inputType || null,
-        outputType: input.outputType || null,
-      },
-      totalMatches: matches.length,
-      byCategory: sortedResult,
+  return jsonText({
+    query: {
+      inputType: input.inputType || null,
+      outputType: input.outputType || null,
     },
-    null,
-    2
-  );
+    total: page.total,
+    count: page.count,
+    offset: page.offset,
+    categoryCount: ranked.length,
+    topCategories: Object.fromEntries(ranked.slice(0, TOP_CATEGORIES)),
+    nodes: page.items,
+    has_more: page.has_more,
+    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+  });
 }
 
 // === Build Node Tool ===
@@ -585,5 +675,5 @@ export async function buildNode(
     result.tips = tips;
   }
 
-  return JSON.stringify(result, null, 2);
+  return jsonText(result);
 }

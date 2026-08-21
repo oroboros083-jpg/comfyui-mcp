@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ExampleWorkflow, ModelDownload } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
 import { safeFetch } from "../../utils/safe-fetch.js";
+import { paginate, paginationFields, jsonText } from "../../utils/response.js";
 
 // Refuse to even attempt parsing implausibly large "PNG" data. Without
 // this, a URL-fetching caller (extract_workflow, fetchExampleWorkflow) that
@@ -201,62 +202,94 @@ export const listExamplesSchema = z.object({
     .describe(
       "Filter by category (basics, sdxl, flux, video, audio, controlnet, etc.)"
     ),
+  search: z
+    .string()
+    .optional()
+    .describe("Only return examples whose name or description matches this term"),
+  detail: z
+    .enum(["names", "summary", "full"])
+    .optional()
+    .default("summary")
+    .describe(
+      "How much to return per example: 'names' (name + category), 'summary' (adds description and doc link), " +
+        "'full' (adds required models, nodes, and notes). Use get_example_workflow for the actual workflow JSON."
+    ),
+  ...paginationFields,
 });
 
 export type ListExamplesInput = z.infer<typeof listExamplesSchema>;
 
+/**
+ * List example workflows, filtered and paged.
+ *
+ * The full catalogue with every required-model URL runs to ~50KB, most of it
+ * download links the agent cannot act on from a listing anyway - those live
+ * in get_example_workflow and get_download_url. So 'summary' is the default
+ * and the heavy fields only appear under detail: 'full'.
+ */
 export function listExamples(input: ListExamplesInput): string {
-  let examples = EXAMPLE_WORKFLOWS;
+  let examples: ExampleWorkflow[] = EXAMPLE_WORKFLOWS;
 
   if (input.category) {
     const cat = input.category.toLowerCase();
     examples = examples.filter((e) => e.category.toLowerCase().includes(cat));
   }
 
-  // Group by category
-  const grouped: Record<string, ExampleWorkflow[]> = {};
-  for (const example of examples) {
-    if (!grouped[example.category]) {
-      grouped[example.category] = [];
-    }
-    grouped[example.category].push(example);
+  if (input.search) {
+    const term = input.search.toLowerCase();
+    examples = examples.filter(
+      (e) =>
+        e.name.toLowerCase().includes(term) ||
+        e.description.toLowerCase().includes(term)
+    );
   }
 
-  let result = "# ComfyUI Example Workflows\n\n";
-  result +=
-    "These examples are from the official ComfyUI documentation.\n";
-  result += "Use `get_example_workflow` to fetch the actual workflow JSON.\n\n";
-
-  for (const [category, categoryExamples] of Object.entries(grouped)) {
-    result += `## ${category.charAt(0).toUpperCase() + category.slice(1)}\n\n`;
-    for (const example of categoryExamples) {
-      result += `### ${example.name}\n`;
-      result += `${example.description}\n`;
-      result += `- Documentation: ${example.pageUrl}\n`;
-      if (example.imageUrls.length > 0) {
-        result += `- Workflow images: ${example.imageUrls.length}\n`;
-      }
-      if (example.jsonUrls && example.jsonUrls.length > 0) {
-        result += `- JSON workflows: ${example.jsonUrls.length}\n`;
-      }
-      if (example.requiredModels && example.requiredModels.length > 0) {
-        result += `- Required models:\n`;
-        for (const model of example.requiredModels) {
-          result += `  - ${model.type}: ${model.name}\n`;
-          result += `    ${model.url}\n`;
-        }
-      }
-      if (example.requiredNodes) {
-        result += `- Required nodes: ${example.requiredNodes.join(", ")}\n`;
-      }
-      if (example.notes) {
-        result += `- Notes: ${example.notes}\n`;
-      }
-      result += "\n";
-    }
+  const categoryCounts: Record<string, number> = {};
+  for (const e of examples) {
+    categoryCounts[e.category] = (categoryCounts[e.category] || 0) + 1;
   }
 
-  return result;
+  const page = paginate(examples, input.limit, input.offset);
+
+  const project = (e: ExampleWorkflow) => {
+    if (input.detail === "names") {
+      return { name: e.name, category: e.category };
+    }
+
+    const base: Record<string, unknown> = {
+      name: e.name,
+      category: e.category,
+      description: e.description,
+      docs: e.pageUrl,
+      workflows: (e.imageUrls?.length ?? 0) + (e.jsonUrls?.length ?? 0),
+    };
+
+    if (input.detail === "full") {
+      if (e.requiredModels?.length) {
+        base.requiredModels = e.requiredModels.map((m) => ({
+          type: m.type,
+          name: m.name,
+          url: m.url,
+          ...(m.destination ? { destination: m.destination } : {}),
+        }));
+      }
+      if (e.requiredNodes?.length) base.requiredNodes = e.requiredNodes;
+      if (e.notes) base.notes = e.notes;
+    }
+
+    return base;
+  };
+
+  return jsonText({
+    total: page.total,
+    count: page.count,
+    offset: page.offset,
+    categories: categoryCounts,
+    examples: page.items.map(project),
+    has_more: page.has_more,
+    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+    hint: "Call get_example_workflow with an example's name to fetch its runnable workflow JSON.",
+  });
 }
 
 export const getExampleWorkflowSchema = z.object({
@@ -342,7 +375,7 @@ export async function getExampleWorkflow(
     output += `## Workflow (API Format)\n`;
     output += "This can be used directly with the `run_workflow` tool:\n\n";
     output += "```json\n";
-    output += JSON.stringify(workflowData, null, 2);
+    output += jsonText(workflowData);
     output += "\n```\n";
   }
 

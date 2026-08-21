@@ -4,6 +4,8 @@ import { z } from "zod";
 import { ExampleWorkflow, ModelDownload } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
 import { fetchExampleWorkflow } from "./list-examples.js";
+import { paginate, paginationFields, jsonText } from "../../utils/response.js";
+import { DEFAULT_PAGE_SIZE } from "../../constants.js";
 import {
   BUILTIN_TEMPLATES,
   buildFromTemplate,
@@ -54,11 +56,7 @@ export const searchTemplatesSchema = z.object({
     .optional()
     .default(true)
     .describe("Include custom saved templates from the database"),
-  limit: z
-    .number()
-    .optional()
-    .default(20)
-    .describe("Maximum number of results to return"),
+  ...paginationFields,
 });
 
 export type SearchTemplatesInput = z.infer<typeof searchTemplatesSchema>;
@@ -254,14 +252,37 @@ export function searchTemplates(input: SearchTemplatesInput): string {
     }
   }
 
-  const limit = input.limit ?? 20;
-  const searchResult: TemplateSearchResult = {
-    query: input,
-    totalResults: results.length,
-    results: results.slice(0, limit),
-  };
+  const page = paginate(results, input.limit ?? DEFAULT_PAGE_SIZE, input.offset ?? 0);
 
-  return JSON.stringify(searchResult, null, 2);
+  // A search result only has to carry enough to pick one. The full parameter
+  // list, default settings, required nodes and model download URLs all come
+  // back from get_template for the id the agent actually chooses - carrying
+  // them for 25 candidates costs several times more than the choice is worth.
+  const slim = page.items.map((r) => ({
+    source: r.source,
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    ...(r.modelType ? { modelType: r.modelType } : {}),
+    ...(r.taskType ? { taskType: r.taskType } : {}),
+    category: r.category,
+    ...(r.parameters?.length ? { parameterCount: r.parameters.length } : {}),
+    ...(r.requiredModels?.length
+      ? { requiredModelCount: r.requiredModels.length }
+      : {}),
+    ...(r.useCount !== undefined ? { useCount: r.useCount } : {}),
+  }));
+
+  return jsonText({
+    query: input,
+    total: page.total,
+    count: page.count,
+    offset: page.offset,
+    results: slim,
+    has_more: page.has_more,
+    ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
+    hint: "Call get_template with a result's id for its parameters, default settings and runnable workflow JSON.",
+  });
 }
 
 // === Get Template Tool ===
@@ -304,7 +325,7 @@ export async function getTemplate(
       defaultSettings: builtInTemplate.defaultSettings,
       workflow,
       usage: "Pass the 'workflow' object to run_workflow() to execute it",
-    }, null, 2);
+    });
   }
 
   // Check custom templates in database
@@ -331,7 +352,7 @@ export async function getTemplate(
         workflow,
         useCount: customTemplate.useCount + 1,
         usage: "Pass the 'workflow' object to run_workflow() to execute it",
-      }, null, 2);
+      });
     }
   } catch {
     // Database not available
@@ -458,7 +479,7 @@ export function saveCustomTemplate(input: SaveTemplateInput): string {
         updatedAt: saved.updatedAt,
       },
       usage: `Use get_template({ templateId: "${saved.id}" }) to retrieve this workflow`,
-    }, null, 2);
+    });
   } catch (error) {
     return JSON.stringify({
       success: false,

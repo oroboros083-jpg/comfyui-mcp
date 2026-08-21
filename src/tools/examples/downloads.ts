@@ -122,7 +122,7 @@ export function getDownloadUrl(input: GetDownloadUrlInput): string {
       found: true,
       model: exactMatch,
       downloadCommand: `wget -P "${exactMatch.destination}" "${exactMatch.url}"`,
-    }, null, 2);
+    });
   }
 
   // Try fuzzy match
@@ -160,7 +160,7 @@ export function getDownloadUrl(input: GetDownloadUrlInput): string {
       query: input.modelName,
       suggestion: "No matching model found. Try searching for: " + Object.keys(MODEL_DOWNLOADS).slice(0, 10).join(", "),
       availableModels: Object.keys(MODEL_DOWNLOADS),
-    }, null, 2);
+    });
   }
 
   // Sort by score and return best matches
@@ -172,7 +172,7 @@ export function getDownloadUrl(input: GetDownloadUrlInput): string {
       found: true,
       model: match.model,
       downloadCommand: `wget -P "${match.model.destination}" "${match.model.url}"`,
-    }, null, 2);
+    });
   }
 
   return JSON.stringify({
@@ -182,5 +182,5 @@ export function getDownloadUrl(input: GetDownloadUrlInput): string {
     bestMatch: matches[0].model,
     downloadCommand: `wget -P "${matches[0].model.destination}" "${matches[0].model.url}"`,
     otherMatches: matches.slice(1, 5).map((m) => m.model),
-  }, null, 2);
+  });
 }
