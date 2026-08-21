@@ -246,7 +246,7 @@ export function searchTemplates(input: SearchTemplatesInput): string {
           category: example.category,
           requiredNodes: example.requiredNodes,
           requiredModels: example.requiredModels,
-          fetchCommand: `get_example_workflow({ name: "${example.name}" })`,
+          fetchCommand: `comfyui_get_example_workflow({ name: "${example.name}" })`,
         });
       }
     }
@@ -281,7 +281,7 @@ export function searchTemplates(input: SearchTemplatesInput): string {
     results: slim,
     has_more: page.has_more,
     ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
-    hint: "Call get_template with a result's id for its parameters, default settings and runnable workflow JSON.",
+    hint: "Call comfyui_get_template with a result's id for its parameters, default settings and runnable workflow JSON.",
   });
 }
 
@@ -290,7 +290,7 @@ export function searchTemplates(input: SearchTemplatesInput): string {
 export const getTemplateSchema = z.object({
   templateId: z
     .string()
-    .describe("The template ID (from search_templates results)"),
+    .describe("The template ID (from comfyui_search_templates results)"),
   parameters: z
     .record(z.unknown())
     .optional()
@@ -324,7 +324,7 @@ export async function getTemplate(
       appliedParameters: input.parameters || {},
       defaultSettings: builtInTemplate.defaultSettings,
       workflow,
-      usage: "Pass the 'workflow' object to run_workflow() to execute it",
+      usage: "Pass the 'workflow' object to comfyui_run_workflow() to execute it",
     });
   }
 
@@ -351,7 +351,7 @@ export async function getTemplate(
         defaultSettings: customTemplate.defaultSettings,
         workflow,
         useCount: customTemplate.useCount + 1,
-        usage: "Pass the 'workflow' object to run_workflow() to execute it",
+        usage: "Pass the 'workflow' object to comfyui_run_workflow() to execute it",
       });
     }
   } catch {
@@ -365,14 +365,14 @@ export async function getTemplate(
   if (example) {
     return JSON.stringify({
       error: `'${input.templateId}' is an example workflow, not a template`,
-      suggestion: `Use get_example_workflow({ name: "${example.name}" }) to fetch the example workflow`,
+      suggestion: `Use comfyui_get_example_workflow({ name: "${example.name}" }) to fetch the example workflow`,
     });
   }
 
   return JSON.stringify({
     error: `Template '${input.templateId}' not found`,
     availableBuiltIn: BUILTIN_TEMPLATES.map((t) => t.id),
-    hint: "Use search_templates to find available templates",
+    hint: "Use comfyui_search_templates to find available templates",
   });
 }
 
@@ -478,7 +478,7 @@ export function saveCustomTemplate(input: SaveTemplateInput): string {
         createdAt: saved.createdAt,
         updatedAt: saved.updatedAt,
       },
-      usage: `Use get_template({ templateId: "${saved.id}" }) to retrieve this workflow`,
+      usage: `Use comfyui_get_template({ templateId: "${saved.id}" }) to retrieve this workflow`,
     });
   } catch (error) {
     return JSON.stringify({

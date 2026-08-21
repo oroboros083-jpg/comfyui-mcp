@@ -94,7 +94,7 @@ export const listNodesSchema = z.object({
     .default("summary")
     .describe(
       "How much to return per node: 'names' (node name only), 'summary' (name, display name, category), " +
-        "'full' (adds the description). Use 'names' to survey what exists, then get_node_info for specifics."
+        "'full' (adds the description). Use 'names' to survey what exists, then comfyui_get_node_info for specifics."
     ),
   ...paginationFields,
 }).strict();
@@ -593,7 +593,7 @@ export async function buildNode(
     }
     return JSON.stringify({
       error: `Node type '${input.nodeType}' not found`,
-      suggestion: "Use list_nodes or get_node_info to find available node types",
+      suggestion: "Use comfyui_list_nodes or comfyui_get_node_info to find available node types",
     });
   }
 

@@ -75,7 +75,8 @@ export function defineTool<S extends z.ZodTypeAny>(
         return await spec.handler(input);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return errorResult(`${spec.name} failed: ${message}`);
+        // Report the name the agent actually called, prefix included.
+        return errorResult(`${TOOL_PREFIX}${spec.name} failed: ${message}`);
       }
     }) as never
   );

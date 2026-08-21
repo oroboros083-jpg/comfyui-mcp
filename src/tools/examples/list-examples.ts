@@ -212,7 +212,7 @@ export const listExamplesSchema = z.object({
     .default("summary")
     .describe(
       "How much to return per example: 'names' (name + category), 'summary' (adds description and doc link), " +
-        "'full' (adds required models, nodes, and notes). Use get_example_workflow for the actual workflow JSON."
+        "'full' (adds required models, nodes, and notes). Use comfyui_get_example_workflow for the actual workflow JSON."
     ),
   ...paginationFields,
 }).strict();
@@ -288,7 +288,7 @@ export function listExamples(input: ListExamplesInput): string {
     examples: page.items.map(project),
     has_more: page.has_more,
     ...(page.next_offset !== undefined ? { next_offset: page.next_offset } : {}),
-    hint: "Call get_example_workflow with an example's name to fetch its runnable workflow JSON.",
+    hint: "Call comfyui_get_example_workflow with an example's name to fetch its runnable workflow JSON.",
   });
 }
 
@@ -314,7 +314,7 @@ export async function getExampleWorkflow(
   );
 
   if (!example) {
-    return `Example "${input.name}" not found. Use list_examples to see available examples.`;
+    return `Example "${input.name}" not found. Use comfyui_list_examples to see available examples.`;
   }
 
   // Determine if we have PNG images or JSON files
@@ -373,7 +373,7 @@ export async function getExampleWorkflow(
   const workflowData = result.prompt || result.workflow;
   if (workflowData) {
     output += `## Workflow (API Format)\n`;
-    output += "This can be used directly with the `run_workflow` tool:\n\n";
+    output += "This can be used directly with the `comfyui_run_workflow` tool:\n\n";
     output += "```json\n";
     output += jsonText(workflowData);
     output += "\n```\n";

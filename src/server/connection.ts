@@ -71,7 +71,11 @@ export async function initializeComfyUI(): Promise<boolean> {
   const discovered = await discoverComfyUI(ctx.config.comfyui.url);
 
   if (!discovered) {
-    info("ComfyUI is not running. Use get_install_guide or get_status for help.", undefined, "init");
+    info(
+      "ComfyUI is not running. Use comfyui_get_install_guide or comfyui_get_status for help.",
+      undefined,
+      "init"
+    );
     clearConnectionState();
     return false;
   }
@@ -204,8 +208,8 @@ export function unreachableError(): string {
   const candidates = getCandidateUrls(ctx.config.comfyui.url);
   return (
     `ComfyUI is not reachable. Tried: ${candidates.join(", ")}. ` +
-    "Start ComfyUI (or set COMFYUI_URL) and call 'reconnect' to retry - " +
-    "the MCP server does not need to be restarted. See 'get_install_guide' for setup help."
+    "Start ComfyUI (or set COMFYUI_URL) and call 'comfyui_reconnect' to retry - " +
+    "the MCP server does not need to be restarted. See 'comfyui_get_install_guide' for setup help."
   );
 }
 

@@ -383,11 +383,11 @@ export const recommendWorkflowSchema = z.object({
   availableCheckpoints: z
     .array(z.string())
     .optional()
-    .describe("List of available checkpoint files (from list_models)"),
+    .describe("List of available checkpoint files (from comfyui_list_models)"),
   availableUnets: z
     .array(z.string())
     .optional()
-    .describe("List of available UNET files (from list_models)"),
+    .describe("List of available UNET files (from comfyui_list_models)"),
   taskType: z
     .enum(["txt2img", "img2img", "inpaint", "edit", "video"])
     .optional()
@@ -472,7 +472,7 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
       width: match.defaultResolution.width,
       height: match.defaultResolution.height,
     },
-    promptingGuide: `Call get_prompting_guide('${match.modelType}') for detailed prompting advice.`,
+    promptingGuide: `Call comfyui_get_prompting_guide('${match.modelType}') for detailed prompting advice.`,
     notes: match.notes,
   };
 
@@ -616,7 +616,7 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
     output += `\n## Matching Templates\n`;
     for (const template of rec.matchingTemplates) {
       output += `- **${template.name}** (${template.source}): ${template.description}\n`;
-      output += `  - Use: \`get_template("${template.id}")\`\n`;
+      output += `  - Use: \`comfyui_get_template("${template.id}")\`\n`;
     }
   }
 
@@ -624,13 +624,13 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
   if (rec.exampleWorkflow) {
     output += `\n## Example Workflow\n`;
     output += `**Loaded from**: ${rec.exampleSource || "embedded example"}\n`;
-    output += `The workflow JSON is included in the \`exampleWorkflow\` field and can be passed directly to \`run_workflow\`.\n`;
+    output += `The workflow JSON is included in the \`exampleWorkflow\` field and can be passed directly to \`comfyui_run_workflow\`.\n`;
     output += `Modify the prompt and settings as needed before running.\n`;
   } else {
     output += `\n## Next Steps\n`;
-    output += `1. Call \`get_example_workflow("${rec.matchedWorkflow}")\` to get the workflow JSON\n`;
-    output += `2. Call \`get_prompting_guide("${rec.modelType}")\` for prompting best practices\n`;
-    output += `3. Use \`run_workflow\` with the workflow\n`;
+    output += `1. Call \`comfyui_get_example_workflow("${rec.matchedWorkflow}")\` to get the workflow JSON\n`;
+    output += `2. Call \`comfyui_get_prompting_guide("${rec.modelType}")\` for prompting best practices\n`;
+    output += `3. Use \`comfyui_run_workflow\` with the workflow\n`;
   }
 
   return output;

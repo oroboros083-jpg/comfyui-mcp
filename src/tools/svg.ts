@@ -9,7 +9,7 @@ export const renderSvgSchema = z.object({
   height: z.number().optional().default(768).describe("Output height in pixels (default: 768)"),
   background: z.string().optional().describe("Background color (default: transparent). Use hex like '#ffffff' or 'transparent'"),
   fonts: z.array(z.object({
-    name: z.string().describe("Font name (must be downloaded first with download_font)"),
+    name: z.string().describe("Font name (must be downloaded first with comfyui_download_font)"),
     family: z.string().optional().describe("CSS font-family name to use in the SVG (defaults to font name)"),
   })).optional().describe("Fonts to embed in the SVG for rendering"),
 }).strict();

@@ -350,14 +350,14 @@ export function launchBlockedReason(url: string): string | null {
   if (isRunningInDocker()) {
     return (
       "This MCP server is running inside Docker, so it cannot start ComfyUI on the host. " +
-      "Start ComfyUI outside the container and call 'reconnect'."
+      "Start ComfyUI outside the container and call 'comfyui_reconnect'."
     );
   }
 
   if (!isLocalUrl(url)) {
     return (
       `ComfyUI is configured at ${url}, which is not this machine. ` +
-      "Start it on that host and call 'reconnect'."
+      "Start it on that host and call 'comfyui_reconnect'."
     );
   }
 

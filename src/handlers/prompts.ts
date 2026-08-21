@@ -93,7 +93,7 @@ export function listPrompts(): Prompt[] {
       arguments: [
         {
           name: "example_name",
-          description: "Name of the example (use list_examples to see options)",
+          description: "Name of the example (use comfyui_list_examples to see options)",
           required: true,
         },
       ],
@@ -204,7 +204,7 @@ export async function getPrompt(
             role: "user",
             content: {
               type: "text",
-              text: `I want to run the "${exampleName}" example workflow.${contextInfo}\n\nPlease:\n1. Call get_example_workflow with name: "${exampleName}"\n2. Check what models are required and compare against installed models with list_models\n3. If any required models are missing, show how to download them with download_model\n4. Once ready, help me run the workflow with run_workflow\n5. Explain what this workflow does and how I can customize it`,
+              text: `I want to run the "${exampleName}" example workflow.${contextInfo}\n\nPlease:\n1. Call comfyui_get_example_workflow with name: "${exampleName}"\n2. Check what models are required and compare against installed models with comfyui_list_models\n3. If any required models are missing, show how to download them with comfyui_get_download_url\n4. Once ready, help me run the workflow with comfyui_run_workflow\n5. Explain what this workflow does and how I can customize it`,
             },
           },
         ],
@@ -228,7 +228,7 @@ export async function getPrompt(
             role: "user",
             content: {
               type: "text",
-              text: `Teach me how to write effective prompts for ${modelType === "all" ? "AI image generation" : modelType}.\n\n${modelType === "all" ? `Available model types:\n${modelList}\n\n` : ""}Please:\n1. Call get_prompting_guide with model type: ${modelType}\n2. Explain the key differences between model types${modelType === "all" ? "" : " compared to others"}\n3. Provide 3 example prompts showing the correct style\n4. Highlight common mistakes to avoid\n5. Give me a practice exercise to try`,
+              text: `Teach me how to write effective prompts for ${modelType === "all" ? "AI image generation" : modelType}.\n\n${modelType === "all" ? `Available model types:\n${modelList}\n\n` : ""}Please:\n1. Call comfyui_get_prompting_guide with model type: ${modelType}\n2. Explain the key differences between model types${modelType === "all" ? "" : " compared to others"}\n3. Provide 3 example prompts showing the correct style\n4. Highlight common mistakes to avoid\n5. Give me a practice exercise to try`,
             },
           },
         ],
