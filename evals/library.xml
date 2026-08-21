@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Evaluation questions for the bundled library: example workflows, prompting
+  guides and model download metadata.
+
+  Every answer here is derived from data compiled into the server, so it is
+  stable across machines and does not depend on ComfyUI running or on which
+  models happen to be installed. Run this suite anywhere.
+
+  Answers were verified against src/tools/examples/data.ts and
+  src/resources/prompting-guide.ts at the time of writing. Adding or removing
+  an example workflow will invalidate the counting questions - re-derive them
+  rather than guessing.
+-->
+<evaluation>
+  <qa_pair>
+    <question>Among ComfyUI's bundled example workflows, find the category that contains the most examples. Exactly one example in that category requires a style model. What is the exact filename of the CLIP Vision model that same example needs?</question>
+    <answer>sigclip_vision_384.safetensors</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Look across every bundled example workflow and count how many of them list each required node type. One node type is required by more examples than any other. How many examples require it?</question>
+    <answer>16</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Two bundled example workflows tie for requiring the largest number of model files, and both are in the same category. How many model files does each of them require?</question>
+    <answer>8</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Exactly two of the bundled prompting guides describe model families that support neither negative prompts nor prompt weights. Each of those two shares its name with an example-workflow category. How many example workflows are in the smaller of those two categories?</question>
+    <answer>3</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Exactly one bundled example workflow belongs to the 3d category. What is the exact filename of the checkpoint it requires?</question>
+    <answer>stable_zero123.ckpt</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Of all the bundled example workflows, how many list no required model downloads at all?</question>
+    <answer>11</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>One bundled example workflow requires the FluxKontextImageEncode node. It needs the same number of model files as the plain "Flux Dev" example. What is that number?</question>
+    <answer>3</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>How many of the bundled model-specific prompting guides describe families that support prompt weights such as (keyword:1.2)?</question>
+    <answer>4</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>How many example-workflow categories contain exactly one example each?</question>
+    <answer>12</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>The Wan 2.2 example workflow requires two different VAE files. Give the exact filename of the one whose name begins with "wan_2.1".</question>
+    <answer>wan_2.1_vae.safetensors</answer>
+  </qa_pair>
+</evaluation>
