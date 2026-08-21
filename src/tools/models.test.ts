@@ -10,6 +10,8 @@ import {
   renderNodes,
   renderFoundNodes,
   NoTypeFilterError,
+  parseInputSpec,
+  buildNode,
 } from "./models.js";
 import type { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
 import { ResponseFormat } from "../utils/response.js";
@@ -182,4 +184,54 @@ test("renderFoundNodes names the types that were searched for", async () => {
   });
 
   assert.match(renderFoundNodes(page), /produce \*\*IMAGE\*\*/);
+});
+
+test("parseInputSpec reads options from both combo forms", () => {
+  // comboOptions in the client is the one place that knows both spellings.
+  // Reading only the legacy form here reported every dropdown as an empty
+  // COMBO, which sent buildNode into its connection branch.
+  assert.deepEqual(parseInputSpec([["euler", "ddim"], {}]), {
+    type: "COMBO",
+    options: ["euler", "ddim"],
+    default: undefined,
+  });
+
+  assert.deepEqual(
+    parseInputSpec(["COMBO", { options: ["a.safetensors"], default: "a.safetensors" }]),
+    { type: "COMBO", options: ["a.safetensors"], default: "a.safetensors" }
+  );
+});
+
+test("parseInputSpec still reads primitive specs", () => {
+  const parsed = parseInputSpec(["INT", { default: 20, min: 1, max: 100 }]);
+  assert.equal(parsed.type, "INT");
+  assert.equal(parsed.default, 20);
+  assert.equal(parsed.min, 1);
+  assert.equal(parsed.max, 100);
+  assert.equal(parsed.options, undefined);
+});
+
+test("buildNode fills a current-form combo instead of faking a connection", async () => {
+  const client = clientReturning({
+    CheckpointLoaderSimple: node({
+      name: "CheckpointLoaderSimple",
+      input: {
+        required: { ckpt_name: ["COMBO", { options: ["sdxl.safetensors"] }] },
+        optional: {},
+      },
+      output: ["MODEL", "CLIP", "VAE"],
+      output_name: ["MODEL", "CLIP", "VAE"],
+    }),
+  });
+
+  const built = JSON.parse(
+    await buildNode(client, { nodeType: "CheckpointLoaderSimple", nodeId: "1" })
+  );
+
+  assert.equal(built.node["1"].inputs.ckpt_name, "sdxl.safetensors");
+  assert.equal(
+    built.missingConnections,
+    undefined,
+    "a model dropdown is not something to wire from another node"
+  );
 });

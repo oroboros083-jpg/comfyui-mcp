@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
+import { ComfyUIClient, ObjectInfo, comboOptions } from "../client/comfyui.js";
 import {
   paginate,
   paginationFields,
@@ -243,7 +243,14 @@ export const getNodeInfoSchema = z.object({
 export type GetNodeInfoInput = z.infer<typeof getNodeInfoSchema>;
 
 /**
- * Parse a ComfyUI input spec into a structured format
+ * Parse a ComfyUI input spec into a structured format.
+ *
+ * The combo options come from `comboOptions`, which is the one place that
+ * knows both spellings ComfyUI uses. Reading only the legacy `[[opts], meta]`
+ * form here reported every dropdown as an empty COMBO, and `buildNode` then
+ * fell through to its connection branch and emitted a fake node reference for
+ * `ckpt_name`. Detect the type the same way: a leading array is the legacy
+ * form, a leading "COMBO" the current one.
  */
 export function parseInputSpec(spec: unknown): {
   type: string;
@@ -261,12 +268,11 @@ export function parseInputSpec(spec: unknown): {
 
   const [typeOrOptions, config] = spec;
 
-  // If first element is an array, it's a COMBO (dropdown options)
-  if (Array.isArray(typeOrOptions)) {
+  if (Array.isArray(typeOrOptions) || typeOrOptions === "COMBO") {
     return {
       type: "COMBO",
-      options: typeOrOptions as string[],
-      default: config?.default,
+      options: comboOptions(spec),
+      default: (config as { default?: unknown } | undefined)?.default,
     };
   }
 

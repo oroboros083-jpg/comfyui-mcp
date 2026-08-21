@@ -1,4 +1,5 @@
-import { ObjectInfo } from "../client/comfyui.js";
+import { ObjectInfo, comboOptions } from "../client/comfyui.js";
+import { ToolError } from "../utils/errors.js";
 
 export interface WorkflowNode {
   class_type: string;
@@ -65,6 +66,23 @@ export interface FluxOptions {
 }
 
 /**
+ * Get all available models of a type.
+ *
+ * Reads the loader combo through `comboOptions`, which is the one place that
+ * knows both spellings ComfyUI uses for a dropdown. The hand-rolled check this
+ * replaced understood only the legacy `[[opts], meta]` form, so on a current
+ * instance every loader looked empty and the builders below fell back to a
+ * placeholder checkpoint name or emitted a null one.
+ */
+export function getAvailableModels(
+  objectInfo: ObjectInfo,
+  loaderNode: string,
+  inputField: string
+): string[] {
+  return comboOptions(objectInfo[loaderNode]?.input?.required?.[inputField]);
+}
+
+/**
  * Get the first available model of a type from object_info
  */
 export function getFirstAvailableModel(
@@ -72,32 +90,30 @@ export function getFirstAvailableModel(
   loaderNode: string,
   inputField: string
 ): string | null {
-  const loader = objectInfo[loaderNode];
-  if (!loader?.input?.required?.[inputField]) return null;
-
-  const input = loader.input.required[inputField] as unknown[];
-  if (Array.isArray(input) && Array.isArray(input[0]) && input[0].length > 0) {
-    return input[0][0] as string;
-  }
-  return null;
+  return getAvailableModels(objectInfo, loaderNode, inputField)[0] ?? null;
 }
 
 /**
- * Get all available models of a type
+ * The model to load, or a failure that names how to get one.
+ *
+ * A builder that cannot find a model used to emit the name `null` (or the
+ * placeholder "model.safetensors"), which reaches ComfyUI as an opaque
+ * validation error about an input the caller never chose. Nothing downstream
+ * can recover from that, so it fails here instead, where the reason is known.
  */
-export function getAvailableModels(
+function requireModel(
   objectInfo: ObjectInfo,
   loaderNode: string,
-  inputField: string
-): string[] {
-  const loader = objectInfo[loaderNode];
-  if (!loader?.input?.required?.[inputField]) return [];
+  inputField: string,
+  what: string
+): string {
+  const model = getFirstAvailableModel(objectInfo, loaderNode, inputField);
+  if (model) return model;
 
-  const input = loader.input.required[inputField] as unknown[];
-  if (Array.isArray(input) && Array.isArray(input[0])) {
-    return input[0] as string[];
-  }
-  return [];
+  throw new ToolError(
+    `No ${what} is installed on this ComfyUI, so this template cannot be built.`,
+    `comfyui_list_models shows what is installed, and comfyui_get_download_url gives the download for a ${what} this template can use.`
+  );
 }
 
 /**
@@ -110,8 +126,7 @@ export function buildStandardTxt2Img(
   // Get checkpoint if not specified
   const checkpoint =
     options.checkpoint ||
-    getFirstAvailableModel(objectInfo, "CheckpointLoaderSimple", "ckpt_name") ||
-    "model.safetensors";
+    requireModel(objectInfo, "CheckpointLoaderSimple", "ckpt_name", "checkpoint");
 
   const seed =
     options.seed === -1 ? Math.floor(Math.random() * 2147483647) : options.seed;
@@ -185,11 +200,9 @@ export function buildFluxWorkflow(
   objectInfo: ObjectInfo
 ): Workflow {
   const unet =
-    options.unet ||
-    getFirstAvailableModel(objectInfo, "UNETLoader", "unet_name");
+    options.unet || requireModel(objectInfo, "UNETLoader", "unet_name", "UNET model");
   const vae =
-    options.vae ||
-    getFirstAvailableModel(objectInfo, "VAELoader", "vae_name");
+    options.vae || requireModel(objectInfo, "VAELoader", "vae_name", "VAE");
 
   // Flux uses DualCLIPLoader
   const hasDualClip = "DualCLIPLoader" in objectInfo;
@@ -208,10 +221,19 @@ export function buildFluxWorkflow(
   };
 
   if (hasDualClip) {
-    // Get available CLIP models
+    // Get available CLIP models. Both slots must name a real file: an
+    // undefined one is dropped by JSON.stringify and reaches ComfyUI as a
+    // missing required input rather than as "no CLIP model installed".
     const clipModels = getAvailableModels(objectInfo, "DualCLIPLoader", "clip_name1");
+    if (clipModels.length === 0) {
+      throw new ToolError(
+        "No CLIP model is installed, so a Flux workflow cannot be built.",
+        "Flux needs both a T5 and a CLIP-L encoder. comfyui_get_download_url has the files, and comfyui_list_models shows what is already installed."
+      );
+    }
     const t5Model = clipModels.find((m) => m.toLowerCase().includes("t5")) || clipModels[0];
-    const clipModel = clipModels.find((m) => m.toLowerCase().includes("clip_l")) || clipModels[1] || t5Model;
+    const clipModel =
+      clipModels.find((m) => m.toLowerCase().includes("clip_l")) || clipModels[1] || t5Model;
 
     workflow["2"] = {
       class_type: "DualCLIPLoader",
@@ -225,7 +247,8 @@ export function buildFluxWorkflow(
     workflow["2"] = {
       class_type: "CLIPLoader",
       inputs: {
-        clip_name: options.clip || getFirstAvailableModel(objectInfo, "CLIPLoader", "clip_name"),
+        clip_name:
+          options.clip || requireModel(objectInfo, "CLIPLoader", "clip_name", "CLIP model"),
         type: "flux",
       },
     };
