@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { defineTool, noArgs } from "../register.js";
 import { ensureConnected } from "../connection.js";
-import { getCapabilitySummary } from "../../capabilities/index.js";
+import { getCapabilitySummary, promptingAdviceFor } from "../../capabilities/index.js";
 import {
   dataResult,
   textResult,
@@ -56,20 +56,9 @@ export function registerDiscoveryTools(server: McpServer): void {
     handler: async () => {
       const { capabilities } = await ensureConnected();
 
-      let promptingAdvice: string;
-      if (capabilities.hasFlux) {
-        promptingAdvice =
-          "Primary model type: FLUX. Natural language prompts. No negative prompts or weights. Call comfyui_get_prompting_guide('flux').";
-      } else if (capabilities.hasSD3) {
-        promptingAdvice =
-          "Primary model type: SD3. Natural language prompts. No prompt weights. Call comfyui_get_prompting_guide('sd3').";
-      } else if (capabilities.hasSDXL) {
-        promptingAdvice =
-          "Primary model type: SDXL. Natural language or keywords. Weights supported (0.8-1.4). Call comfyui_get_prompting_guide('sdxl').";
-      } else {
-        promptingAdvice =
-          "Primary model type: SD1.5. Keyword-style prompts with quality boosters. Negative prompts essential. Call comfyui_get_prompting_guide('sd15').";
-      }
+      // One line from the registry, rather than a ladder that only knew four
+      // architectures and defaulted everything else to SD 1.5.
+      const promptingAdvice = promptingAdviceFor(capabilities);
 
       // userPreferences holds every analysed workflow and can run to hundreds
       // of KB; availableLoaders is a long node-name list. Both have dedicated

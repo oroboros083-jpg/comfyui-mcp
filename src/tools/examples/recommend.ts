@@ -3,12 +3,20 @@ import { ExampleWorkflow } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
 import { fetchExampleWorkflow } from "./list-examples.js";
 import { BUILTIN_TEMPLATES } from "../../workflows/builder.js";
+import { architectureById } from "../../architectures/registry.js";
 import { listTemplates as dbListTemplates } from "../../db/index.js";
 
 interface ModelPattern {
   pattern: RegExp;
   workflowName: string;
-  modelType: "sd15" | "sdxl" | "sd3" | "flux";
+  /**
+   * Registry architecture id. This was a four-value union, which is why 24
+   * of the 36 rows below used to say "flux" - Qwen, HiDream, Wan, Lumina,
+   * Chroma, Z-Image and the rest had nowhere else to go, and their users
+   * were then pointed at the Flux prompting guide. Graph shape now comes
+   * from the registry separately, so identity no longer has to carry it.
+   */
+  architecture: string;
   defaultSteps: number;
   defaultCfg: number;
   defaultResolution: { width: number; height: number };
@@ -20,7 +28,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /flux.*schnell.*\.(safetensors|ckpt)/i,
     workflowName: "Flux Schnell Checkpoint",
-    modelType: "flux",
+    architecture: "flux",
     defaultSteps: 4,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -30,7 +38,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /flux.*dev.*\.(safetensors|ckpt)/i,
     workflowName: "Flux Dev Checkpoint",
-    modelType: "flux",
+    architecture: "flux",
     defaultSteps: 20,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -40,7 +48,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /flux.*kontext/i,
     workflowName: "Flux Kontext",
-    modelType: "flux",
+    architecture: "flux",
     defaultSteps: 20,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -50,7 +58,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /flux.*fill/i,
     workflowName: "Flux Fill (Inpaint/Outpaint)",
-    modelType: "flux",
+    architecture: "flux",
     defaultSteps: 20,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -60,7 +68,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /sd3\.?5.*turbo/i,
     workflowName: "SD3.5 Large Turbo",
-    modelType: "sd3",
+    architecture: "sd3",
     defaultSteps: 4,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -70,7 +78,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /sd3\.?5/i,
     workflowName: "SD3.5 Checkpoint",
-    modelType: "sd3",
+    architecture: "sd3",
     defaultSteps: 28,
     defaultCfg: 4.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -80,7 +88,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /sd3[^5]/i,
     workflowName: "SD3.5 Checkpoint",
-    modelType: "sd3",
+    architecture: "sd3",
     defaultSteps: 28,
     defaultCfg: 4.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -90,7 +98,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /sdxl.*turbo/i,
     workflowName: "SDXL Turbo",
-    modelType: "sdxl",
+    architecture: "sdxl",
     defaultSteps: 1,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -100,7 +108,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /sdxl|sd_xl/i,
     workflowName: "SDXL",
-    modelType: "sdxl",
+    architecture: "sdxl",
     defaultSteps: 25,
     defaultCfg: 7,
     defaultResolution: { width: 1024, height: 1024 },
@@ -110,7 +118,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /hidream.*dev/i,
     workflowName: "HiDream Dev",
-    modelType: "flux",
+    architecture: "hidream",
     defaultSteps: 28,
     defaultCfg: 5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -119,7 +127,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /hidream.*full/i,
     workflowName: "HiDream Full",
-    modelType: "flux",
+    architecture: "hidream",
     defaultSteps: 50,
     defaultCfg: 5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -128,7 +136,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /hidream.*e1/i,
     workflowName: "HiDream Edit (E1.1)",
-    modelType: "flux",
+    architecture: "hidream",
     defaultSteps: 28,
     defaultCfg: 5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -138,7 +146,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /stable.*cascade/i,
     workflowName: "Stable Cascade",
-    modelType: "sdxl",
+    architecture: "cascade",
     defaultSteps: 20,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -148,7 +156,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /qwen.*image(?!.*edit|.*layered)/i,
     workflowName: "Qwen Image",
-    modelType: "flux", // Uses similar workflow structure to Flux
+    architecture: "qwen", // Uses similar workflow structure to Flux
     defaultSteps: 20,
     defaultCfg: 2.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -158,7 +166,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /qwen.*image.*edit/i,
     workflowName: "Qwen Image Edit (v2509)",
-    modelType: "flux",
+    architecture: "qwen",
     defaultSteps: 20,
     defaultCfg: 2.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -168,7 +176,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /qwen.*image.*layered/i,
     workflowName: "Qwen Image",
-    modelType: "flux",
+    architecture: "qwen",
     defaultSteps: 50,
     defaultCfg: 4,
     defaultResolution: { width: 640, height: 640 },
@@ -178,7 +186,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /wan.*2\.\d/i,
     workflowName: "Wan 2.1",
-    modelType: "flux",
+    architecture: "wan",
     defaultSteps: 30,
     defaultCfg: 5,
     defaultResolution: { width: 832, height: 480 },
@@ -188,7 +196,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /hunyuan.*dit/i,
     workflowName: "Hunyuan DiT 1.2",
-    modelType: "flux",
+    architecture: "hunyuan",
     defaultSteps: 30,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -198,7 +206,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /hunyuan.*image/i,
     workflowName: "Hunyuan Image 2.1",
-    modelType: "flux",
+    architecture: "hunyuan",
     defaultSteps: 30,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -208,7 +216,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /hunyuan.*video/i,
     workflowName: "Hunyuan Video",
-    modelType: "flux",
+    architecture: "hunyuan",
     defaultSteps: 30,
     defaultCfg: 5,
     defaultResolution: { width: 1280, height: 720 },
@@ -218,7 +226,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /lumina/i,
     workflowName: "Lumina Image 2.0",
-    modelType: "flux",
+    architecture: "lumina",
     defaultSteps: 30,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -228,7 +236,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /chroma/i,
     workflowName: "Chroma",
-    modelType: "flux",
+    architecture: "chroma",
     defaultSteps: 20,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -238,7 +246,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /aura.*flow/i,
     workflowName: "AuraFlow",
-    modelType: "flux",
+    architecture: "auraflow",
     defaultSteps: 30,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -248,7 +256,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /z.*image.*turbo/i,
     workflowName: "Z Image Turbo",
-    modelType: "flux",
+    architecture: "zimage",
     defaultSteps: 4,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -258,7 +266,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /mochi/i,
     workflowName: "Mochi Video",
-    modelType: "flux",
+    architecture: "mochi",
     defaultSteps: 50,
     defaultCfg: 4.5,
     defaultResolution: { width: 848, height: 480 },
@@ -268,7 +276,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /ltx.*video/i,
     workflowName: "LTX-Video",
-    modelType: "flux",
+    architecture: "ltxvideo",
     defaultSteps: 30,
     defaultCfg: 3,
     defaultResolution: { width: 768, height: 512 },
@@ -278,7 +286,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /cosmos/i,
     workflowName: "Nvidia Cosmos",
-    modelType: "flux",
+    architecture: "cosmos",
     defaultSteps: 35,
     defaultCfg: 7,
     defaultResolution: { width: 1280, height: 704 },
@@ -288,7 +296,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /omnigen/i,
     workflowName: "Omnigen 2",
-    modelType: "flux",
+    architecture: "omnigen",
     defaultSteps: 50,
     defaultCfg: 2.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -298,7 +306,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /ace.*step|stable.*audio/i,
     workflowName: "Audio Generation (ACE Step / Stable Audio)",
-    modelType: "flux",
+    architecture: "aceaudio",
     defaultSteps: 100,
     defaultCfg: 7,
     defaultResolution: { width: 0, height: 0 },
@@ -308,7 +316,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /svd|stable.*video.*diffusion/i,
     workflowName: "Stable Video Diffusion (Image-to-Video)",
-    modelType: "sdxl",
+    architecture: "sdxl",
     defaultSteps: 25,
     defaultCfg: 2.5,
     defaultResolution: { width: 1024, height: 576 },
@@ -318,7 +326,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /cosxl.*edit/i,
     workflowName: "SDXL Edit (CosXL Edit)",
-    modelType: "sdxl",
+    architecture: "sdxl",
     defaultSteps: 20,
     defaultCfg: 7,
     defaultResolution: { width: 1024, height: 1024 },
@@ -328,7 +336,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /zero123|stable.*zero/i,
     workflowName: "Stable Zero123 (3D)",
-    modelType: "sdxl",
+    architecture: "sdxl",
     defaultSteps: 50,
     defaultCfg: 4,
     defaultResolution: { width: 256, height: 256 },
@@ -338,7 +346,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /unclip/i,
     workflowName: "unCLIP (Single Image)",
-    modelType: "sdxl",
+    architecture: "sdxl",
     defaultSteps: 20,
     defaultCfg: 7,
     defaultResolution: { width: 768, height: 768 },
@@ -348,7 +356,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /lcm/i,
     workflowName: "LCM (Latent Consistency Models)",
-    modelType: "sdxl",
+    architecture: "sdxl",
     defaultSteps: 4,
     defaultCfg: 1.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -358,7 +366,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /flux.*2|flux2/i,
     workflowName: "Flux 2",
-    modelType: "flux",
+    architecture: "flux",
     defaultSteps: 20,
     defaultCfg: 3,
     defaultResolution: { width: 1024, height: 1024 },
@@ -368,7 +376,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /\.(safetensors|ckpt)$/i,
     workflowName: "Basic txt2img",
-    modelType: "sd15",
+    architecture: "sd15",
     defaultSteps: 20,
     defaultCfg: 7,
     defaultResolution: { width: 512, height: 512 },
@@ -400,7 +408,8 @@ export type RecommendWorkflowInput = z.infer<typeof recommendWorkflowSchema>;
 export interface WorkflowRecommendation {
   modelName: string;
   matchedWorkflow: string;
-  modelType: "sd15" | "sdxl" | "sd3" | "flux";
+  /** Registry architecture id, e.g. "flux", "qwen", "hidream". */
+  modelType: string;
   isCheckpoint: boolean;
   recommendedSettings: {
     steps: number;
@@ -451,9 +460,22 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
     match = MODEL_PATTERNS[MODEL_PATTERNS.length - 1];
   }
 
+  // Graph shape, not identity. `match.modelType === "flux"` used to stand in
+  // for "loads through UNETLoader + DualCLIPLoader", which is why every
+  // architecture with that shape had to claim it was Flux.
+  const spec = architectureById(match.architecture);
+  const usesFluxShape = spec?.workflow === "flux";
+
+  // Templates are indexed by graph shape, not by architecture: a Qwen model
+  // legitimately matches the Flux-shaped templates, because that is the graph
+  // it runs on. This is the one place the old conflated label was right, and
+  // it stays - explicitly, and under a name that says which of the two facts
+  // it means.
+  const templateModelType = usesFluxShape ? "flux" : match.architecture;
+
   // Adjust workflow name based on checkpoint vs UNET
   let workflowName = match.workflowName;
-  if (match.modelType === "flux" && !isCheckpoint) {
+  if (usesFluxShape && !isCheckpoint) {
     // If it's a UNET file, recommend the UNET workflow instead of checkpoint
     if (workflowName.includes("Checkpoint")) {
       workflowName = workflowName.replace(" Checkpoint", "");
@@ -464,7 +486,7 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
   const recommendation: WorkflowRecommendation = {
     modelName: input.modelName,
     matchedWorkflow: workflowName,
-    modelType: match.modelType,
+    modelType: match.architecture,
     isCheckpoint,
     recommendedSettings: {
       steps: match.defaultSteps,
@@ -472,12 +494,16 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
       width: match.defaultResolution.width,
       height: match.defaultResolution.height,
     },
-    promptingGuide: `Call comfyui_get_prompting_guide('${match.modelType}') for detailed prompting advice.`,
+    // Points at this architecture's own guide where one exists. A Qwen model
+    // used to be sent to the Flux guide, because it claimed to be Flux.
+    promptingGuide: spec?.guide
+      ? `Call comfyui_get_prompting_guide('${spec.guide}') for detailed prompting advice.`
+      : `No dedicated prompting guide for ${spec?.displayName ?? match.architecture} yet; comfyui_get_prompting_guide('flux') is the closest fit for this workflow shape.`,
     notes: match.notes,
   };
 
   // Add sampler/scheduler recommendations
-  if (match.modelType === "flux") {
+  if (usesFluxShape) {
     recommendation.recommendedSettings.sampler = "euler";
     recommendation.recommendedSettings.scheduler = "simple";
   } else if (match.workflowName.includes("Turbo")) {
@@ -487,13 +513,13 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
 
   // Add alternative workflows based on task type
   if (input.taskType === "inpaint") {
-    if (match.modelType === "flux") {
+    if (usesFluxShape) {
       recommendation.alternativeWorkflows = ["Flux Fill (Inpaint/Outpaint)"];
     } else {
       recommendation.alternativeWorkflows = ["Inpainting (Basic)", "Inpainting (Dedicated Model)"];
     }
   } else if (input.taskType === "edit") {
-    if (match.modelType === "flux") {
+    if (usesFluxShape) {
       recommendation.alternativeWorkflows = ["Flux Kontext"];
     } else {
       recommendation.alternativeWorkflows = ["SDXL Edit (CosXL Edit)"];
@@ -524,7 +550,7 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
     // Match by model name patterns in template name/description
     if (nameLower.includes(modelLower.replace(/[_\-.].*$/, "")) ||
         template.description.toLowerCase().includes(modelLower.replace(/[_\-.].*$/, "")) ||
-        (template.modelType === match.modelType && template.taskType === (input.taskType || "txt2img"))) {
+        (template.modelType === templateModelType && template.taskType === (input.taskType || "txt2img"))) {
       matchingTemplates.push({
         source: "builtin",
         id: template.id,
@@ -542,7 +568,7 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
       const modelLower = input.modelName.toLowerCase();
       if (nameLower.includes(modelLower.replace(/[_\-.].*$/, "")) ||
           template.description.toLowerCase().includes(modelLower.replace(/[_\-.].*$/, "")) ||
-          (template.modelType === match.modelType && template.taskType === (input.taskType || "txt2img"))) {
+          (template.modelType === templateModelType && template.taskType === (input.taskType || "txt2img"))) {
         matchingTemplates.push({
           source: "custom",
           id: template.id,

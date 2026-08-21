@@ -18,6 +18,7 @@ import {
   paginatedOutputSchema,
 } from "../../utils/response.js";
 import { safeFetch } from "../../utils/safe-fetch.js";
+import { architectureFor } from "../../architectures/registry.js";
 import {
   listExamplesSchema,
   listExamples,
@@ -336,11 +337,19 @@ export function registerLibraryTools(server: McpServer): void {
       "on them. Ask for one architecture rather than 'all' unless you actually need the comparison.",
     schema: z
       .object({
+        // A free string, validated against the guides that actually exist,
+        // rather than a hand-written enum. The enum listed four values while
+        // eleven guides shipped, so asking for the qwen or cascade guide -
+        // which other tools now recommend by name - was rejected before the
+        // handler ever ran. Unknown values get an error naming every option.
         modelType: z
-          .enum(["sd15", "sdxl", "sd3", "flux", "all"])
+          .string()
           .optional()
           .default("all")
-          .describe("Which architecture's guide to return; 'all' returns the full comparison"),
+          .describe(
+            `Which architecture's guide to return: ${Object.keys(PROMPTING_GUIDES).join(", ")}, ` +
+              "or a raw model filename. 'all' returns the full comparison."
+          ),
       })
       .strict(),
     requiresConnection: false,
@@ -360,9 +369,21 @@ export function registerLibraryTools(server: McpServer): void {
 
       const guide = getPromptingGuide(input.modelType);
       if (!guide) {
+        // Two different failures. The architecture may be recognised and
+        // simply have no guide written yet, which is worth saying - listing
+        // the available keys implies the caller named something invalid.
+        const spec = architectureFor(input.modelType);
+        if (spec) {
+          const closest = spec.workflow === "flux" ? "flux" : "sdxl";
+          return errorResult(
+            `No prompting guide for ${spec.displayName} yet.`,
+            `It uses the ${spec.workflow} workflow shape, so comfyui_get_prompting_guide('${closest}') is the closest fit. ` +
+              `${spec.advice}`
+          );
+        }
         return errorResult(
           `Unknown model type: ${input.modelType}.`,
-          `Available: ${Object.keys(PROMPTING_GUIDES).join(", ")}`
+          `Available: ${Object.keys(PROMPTING_GUIDES).join(", ")}. A model filename works too.`
         );
       }
       return textResult(formatPromptingGuide(guide));

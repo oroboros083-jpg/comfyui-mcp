@@ -5,6 +5,8 @@
  * supported by ComfyUI.
  */
 
+import { architectureFor } from "../architectures/registry.js";
+
 export interface ModelPromptingGuide {
   modelType: string;
   description: string;
@@ -357,44 +359,18 @@ export const PROMPTING_GUIDES: Record<string, ModelPromptingGuide> = {
 export function getPromptingGuide(modelType: string): ModelPromptingGuide | null {
   const normalizedType = modelType.toLowerCase();
 
-  // Try exact match first
+  // Exact key first: callers that already know the key get it unchanged.
   if (PROMPTING_GUIDES[normalizedType]) {
     return PROMPTING_GUIDES[normalizedType];
   }
 
-  // Try pattern matching
-  if (normalizedType.includes("flux")) {
-    return PROMPTING_GUIDES["flux"];
-  }
-  if (normalizedType.includes("sd3") || normalizedType.includes("sd 3")) {
-    return PROMPTING_GUIDES["sd3"];
-  }
-  if (normalizedType.includes("sdxl") || normalizedType.includes("xl")) {
-    return PROMPTING_GUIDES["sdxl"];
-  }
-  if (normalizedType.includes("sd1") || normalizedType.includes("1.5") || normalizedType.includes("sd 1")) {
-    return PROMPTING_GUIDES["sd15"];
-  }
-  if (normalizedType.includes("qwen")) {
-    return PROMPTING_GUIDES["qwen"];
-  }
-  if (normalizedType.includes("hunyuan")) {
-    return PROMPTING_GUIDES["hunyuan"];
-  }
-  if (normalizedType.includes("aura") || normalizedType.includes("pony")) {
-    return PROMPTING_GUIDES["auraflow"];
-  }
-  if (normalizedType.includes("kolors")) {
-    return PROMPTING_GUIDES["kolors"];
-  }
-  if (normalizedType.includes("pixart")) {
-    return PROMPTING_GUIDES["pixart"];
-  }
-  if (normalizedType.includes("playground")) {
-    return PROMPTING_GUIDES["playground"];
-  }
-  if (normalizedType.includes("cascade")) {
-    return PROMPTING_GUIDES["cascade"];
+  // Otherwise resolve through the architecture registry, which owns the
+  // aliases and detection patterns. This used to be a hand-maintained
+  // if/else chain that had to be extended for every architecture and could
+  // not answer for a raw model filename.
+  const spec = architectureFor(normalizedType);
+  if (spec?.guide && PROMPTING_GUIDES[spec.guide]) {
+    return PROMPTING_GUIDES[spec.guide];
   }
 
   return null;

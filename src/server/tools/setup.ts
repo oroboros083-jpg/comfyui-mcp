@@ -15,7 +15,7 @@ import {
   unreachableError,
 } from "../connection.js";
 import { getCandidateUrls } from "../../discovery/index.js";
-import { getCapabilitySummary } from "../../capabilities/index.js";
+import { getCapabilitySummary, primaryArchitectureOf } from "../../capabilities/index.js";
 import { dataResult, textResult, errorResult } from "../../utils/response.js";
 import {
   getInstallGuideSchema,
@@ -88,10 +88,10 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
       }
 
       if (refresh.connected && c.capabilities) {
-        let modelType = "sd15";
-        if (c.capabilities.hasFlux) modelType = "flux";
-        else if (c.capabilities.hasSD3) modelType = "sd3";
-        else if (c.capabilities.hasSDXL) modelType = "sdxl";
+        // Was a second copy of discovery.ts's ladder, already drifted from it:
+        // this one omitted the advice text and knew nothing of Cascade.
+        const primary = primaryArchitectureOf(c.capabilities);
+        const modelType = primary?.id ?? "sd15";
 
         status.promptingAdvice = {
           detectedModelType: modelType,

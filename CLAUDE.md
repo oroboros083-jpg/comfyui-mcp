@@ -72,6 +72,8 @@ src/
 ├── analysis/
 │   ├── outputs.ts          # User output history analysis
 │   └── hash.ts             # Workflow hashing
+├── architectures/
+│   └── registry.ts         # ARCHITECTURES: detection, shape, guide, advice
 └── utils/
     ├── image.ts            # Image processing utilities
     ├── response.ts         # Pagination, compact JSON, truncation, formats
@@ -214,19 +216,37 @@ final page, error paths).
 
 ### Adding a New Model Architecture
 
-Be warned: this is currently spread across eight files, and the steps below
-are the honest list, not a good design. See "Known architectural debt".
+One row in `src/architectures/registry.ts`:
 
-1. `capabilities/index.ts` - detect it (interface field, init literal,
-   checkpoint/unet substring match, summary line)
-2. `workflows/builder.ts` - add a builder function and a `BUILTIN_TEMPLATES`
-   entry; dispatch is by `templateId` through `buildFromTemplate`
-3. `tools/examples/recommend.ts` - add `MODEL_PATTERNS` rows and widen the
-   `modelType` union
-4. `resources/prompting-guide.ts` - add the guide and its aliases
-5. `server/tools/discovery.ts` and `server/tools/setup.ts` - both have their
-   own if/else picking prompting advice
-6. `tools/examples/` - add the example workflows and export them from `data.ts`
+```ts
+{
+  id: "myarch",
+  displayName: "My Architecture",
+  detect: { checkpoints: /myarch/i, unets: /myarch/i },
+  workflow: "flux",          // which graph shape builder.ts produces
+  guide: "myarch",           // omit if no prompting guide exists yet
+  advice: "One line of prompting steer.",
+  priority: 50,              // higher = more specific; beats the generic bases
+}
+```
+
+Everything else follows: `capabilities/` detects it, both status tools advise
+on it, `get_prompting_guide` resolves it (by id, alias or raw filename), and
+`recommend_workflow` reports it. Add a `MODEL_PATTERNS` row in
+`tools/examples/recommend.ts` if it needs specific steps/CFG/resolution, and a
+builder function in `workflows/builder.ts` only if it needs a graph shape that
+does not exist yet.
+
+**Keep `id` and `workflow` distinct.** `id` is identity ("this is a Qwen
+model"); `workflow` is graph shape ("loads through UNETLoader +
+DualCLIPLoader, like Flux"). Conflating them is what previously forced 24 of
+36 model patterns to claim they were Flux, which then sent their users to the
+Flux prompting guide.
+
+`legacyFlag` is only for the five architectures that predate the registry —
+their `hasSD15`/`hasSDXL`/`hasSD3`/`hasFlux`/`hasCascade` booleans are public
+in `get_capabilities` output. New architectures do not get a boolean; they
+appear in `detectedArchitectures`.
 
 ### Adding a New Example Workflow
 Add entry to the appropriate category file in `tools/examples/` (e.g., `flux.ts`, `sdxl.ts`, `video.ts`) with the image URL containing embedded workflow metadata. Then export it from `tools/examples/data.ts`.
@@ -283,29 +303,6 @@ ComfyUI where the tool needs one. Put the numbers in the commit message.
 
 Recorded so it is not rediscovered every time:
 
-- **Model architecture is one concept in eight files.** Adding an
-  architecture takes ~12 edits (see above), and the modules have already
-  drifted apart. Counted 2026-08-21:
-  - `capabilities/index.ts` detects 5 architectures (SD15, SDXL, SD3, Flux,
-    Cascade).
-  - `resources/prompting-guide.ts` ships 11 guides, but only 4 (sd15, sdxl,
-    sd3, flux) are reachable - those are the only ones the advice ladders in
-    `server/tools/discovery.ts` and `server/tools/setup.ts` name. The other
-    7, including `cascade`, are unreachable unless the caller already knows
-    the key.
-  - `hasCascade` is detected and then read by nothing except its own summary
-    line: detection with no consumer.
-  - `workflows/builder.ts` has 2 builders (standard and Flux), so every other
-    architecture routes through one of those two graphs.
-  - `tools/examples/recommend.ts` has a 4-value `modelType` union against 36
-    pattern rows, so **24 of the 36 are labelled `"flux"`** - Qwen, HiDream,
-    Wan, Lumina, Chroma, Z-Image and others, one of them carrying the comment
-    "Uses similar workflow structure to Flux".
-
-  The fix is one `ARCHITECTURES` registry each module consults, turning an
-  addition into one table row plus a builder. Roughly 1-2 days, and
-  `Capabilities.hasX` is public so it needs a derived compatibility shim for
-  a release.
 - **`generate.ts` and `generate-async.ts` duplicate ~120 lines** and have
   diverged: the Docker `OUTPUT_DIR` escape hatch exists only in the sync
   path, and only the sync path sets `path` on returned images even though

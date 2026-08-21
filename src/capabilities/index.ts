@@ -1,5 +1,13 @@
-import { ObjectInfo } from "../client/comfyui.js";
+import { ObjectInfo, comboOptions } from "../client/comfyui.js";
 import { UserPreferences } from "../analysis/outputs.js";
+import {
+  ARCHITECTURES,
+  ArchitectureSpec,
+  detectArchitectures,
+  primaryArchitecture,
+} from "../architectures/registry.js";
+
+const ARCH_BY_ID = new Map(ARCHITECTURES.map((a) => [a.id, a]));
 
 export interface Capabilities {
   // Core generation
@@ -40,6 +48,15 @@ export interface Capabilities {
   hasDepthEstimation: boolean;
   hasFaceDetection: boolean;
   hasSegmentation: boolean;
+
+  /**
+   * Every model architecture with a matching model installed, most specific
+   * first. The hasSD15/hasSDXL/hasSD3/hasFlux/hasCascade booleans above are
+   * derived from this and kept because they are public - they appear in
+   * get_capabilities output. New architectures are added to the registry in
+   * architectures/registry.ts and appear here without a new boolean.
+   */
+  detectedArchitectures: string[];
 
   // Available nodes for reference
   availableLoaders: string[];
@@ -113,6 +130,7 @@ export function detectCapabilities(objectInfo: ObjectInfo): Capabilities {
     hasDepthEstimation: false,
     hasFaceDetection: false,
     hasSegmentation: false,
+    detectedArchitectures: [],
     availableLoaders: [],
     availableSamplers: [],
     availableSchedulers: [],
@@ -125,57 +143,23 @@ export function detectCapabilities(objectInfo: ObjectInfo): Capabilities {
     }
   }
 
-  // Detect model architectures from checkpoint loader options
-  const checkpointLoader = objectInfo["CheckpointLoaderSimple"];
-  if (checkpointLoader?.input?.required?.ckpt_name) {
-    const ckptInput = checkpointLoader.input.required.ckpt_name as unknown[];
-    if (Array.isArray(ckptInput) && Array.isArray(ckptInput[0])) {
-      const checkpoints = (ckptInput[0] as string[]).map((c) => c.toLowerCase());
-      capabilities.hasSD15 = checkpoints.some(
-        (c) => c.includes("v1-5") || c.includes("v1.5") || c.includes("sd15")
-      );
-      capabilities.hasSDXL = checkpoints.some(
-        (c) => c.includes("sdxl") || c.includes("xl")
-      );
-      capabilities.hasSD3 = checkpoints.some(
-        (c) => c.includes("sd3") || c.includes("sd_3")
-      );
-      capabilities.hasFlux = checkpoints.some(
-        (c) => c.includes("flux")
-      );
-      capabilities.hasCascade = checkpoints.some(
-        (c) => c.includes("cascade")
-      );
-    }
-  }
-
-  // Also check UNET loader for Flux/SD3
-  const unetLoader = objectInfo["UNETLoader"];
-  if (unetLoader?.input?.required?.unet_name) {
-    const unetInput = unetLoader.input.required.unet_name as unknown[];
-    if (Array.isArray(unetInput) && Array.isArray(unetInput[0])) {
-      const unets = (unetInput[0] as string[]).map((c) => c.toLowerCase());
-      if (unets.some((c) => c.includes("flux"))) capabilities.hasFlux = true;
-      if (unets.some((c) => c.includes("sd3"))) capabilities.hasSD3 = true;
-    }
+  // Model architectures come from the registry, which owns the detection
+  // patterns. The legacy booleans are derived from it so they keep working
+  // for callers that read get_capabilities output.
+  const detected = detectArchitectures(objectInfo);
+  capabilities.detectedArchitectures = detected.map((a) => a.id);
+  for (const spec of detected) {
+    if (spec.legacyFlag) capabilities[spec.legacyFlag] = true;
   }
 
   // Get available samplers
   const ksampler = objectInfo["KSampler"];
-  if (ksampler?.input?.required?.sampler_name) {
-    const samplerInput = ksampler.input.required.sampler_name as unknown[];
-    if (Array.isArray(samplerInput) && Array.isArray(samplerInput[0])) {
-      capabilities.availableSamplers = samplerInput[0] as string[];
-    }
-  }
-
-  // Get available schedulers
-  if (ksampler?.input?.required?.scheduler) {
-    const schedulerInput = ksampler.input.required.scheduler as unknown[];
-    if (Array.isArray(schedulerInput) && Array.isArray(schedulerInput[0])) {
-      capabilities.availableSchedulers = schedulerInput[0] as string[];
-    }
-  }
+  capabilities.availableSamplers = comboOptions(
+    ksampler?.input?.required?.sampler_name
+  );
+  capabilities.availableSchedulers = comboOptions(
+    ksampler?.input?.required?.scheduler
+  );
 
   // Collect loader nodes
   for (const nodeName of nodeNames) {
@@ -202,16 +186,60 @@ export function detectCapabilities(objectInfo: ObjectInfo): Capabilities {
   return capabilities;
 }
 
+/** The detected architectures as registry rows rather than bare ids. */
+export function architecturesOf(capabilities: Capabilities): ArchitectureSpec[] {
+  return capabilities.detectedArchitectures
+    .map((id) => ARCH_BY_ID.get(id))
+    .filter((spec): spec is ArchitectureSpec => spec !== undefined);
+}
+
+/**
+ * The architecture to steer by, or undefined when none was detected. Callers
+ * used to reimplement this as an if/else ladder over the legacy booleans -
+ * two of them, which had already drifted apart.
+ */
+export function primaryArchitectureOf(
+  capabilities: Capabilities
+): ArchitectureSpec | undefined {
+  return primaryArchitecture(architecturesOf(capabilities));
+}
+
+/**
+ * The prompting steer for an install, as one line.
+ *
+ * Replaces two separately-maintained if/else ladders that between them knew
+ * four architectures and sent everything else to the SD 1.5 guide. When
+ * several architectures are installed it names the others too, so picking a
+ * single "primary" cannot hide them.
+ */
+export function promptingAdviceFor(capabilities: Capabilities): string {
+  const detected = architecturesOf(capabilities);
+  const primary = primaryArchitecture(detected);
+
+  if (!primary) {
+    return "No model architecture detected. Call comfyui_list_models to see what is installed.";
+  }
+
+  const guide = primary.guide
+    ? `Call comfyui_get_prompting_guide('${primary.guide}').`
+    : `No dedicated prompting guide for ${primary.displayName} yet.`;
+
+  const others = detected
+    .filter((spec) => spec.id !== primary.id)
+    .map((spec) => spec.displayName);
+
+  const alsoPresent = others.length
+    ? ` Also installed: ${others.join(", ")} - call comfyui_recommend_workflow with a specific model filename for per-model settings.`
+    : "";
+
+  return `Primary model type: ${primary.displayName}. ${primary.advice} ${guide}${alsoPresent}`;
+}
+
 export function getCapabilitySummary(capabilities: Capabilities): string {
   const features: string[] = [];
 
   if (capabilities.canGenerateImages) {
-    const models: string[] = [];
-    if (capabilities.hasSD15) models.push("SD 1.5");
-    if (capabilities.hasSDXL) models.push("SDXL");
-    if (capabilities.hasSD3) models.push("SD3");
-    if (capabilities.hasFlux) models.push("Flux");
-    if (capabilities.hasCascade) models.push("Cascade");
+    const models = architecturesOf(capabilities).map((a) => a.displayName);
     features.push(`Image generation (${models.join(", ") || "checkpoints available"})`);
   }
 
