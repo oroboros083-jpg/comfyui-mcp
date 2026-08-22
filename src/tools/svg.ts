@@ -109,20 +109,22 @@ export async function renderSvg(
       }
     }
 
-    // If SVG doesn't have width/height attributes, add them
-    if (!svgContent.includes('width=') && !svgContent.includes('height=')) {
-      svgContent = svgContent.replace(
-        '<svg',
-        `<svg width="${input.width}" height="${input.height}"`
-      );
-    }
+    // Add whichever of width/height/viewBox the *root* element is missing.
+    //
+    // These used to be bare substring tests over the whole document, so a
+    // `width=` on any child <rect> meant the root never got dimensions. The
+    // width/height pair was also joined with &&, so a root declaring only one
+    // of them got neither.
+    const rootTag = svgContent.match(/<svg\b[^>]*>/)?.[0] ?? "";
+    const rootHas = (attr: string) => new RegExp(`\\b${attr}\\s*=`).test(rootTag);
 
-    // Add viewBox if not present (helps with scaling)
-    if (!svgContent.includes('viewBox=')) {
-      svgContent = svgContent.replace(
-        '<svg',
-        `<svg viewBox="0 0 ${input.width} ${input.height}"`
-      );
+    const missingAttrs: string[] = [];
+    if (!rootHas("width")) missingAttrs.push(`width="${input.width}"`);
+    if (!rootHas("height")) missingAttrs.push(`height="${input.height}"`);
+    if (!rootHas("viewBox")) missingAttrs.push(`viewBox="0 0 ${input.width} ${input.height}"`);
+
+    if (missingAttrs.length > 0) {
+      svgContent = svgContent.replace("<svg", `<svg ${missingAttrs.join(" ")}`);
     }
 
     // Create a buffer from SVG
@@ -130,6 +132,18 @@ export async function renderSvg(
 
     // Determine background
     const hasBackground = input.background && input.background !== 'transparent';
+
+    // Rasterise to exactly the requested size first, whichever branch runs.
+    //
+    // The background branch used to composite the raw SVG onto a
+    // width x height canvas. An SVG declaring its own larger dimensions -
+    // say viewBox 1024 with the default 768 requested - made sharp throw
+    // "Image to composite must have same dimensions or smaller", reported
+    // through the misleading "check the SVG markup is well-formed" hint.
+    const rasterised = await sharp(svgBuffer)
+      .resize(input.width!, input.height!, { fit: "contain" })
+      .png()
+      .toBuffer();
 
     let pngBuffer: Buffer;
     if (hasBackground) {
@@ -144,7 +158,7 @@ export async function renderSvg(
       })
         .composite([
           {
-            input: svgBuffer,
+            input: rasterised,
             top: 0,
             left: 0,
           },
@@ -153,10 +167,7 @@ export async function renderSvg(
         .toBuffer();
     } else {
       // Render SVG directly (transparent background)
-      pngBuffer = await sharp(svgBuffer)
-        .resize(input.width!, input.height!, { fit: 'contain' })
-        .png()
-        .toBuffer();
+      pngBuffer = rasterised;
     }
 
     return {
