@@ -292,12 +292,16 @@ export function architectureFor(name: string): ArchitectureSpec | undefined {
 
   const ranked = [...ARCHITECTURES].sort((a, b) => b.priority - a.priority);
 
+  // One pass, testing every way a row can match before moving to the next.
+  //
+  // Running all the aliases before any of the detection patterns made
+  // priority order meaningless across the two: SD 1.5 is the lowest-priority
+  // row in the table, but its "1.5" alias is a substring of every checkpoint
+  // carrying a v1.5 version string, so "juggernautXL_v1.5.safetensors"
+  // resolved to SD 1.5 and the SDXL pattern never got to run.
   for (const spec of ranked) {
     if (spec.id === lower) return spec;
     if (spec.aliases?.some((alias) => lower.includes(alias))) return spec;
-  }
-
-  for (const spec of ranked) {
     if (spec.detect.checkpoints?.test(lower)) return spec;
     if (spec.detect.unets?.test(lower)) return spec;
   }

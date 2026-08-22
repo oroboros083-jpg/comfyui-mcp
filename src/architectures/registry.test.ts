@@ -133,6 +133,39 @@ test("a specific match beats the loose legacy SDXL pattern", () => {
   assert.equal(architectureFor("qwen_image_xl.safetensors")?.id, "qwen");
 });
 
+test("a low-priority alias does not outrank a high-priority pattern", () => {
+  // SD 1.5 is the lowest-priority row and carries the alias "1.5", which is
+  // a substring of every checkpoint with a v1.5 version string - and
+  // community checkpoints routinely have one. Resolving all the aliases
+  // before any of the detection patterns made priority meaningless across
+  // the two, so these all came back as SD 1.5 and their users were handed
+  // the SD 1.5 prompting guide.
+  assert.equal(architectureFor("juggernautXL_v1.5.safetensors")?.id, "sdxl");
+  assert.equal(architectureFor("flux1-dev-v1.5.safetensors")?.id, "flux");
+  assert.equal(architectureFor("qwen_image_v1.5.safetensors")?.id, "qwen");
+
+  // An actual SD 1.5 checkpoint still resolves, by id and by pattern.
+  assert.equal(architectureFor("sd15")?.id, "sd15");
+  assert.equal(architectureFor("v1-5-pruned-emaonly.safetensors")?.id, "sd15");
+});
+
+test("every architecture still resolves by its own id", () => {
+  // Merging the two loops means a higher-priority detection pattern now runs
+  // before a lower-priority id. Nothing in the table may shadow another
+  // row's identity.
+  for (const spec of ARCHITECTURES) {
+    assert.equal(architectureFor(spec.id)?.id, spec.id, spec.id);
+  }
+});
+
+test("every alias still resolves to the row that declares it", () => {
+  for (const spec of ARCHITECTURES) {
+    for (const alias of spec.aliases ?? []) {
+      assert.equal(architectureFor(alias)?.id, spec.id, `${spec.id}: ${alias}`);
+    }
+  }
+});
+
 test("architectureById is case-insensitive and rejects unknowns", () => {
   assert.equal(architectureById("FLUX")?.id, "flux");
   assert.equal(architectureById("nope"), undefined);
