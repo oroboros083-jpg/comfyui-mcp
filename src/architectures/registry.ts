@@ -325,12 +325,19 @@ export function detectArchitectures(objectInfo: ObjectInfo): ArchitectureSpec[] 
     objectInfo["UNETLoader"]?.input?.required?.unet_name
   ).map((c) => c.toLowerCase());
 
+  // Descending priority, so the most specific match leads. A plain filter
+  // preserved table order, which is roughly least-specific first: an install
+  // with an SDXL checkpoint and a Qwen UNET published
+  // detectedArchitectures: ["sdxl", "qwen"], leading with the generic base
+  // that `priority` exists to demote. The interface documents "most specific
+  // first" and primaryArchitecture reads the same ordering, so anything
+  // taking detectedArchitectures[0] as the primary now gets it.
   return ARCHITECTURES.filter(
     (spec) =>
       (spec.detect.checkpoints &&
         checkpoints.some((c) => spec.detect.checkpoints!.test(c))) ||
       (spec.detect.unets && unets.some((u) => spec.detect.unets!.test(u)))
-  );
+  ).sort((a, b) => b.priority - a.priority);
 }
 
 /**

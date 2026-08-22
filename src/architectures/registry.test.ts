@@ -186,3 +186,30 @@ test("getPromptingGuide still answers for the keys callers already used", () => 
   assert.equal(getPromptingGuide("sd 3")?.modelType, PROMPTING_GUIDES["sd3"].modelType);
   assert.equal(getPromptingGuide("nonesuch"), null);
 });
+
+test("detected architectures lead with the most specific", () => {
+  // The interface documents "most specific first", but a plain filter
+  // preserved table order - roughly least-specific first - so
+  // detectedArchitectures[0] was the generic base that priority exists to
+  // demote, and getCapabilitySummary led with it too.
+  const detected = detectArchitectures(
+    withModels(["juggernautXL.safetensors"], ["qwen_image_fp8.safetensors", "flux1-dev.safetensors"])
+  );
+  const ids = detected.map((a) => a.id);
+
+  assert.deepEqual(ids, ["qwen", "flux", "sdxl"], ids.join(", "));
+  assert.equal(primaryArchitecture(detected)?.id, ids[0], "and it agrees with primaryArchitecture");
+});
+
+test("detected architectures are ordered, not merely filtered", () => {
+  const detected = detectArchitectures(
+    withModels(["sd_xl_base_1.0.safetensors", "v1-5-pruned.safetensors"])
+  );
+  const priorities = detected.map((a) => a.priority);
+
+  assert.deepEqual(
+    priorities,
+    [...priorities].sort((a, b) => b - a),
+    "descending priority"
+  );
+});
