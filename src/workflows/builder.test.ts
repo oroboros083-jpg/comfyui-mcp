@@ -119,3 +119,82 @@ test("buildFluxWorkflow refuses rather than emitting a null unet_name", () => {
     (err: unknown) => err instanceof ToolError
   );
 });
+
+/** An object_info with the loaders a Flux build needs, and the given CLIP list. */
+function fluxObjectInfo(clips: string[]): ObjectInfo {
+  const loader = (field: string, options: string[]) => ({
+    name: "L",
+    display_name: "L",
+    category: "loaders",
+    description: "",
+    input: { required: { [field]: ["COMBO", { options }] } },
+    output: [],
+    output_name: [],
+    output_is_list: [],
+  });
+
+  return {
+    UNETLoader: loader("unet_name", ["flux1-dev.safetensors"]),
+    VAELoader: loader("vae_name", ["ae.safetensors"]),
+    DualCLIPLoader: loader("clip_name1", clips),
+  } as unknown as ObjectInfo;
+}
+
+const FLUX_OPTIONS = {
+  prompt: "a cat",
+  width: 1024,
+  height: 1024,
+  steps: 20,
+  guidance: 3.5,
+  seed: 1,
+  sampler: "euler",
+  scheduler: "simple",
+};
+
+function dualClipInputs(clips: string[]): Record<string, unknown> {
+  const workflow = buildFluxWorkflow(FLUX_OPTIONS, fluxObjectInfo(clips));
+  const node = Object.values(workflow).find((n) => n.class_type === "DualCLIPLoader");
+  assert.ok(node, "a DualCLIPLoader was emitted");
+  return node.inputs as Record<string, unknown>;
+}
+
+test("DualCLIPLoader does not put the T5 in both slots", () => {
+  // The fallback took clipModels[1] positionally, which is the T5 itself on
+  // the common ["clip_g", "t5xxl"] layout - so both slots named the same
+  // encoder and the usable clip_g at index 0 was ignored.
+  const inputs = dualClipInputs(["clip_g.safetensors", "t5xxl_fp16.safetensors"]);
+
+  assert.equal(inputs.clip_name2, "t5xxl_fp16.safetensors");
+  assert.equal(inputs.clip_name1, "clip_g.safetensors");
+  assert.notEqual(inputs.clip_name1, inputs.clip_name2);
+});
+
+test("DualCLIPLoader still prefers a clip_l when one is installed", () => {
+  const inputs = dualClipInputs([
+    "t5xxl_fp16.safetensors",
+    "clip_g.safetensors",
+    "clip_l.safetensors",
+  ]);
+
+  assert.equal(inputs.clip_name1, "clip_l.safetensors");
+  assert.equal(inputs.clip_name2, "t5xxl_fp16.safetensors");
+});
+
+test("DualCLIPLoader picks distinct encoders whatever the ordering", () => {
+  for (const clips of [
+    ["t5xxl_fp16.safetensors", "clip_g.safetensors"],
+    ["clip_g.safetensors", "t5xxl_fp16.safetensors"],
+    ["t5xxl_fp8_e4m3fn.safetensors", "clip_g_vision.safetensors"],
+  ]) {
+    const inputs = dualClipInputs(clips);
+    assert.notEqual(inputs.clip_name1, inputs.clip_name2, clips.join(", "));
+  }
+});
+
+test("a lone CLIP model is reused rather than emitting nothing", () => {
+  // Nothing better is available; both slots at least name a real file.
+  const inputs = dualClipInputs(["t5xxl_fp16.safetensors"]);
+
+  assert.equal(inputs.clip_name1, "t5xxl_fp16.safetensors");
+  assert.equal(inputs.clip_name2, "t5xxl_fp16.safetensors");
+});

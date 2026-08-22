@@ -232,8 +232,16 @@ export function buildFluxWorkflow(
       );
     }
     const t5Model = clipModels.find((m) => m.toLowerCase().includes("t5")) || clipModels[0];
+    // The second slot needs a model that is not the T5. Falling back to
+    // clipModels[1] positionally picked the T5 again whenever it happened to
+    // sit at index 1 - which it does on the common ["clip_g", "t5xxl"]
+    // layout - so both slots named the same encoder and the usable clip_g at
+    // index 0 was ignored. Only when there is genuinely nothing else does the
+    // T5 get reused, which at least names a real file.
     const clipModel =
-      clipModels.find((m) => m.toLowerCase().includes("clip_l")) || clipModels[1] || t5Model;
+      clipModels.find((m) => m.toLowerCase().includes("clip_l")) ||
+      clipModels.find((m) => m !== t5Model) ||
+      t5Model;
 
     workflow["2"] = {
       class_type: "DualCLIPLoader",
