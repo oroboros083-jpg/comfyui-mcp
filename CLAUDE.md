@@ -85,7 +85,26 @@ src/
 evals/                       # Q/A suites for whether a model can use the tools
 ├── README.md
 └── library.xml              # Stable; needs no running ComfyUI
+
+comfyui-tabbridge/           # Companion ComfyUI custom node (Python, adds no nodes)
+├── README.md               # Includes how to link it into custom_nodes
+├── tab_bridge.py           # Serves /tabs/state, /tabs/flush, /tabs/reload
+└── web/js/tab_bridge.js    # Frontend half; reports open tabs to the server
 ```
+
+### comfyui-tabbridge
+
+The other half of the safe-write contract. `tools/workflow-files.ts` cannot do
+`flush -> read + diff -> write -> reload` without these routes, so the two ship
+together rather than versioning half a protocol.
+
+ComfyUI loads it from `custom_nodes`, which is outside this repo, so a working
+install has that path **linked** here - a directory junction on Windows, a
+symlink elsewhere. Git stores the directory; it does not store the link, so a
+fresh clone has to recreate it. The README says how.
+
+Edits here reach ComfyUI on its next restart, not immediately: the Python
+module is already imported.
 
 ## Key Concepts
 
