@@ -56,8 +56,13 @@ class TabState:
 
     def _live(self) -> Dict[str, dict]:
         now = time.time()
-        return {c: e for c, e in self._clients.items()
-                if now - e["at"] <= STALE_AFTER_SECONDS}
+        # Prune, not just filter. A browser that closed never reports again,
+        # so filtering alone left its entry in _clients for the lifetime of
+        # the ComfyUI process.
+        for client_id in [c for c, e in self._clients.items()
+                          if now - e["at"] > STALE_AFTER_SECONDS]:
+            del self._clients[client_id]
+        return dict(self._clients)
 
     def snapshot(self) -> dict:
         """Everything currently open, merged across clients.
@@ -93,10 +98,26 @@ class TabState:
         }
 
     def is_open(self, path: str) -> dict:
+        """One shape, whether or not the workflow is open.
+
+        This used to return the merged entry - which carries no "open" key -
+        when a tab held the workflow, and {"path", "open": False} when none
+        did. A caller writing the obvious `if data["open"]` got a KeyError in
+        Python, or undefined and therefore falsy in JS: the inverted answer
+        for the one decision this route exists to inform, namely whether to
+        flush before overwriting.
+        """
         for w in self.snapshot()["open_workflows"]:
             if w["path"] == path:
-                return w
-        return {"path": path, "open": False}
+                return {**w, "open": True}
+        return {
+            "path": path,
+            "open": False,
+            "filename": None,
+            "modified": False,
+            "active_in_any_client": False,
+            "clients": [],
+        }
 
 
 STATE = TabState()
@@ -150,8 +171,13 @@ def register() -> bool:
         if not path:
             return web.json_response({"ok": False, "reason": "no path"}, status=400)
         PromptServer.instance.send_sync(FLUSH_EVENT, {"path": path})
+        # A boolean, as the name says. This used to be the whole is_open
+        # dict, so `if response["was_open"]` was true even when nothing
+        # held the workflow.
+        state = STATE.is_open(path)
         return web.json_response({"ok": True, "path": path,
-                                  "was_open": STATE.is_open(path)})
+                                  "was_open": state["open"],
+                                  "was_modified": state["modified"]})
 
     @routes.post("/tabs/reload")
     async def _reload(request):
