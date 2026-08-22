@@ -54,11 +54,6 @@ const CANDIDATE_URLS = [
  * Ask a running ComfyUI where it lives. /system_stats reports the argv it was
  * started with, which is exact and needs no process inspection - and matters
  * because --base-directory is often NOT where the models are.
- *
- * Two signals, in order: the explicit --base-directory when it was passed,
- * then the directory of the main.py in argv[0]. Only the first was read
- * before, and stock desktop and portable installs pass no such flag, so those
- * fell through to guessing at home-directory paths.
  */
 async function baseDirFromRunningComfyUI() {
   for (const url of CANDIDATE_URLS) {
@@ -71,18 +66,6 @@ async function baseDirFromRunningComfyUI() {
       if (!Array.isArray(argv)) continue;
       const i = argv.indexOf("--base-directory");
       if (i !== -1 && argv[i + 1]) return { dir: argv[i + 1], via: `running ComfyUI at ${url}` };
-
-      // Stock desktop and portable installs do not pass --base-directory, so
-      // the flag alone left them falling through to home-directory guesses.
-      // argv[0] is the main.py ComfyUI was started with, and its directory is
-      // the install root - checked for custom_nodes rather than assumed, so a
-      // relative argv[0] or an unexpected layout just falls through.
-      if (typeof argv[0] === "string" && argv[0]) {
-        const root = dirname(resolve(argv[0]));
-        if (existsSync(join(root, "custom_nodes"))) {
-          return { dir: root, via: `running ComfyUI at ${url}` };
-        }
-      }
     } catch {
       // Not listening there, or too old to report argv.
     }

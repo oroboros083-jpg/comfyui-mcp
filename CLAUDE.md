@@ -105,11 +105,8 @@ could create things outside its own tree would be a code-execution vector, so
 this is a post-clone step by design rather than by omission.
 
 `npm run link:tabbridge` is that step. It finds ComfyUI by asking a running
-instance for its own argv (`/system_stats` reports it): `--base-directory`
-when it was passed, otherwise the directory of the `main.py` in `argv[0]`,
-checked for `custom_nodes` rather than assumed. Stock desktop and portable
-installs pass no such flag, so reading only the flag left them falling through
-to home-directory guesses. It is safe to re-run, and refuses to delete a real
+instance for its own argv (`/system_stats` reports it, so `--base-directory`
+is exact rather than guessed), is safe to re-run, and refuses to delete a real
 directory that is already at the target. `--check` reports without changing
 anything.
 
