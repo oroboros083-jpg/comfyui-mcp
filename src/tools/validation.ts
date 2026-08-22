@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ComfyUIClient } from "../client/comfyui.js";
 import { WorkflowNode } from "../workflows/builder.js";
 import { responseFormatField } from "../utils/response.js";
+import { outputTypeName } from "./models.js";
 
 export const validateWorkflowSchema = z.object({
   workflow: z
@@ -100,10 +101,16 @@ export async function validateWorkflow(
 
     nodeTypes.push(node.class_type);
 
-    // Record output types for this node
+    // Record output types for this node.
+    //
+    // A COMBO output arrives as its array of options, and a build can omit
+    // `output` entirely, so both go through the shared normaliser rather
+    // than a bare toUpperCase - which threw and took the whole tool down on
+    // any workflow containing such a node.
     const nodeOutputs = new Map<number, string>();
-    nodeInfo.output.forEach((type, i) => {
-      nodeOutputs.set(i, type.toUpperCase());
+    const rawOutputs = Array.isArray(nodeInfo.output) ? nodeInfo.output : [];
+    rawOutputs.forEach((type, i) => {
+      nodeOutputs.set(i, outputTypeName(type));
     });
     outputTypes.set(nodeId, nodeOutputs);
   }

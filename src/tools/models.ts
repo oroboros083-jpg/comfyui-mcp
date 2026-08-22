@@ -804,13 +804,21 @@ export async function buildNode(
     },
   };
 
-  // Build output info for connecting downstream nodes
-  const outputs = nodeInfo.output.map((type, i) => ({
-    slot: i,
-    type,
-    name: nodeInfo.output_name[i] || type,
-    reference: [input.nodeId, i] as [string, number],
-  }));
+  // Build output info for connecting downstream nodes.
+  //
+  // Same normalisation as getNodeInfo: `output` can be absent, and a COMBO
+  // slot arrives as its full array of options - emitting that raw put
+  // hundreds of option strings in `type` and again in `name`.
+  const rawOutputs = Array.isArray(nodeInfo.output) ? nodeInfo.output : [];
+  const outputs = rawOutputs.map((type, i) => {
+    const typeName = outputTypeName(type);
+    return {
+      slot: i,
+      type: typeName,
+      name: nodeInfo.output_name?.[i] || typeName,
+      reference: [input.nodeId, i] as [string, number],
+    };
+  });
 
   const result: Record<string, unknown> = {
     node,

@@ -287,3 +287,37 @@ test("buildNode still accepts optional inputs the node declares", async () => {
   assert.equal(built.node["5"].inputs.denoise, 0.5);
   assert.equal(built.node["5"].inputs.steps, 20, "unspecified inputs keep their default");
 });
+
+test("buildNode normalises a COMBO output instead of inlining its options", async () => {
+  // A COMBO slot arrives as its full array of options. Emitted raw it landed
+  // in `type` and again in `name`, putting hundreds of option strings in the
+  // response twice - the bloat getNodeInfo deliberately avoids.
+  const options = Array.from({ length: 400 }, (_, i) => `option_${i}`);
+  const client = clientReturning({
+    Combo: node({
+      name: "Combo",
+      input: { required: {}, optional: {} },
+      output: [options, "IMAGE"],
+      output_name: ["", "image"],
+    }),
+  });
+
+  const built = JSON.parse(await buildNode(client, { nodeType: "Combo", nodeId: "1" }));
+  const outputs = built.outputs as Array<{ type: string; name: string }>;
+
+  assert.equal(outputs[0].type, "COMBO");
+  assert.equal(outputs[0].name, "COMBO", "falls back to the type name, not the array");
+  assert.equal(outputs[1].type, "IMAGE");
+  assert.equal(outputs[1].name, "image");
+});
+
+test("buildNode survives a node that declares no outputs at all", async () => {
+  // getNodeInfo and findNodesByType both guard this; buildNode threw.
+  const client = clientReturning({
+    Sink: node({ name: "Sink", input: { required: {}, optional: {} }, output: undefined }),
+  });
+
+  const built = JSON.parse(await buildNode(client, { nodeType: "Sink", nodeId: "1" }));
+
+  assert.deepEqual(built.outputs, []);
+});
