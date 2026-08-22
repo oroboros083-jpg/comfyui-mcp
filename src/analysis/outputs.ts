@@ -8,6 +8,7 @@ import {
   extractPromptsFromWorkflow,
   extractSettingsFromWorkflow,
   describeWorkflow,
+  isApiWorkflow,
 } from "./hash.js";
 import { debug } from "../utils/logging.js";
 
@@ -172,9 +173,16 @@ export async function analyzeUserOutputs(outputPath: string): Promise<UserPrefer
 
       if (!metadata) continue;
 
-      // Prefer prompt (API format) over workflow (UI format)
-      const workflow = (metadata.prompt || metadata.workflow) as Workflow | undefined;
-      if (!workflow || typeof workflow !== "object") continue;
+      // Prefer prompt (API format) over workflow (UI format).
+      //
+      // Everything downstream reads `class_type`, so a UI-format graph is not
+      // analysable - and bucketing one meant describeWorkflow threw on it
+      // later, outside this try/catch, taking the whole analysis with it.
+      // Test the shape rather than the field name, so a tool that embeds API
+      // JSON under "workflow" still counts.
+      const candidate = metadata.prompt ?? metadata.workflow;
+      if (!isApiWorkflow(candidate)) continue;
+      const workflow: Workflow = candidate;
 
       imagesWithWorkflows++;
 

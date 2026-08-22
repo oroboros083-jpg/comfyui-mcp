@@ -15,6 +15,40 @@ interface WorkflowNode {
 export type Workflow = Record<string, WorkflowNode>;
 
 /**
+ * The nodes of a workflow that are actually in API format.
+ *
+ * Every reader below keys off `class_type`, and the `typeof node !== "object"`
+ * guard they all used does not exclude an array - so a UI-format workflow,
+ * whose top-level values are the `nodes` and `links` arrays, walked straight
+ * into `node.class_type.includes(...)` and threw. describeWorkflow is called
+ * outside analyzeUserOutputs' per-file try/catch, so one such PNG in the
+ * output folder rejected the whole analysis and get_user_preferences answered
+ * "available: false" from then on.
+ *
+ * Keying on the shape rather than on which metadata field it came from also
+ * covers tools that embed API JSON under the "workflow" key.
+ */
+export function apiNodes(workflow: Workflow): Array<[string, WorkflowNode]> {
+  return Object.entries(workflow).filter(
+    ([, node]) =>
+      !!node &&
+      typeof node === "object" &&
+      !Array.isArray(node) &&
+      typeof node.class_type === "string"
+  );
+}
+
+/** Whether anything in this workflow can be read as API format at all. */
+export function isApiWorkflow(workflow: unknown): workflow is Workflow {
+  return (
+    !!workflow &&
+    typeof workflow === "object" &&
+    !Array.isArray(workflow) &&
+    apiNodes(workflow as Workflow).length > 0
+  );
+}
+
+/**
  * Deep clone an object
  */
 function deepClone<T>(obj: T): T {
@@ -49,9 +83,7 @@ function sortObjectKeys(obj: unknown): unknown {
 export function normalizeWorkflow(workflow: Workflow): Workflow {
   const normalized = deepClone(workflow);
 
-  for (const node of Object.values(normalized)) {
-    if (!node || typeof node !== "object") continue;
-
+  for (const [, node] of apiNodes(normalized)) {
     const inputs = node.inputs || {};
 
     // Normalize text prompts (CLIPTextEncode, etc.)
@@ -128,9 +160,7 @@ export function extractModelsFromWorkflow(
     IPAdapterModelLoader: { inputKey: "ipadapter_file", modelType: "ipadapter" },
   };
 
-  for (const node of Object.values(workflow)) {
-    if (!node || typeof node !== "object") continue;
-
+  for (const [, node] of apiNodes(workflow)) {
     const loaderConfig = loaderTypes[node.class_type];
     if (loaderConfig) {
       const modelName = node.inputs?.[loaderConfig.inputKey];
@@ -164,9 +194,7 @@ export function extractPromptsFromWorkflow(workflow: Workflow): {
   const positive: string[] = [];
   const negative: string[] = [];
 
-  for (const [nodeId, node] of Object.entries(workflow)) {
-    if (!node || typeof node !== "object") continue;
-
+  for (const [nodeId, node] of apiNodes(workflow)) {
     if (node.class_type === "CLIPTextEncode") {
       const text = node.inputs?.text;
       if (typeof text === "string" && text.trim()) {
@@ -210,9 +238,7 @@ export function extractSettingsFromWorkflow(workflow: Workflow): {
     height?: number;
   } = {};
 
-  for (const node of Object.values(workflow)) {
-    if (!node || typeof node !== "object") continue;
-
+  for (const [, node] of apiNodes(workflow)) {
     const inputs = node.inputs || {};
 
     // KSampler and variants
@@ -270,8 +296,7 @@ export function describeWorkflow(workflow: Workflow): string {
   let hasVideo = false;
   let modelType = "unknown";
 
-  for (const node of Object.values(workflow)) {
-    if (!node || typeof node !== "object") continue;
+  for (const [, node] of apiNodes(workflow)) {
     nodeTypes.add(node.class_type);
 
     if (node.class_type.includes("ControlNet")) hasControlNet = true;

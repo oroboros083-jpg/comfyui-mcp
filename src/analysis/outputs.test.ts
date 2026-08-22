@@ -92,3 +92,58 @@ test("a PNG with no embedded workflow is counted but not mined", async () => {
   assert.equal(prefs.totalImagesAnalyzed, 1);
   assert.equal(prefs.imagesWithWorkflows, 0);
 });
+
+/** A PNG carrying only ComfyUI's UI-format graph, which many tools embed. */
+async function pngWithUiWorkflow(): Promise<Buffer> {
+  const png = await sharp({
+    create: { width: 1, height: 1, channels: 3, background: { r: 4, g: 5, b: 6 } },
+  })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+
+  // The UI format's top-level values are arrays, which passed the old
+  // `typeof node !== "object"` guard and then had no class_type.
+  const workflow = JSON.stringify({
+    last_node_id: 2,
+    nodes: [{ id: 1, type: "KSampler", widgets_values: [123, "fixed", 20] }],
+    links: [[1, 1, 0, 2, 0, "MODEL"]],
+  });
+
+  const headerEnd = 8 + 25;
+  return Buffer.concat([
+    png.subarray(0, headerEnd),
+    textChunk("workflow", workflow),
+    png.subarray(headerEnd),
+  ]);
+}
+
+test("a UI-format workflow does not take the whole analysis down", async () => {
+  // describeWorkflow runs after the per-file try/catch, so a single such PNG
+  // rejected analyzeUserOutputs wholesale and get_user_preferences answered
+  // "available: false" from then on. The API-format sibling must still be
+  // mined.
+  const mixed = mkdtempSync(join(dir, "mixed-"));
+  writeFileSync(join(mixed, "ui.png"), await pngWithUiWorkflow());
+  writeFileSync(join(mixed, "api.png"), await pngWithWorkflow());
+
+  const prefs = await analyzeUserOutputs(mixed);
+
+  assert.equal(prefs.totalImagesAnalyzed, 2);
+  assert.equal(prefs.imagesWithWorkflows, 1, "only the API-format one is analysable");
+  assert.equal(prefs.uniqueWorkflows, 1);
+  assert.ok(
+    prefs.modelUsage.some((m) => m.name === "sdxl.safetensors"),
+    "the readable file was still mined"
+  );
+});
+
+test("a UI-format workflow on its own yields an empty but valid result", async () => {
+  const uiOnly = mkdtempSync(join(dir, "ui-only-"));
+  writeFileSync(join(uiOnly, "ui.png"), await pngWithUiWorkflow());
+
+  const prefs = await analyzeUserOutputs(uiOnly);
+
+  assert.equal(prefs.totalImagesAnalyzed, 1);
+  assert.equal(prefs.imagesWithWorkflows, 0);
+  assert.deepEqual(prefs.workflowTemplates, []);
+});
