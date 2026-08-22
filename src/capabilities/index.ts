@@ -39,9 +39,9 @@ export interface Capabilities {
   hasCogVideo: boolean;
 
   // Audio capabilities.
-  /** Any audio generation path at all: ACE-Step, or the shared decode/save nodes. */
+  /** An audio model (ACE-Step or Stable Audio) is installed. */
   hasAudioGen: boolean;
-  /** Stable Audio specifically. */
+  /** The StableAudioSampler custom node pack is installed. */
   hasStableAudio: boolean;
 
   // Special features
@@ -91,20 +91,14 @@ const NODE_CAPABILITY_MAP: Record<string, keyof Capabilities> = {
 
   // Audio nodes.
   //
-  // StableAudioSampler is a custom pack, not core, and it was the only audio
-  // node mapped - while hasAudioGen, the other half of canGenerateAudio, was
-  // initialised false and never assigned anywhere. So a stock ComfyUI with
-  // full audio support reported canGenerateAudio: false and the summary
-  // omitted "Audio generation" entirely. These are the core nodes the
-  // bundled Stable Audio and ACE-Step examples actually need.
-  EmptyLatentAudio: "hasStableAudio",
+  // Only the custom pack is listed here. EmptyLatentAudio, VAEDecodeAudio,
+  // SaveAudio and the ACE-Step nodes all ship unconditionally in
+  // comfy_extras, so their presence says nothing about whether this install
+  // can actually generate audio - keying on them would make
+  // canGenerateAudio true on a stock SD 1.5-only box. Whether an audio
+  // *model* is installed is the real signal, and the registry already
+  // detects that; see below.
   StableAudioSampler: "hasStableAudio",
-  EmptyAceStepLatentAudio: "hasAudioGen",
-  TextEncodeAceStepAudio: "hasAudioGen",
-  VAEDecodeAudio: "hasAudioGen",
-  SaveAudio: "hasAudioGen",
-  SaveAudioMP3: "hasAudioGen",
-  SaveAudioOpus: "hasAudioGen",
 
   // Special features
   InpaintModelConditioning: "hasInpainting",
@@ -114,6 +108,9 @@ const NODE_CAPABILITY_MAP: Record<string, keyof Capabilities> = {
   UltralyticsDetectorProvider: "hasFaceDetection",
   SAMModelLoader: "hasSegmentation",
 };
+
+/** The registry row covering ACE-Step and Stable Audio checkpoints. */
+const AUDIO_ARCHITECTURE = "aceaudio";
 
 export function detectCapabilities(objectInfo: ObjectInfo): Capabilities {
   const nodeNames = new Set(Object.keys(objectInfo));
@@ -167,6 +164,12 @@ export function detectCapabilities(objectInfo: ObjectInfo): Capabilities {
   for (const spec of detected) {
     if (spec.legacyFlag) capabilities[spec.legacyFlag] = true;
   }
+
+  // Audio generation follows the installed models, not the nodes. hasAudioGen
+  // was previously initialised false and assigned nowhere at all, so
+  // canGenerateAudio was false on every install including ones with an
+  // ACE-Step or Stable Audio checkpoint sitting right there.
+  capabilities.hasAudioGen = detected.some((spec) => spec.id === AUDIO_ARCHITECTURE);
 
   // Get available samplers
   const ksampler = objectInfo["KSampler"];

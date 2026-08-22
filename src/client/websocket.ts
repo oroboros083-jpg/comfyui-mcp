@@ -275,6 +275,17 @@ export class ComfyUIWebSocket extends EventEmitter {
       return;
     }
 
+    // First terminal answer wins.
+    //
+    // ComfyUI sends `executing {node: null}` at the end of a run whether it
+    // finished, errored or was interrupted, so that message arrives *after*
+    // execution_error or execution_interrupted for the same prompt. With a
+    // waiter that has not registered yet - there is async work between
+    // /prompt answering and waitForPrompt being called - the later generic
+    // completion would overwrite the real outcome, and the caller would be
+    // told a cancelled or failed run succeeded with zero images.
+    if (this.unclaimed.has(result.promptId)) return;
+
     this.unclaimed.set(result.promptId, result);
     // Bounded: a result nobody ever claims is a prompt submitted by another
     // client, and there is no upper limit on how many of those an instance

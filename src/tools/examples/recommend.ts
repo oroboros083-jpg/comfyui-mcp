@@ -667,12 +667,12 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
   } else {
     output += `\n## Next Steps\n`;
     output += `1. Call \`comfyui_get_example_workflow("${rec.matchedWorkflow}")\` to get the workflow JSON\n`;
-    // Reuse the sentence built above rather than naming a guide after
+    // Points back at the Prompting section rather than naming a guide after
     // modelType. That was a four-value union when this line was written and
-    // is now any registry id, most of which have no guide - so this told
-    // wan, hidream, lumina, chroma and six others to call a guide that
-    // errors. The computed line already falls back correctly.
-    output += `2. ${rec.promptingGuide}\n`;
+    // is now any registry id, most of which have no guide - so it told wan,
+    // hidream, lumina, chroma and six others to call a guide that errors.
+    // Referring rather than repeating: the same sentence is already above.
+    output += `2. Follow the prompting guidance above\n`;
     output += `3. Use \`comfyui_run_workflow\` with the workflow\n`;
   }
 

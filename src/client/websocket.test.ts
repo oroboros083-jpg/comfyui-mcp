@@ -168,3 +168,54 @@ test("interrupting releases the prompt's partial outputs", async () => {
   const held = (ws as unknown as { outputs: Map<string, unknown> }).outputs;
   assert.equal(held.has("p7"), false);
 });
+
+test("the completion that follows an interrupt does not overwrite it", async () => {
+  // ComfyUI sends executing {node: null} at the end of a run however it
+  // ended, so it arrives after execution_interrupted for the same prompt.
+  // A waiter that registers late would otherwise be handed the generic
+  // success - a cancelled run reported as finished with zero images.
+  const ws = socket();
+
+  deliver(ws, { type: "execution_interrupted", data: { prompt_id: "p8" } });
+  deliver(ws, finished("p8"));
+
+  const result = await ws.waitForPrompt("p8");
+
+  assert.equal(result.success, false);
+  assert.equal(result.error, INTERRUPTED_MARKER);
+});
+
+test("the completion that follows an error does not overwrite it either", async () => {
+  const ws = socket();
+
+  deliver(ws, {
+    type: "execution_error",
+    data: {
+      prompt_id: "p9",
+      node_id: "3",
+      node_type: "KSampler",
+      exception_message: "CUDA out of memory",
+      exception_type: "RuntimeError",
+      traceback: [],
+    },
+  });
+  deliver(ws, finished("p9"));
+
+  const result = await ws.waitForPrompt("p9");
+
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /CUDA out of memory/);
+});
+
+test("a claimed result still lets a later run of a new prompt settle", async () => {
+  // The guard must not wedge the map: claiming clears the entry.
+  const ws = socket();
+
+  deliver(ws, finished("p10"));
+  const first = await ws.waitForPrompt("p10");
+  assert.equal(first.success, true);
+
+  deliver(ws, finished("p11"));
+  const second = await ws.waitForPrompt("p11");
+  assert.equal(second.success, true);
+});

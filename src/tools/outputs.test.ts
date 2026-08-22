@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, isAbsolute, relative as relativePath } from "node:path";
+import { join, isAbsolute, basename, relative as relativePath } from "node:path";
 import sharp from "sharp";
 
 import {
@@ -271,4 +271,26 @@ test("uniquePath leaves a free name alone", () => {
   const free = join(dir, "nothing-here.png");
 
   assert.equal(uniquePath(free), free);
+});
+
+test("the reported filename matches the file actually written", async () => {
+  // uniquePath may append -2 on a collision; a `filename` still carrying the
+  // original name would disagree with basename(path) in exactly the case
+  // the uniqueness handling exists for.
+  const dir = freshDir();
+
+  const first = await collectOutputImages(
+    stubClient(), OUTPUTS, { outputMode: "file" }, WORKFLOW, dir, 1024 * 1024
+  );
+  const second = await collectOutputImages(
+    stubClient(), OUTPUTS, { outputMode: "file" }, WORKFLOW, dir, 1024 * 1024
+  );
+
+  for (const [image] of [first, second]) {
+    assert.equal(
+      image.filename,
+      basename(image.path!),
+      `${image.filename} vs ${image.path}`
+    );
+  }
 });

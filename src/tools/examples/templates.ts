@@ -553,6 +553,18 @@ export class TemplateSaveError extends ToolError {
   }
 }
 
+/** Raised when SQLite refuses the delete. Separate, so the message fits. */
+export class TemplateDeleteError extends ToolError {
+  constructor(templateId: string, cause: unknown) {
+    super(
+      `Failed to delete template '${templateId}': ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      "The store may be locked by another process. comfyui_search_templates shows whether it is still there."
+    );
+  }
+}
+
 /** Raised when the id names a built-in, which is not the caller's to delete. */
 export class BuiltinTemplateError extends ToolError {
   constructor(templateId: string) {
@@ -644,9 +656,13 @@ export function deleteCustomTemplate(input: DeleteTemplateInput): DeleteTemplate
   try {
     deleted = dbDeleteTemplate(input.id);
   } catch (cause) {
-    throw new TemplateSaveError(cause);
+    throw new TemplateDeleteError(input.id, cause);
   }
 
+  // A missing id is a failure, matching get_template for the same
+  // condition: the common cause is a wrong id, and the caller needs to be
+  // told so rather than shown a success. idempotentHint stays true - the
+  // hint is about effect on the store, which a repeat call does not change.
   if (!deleted) throw new TemplateNotFoundError(input.id);
 
   return { id: input.id, deleted: true, message: `Template '${input.id}' deleted` };

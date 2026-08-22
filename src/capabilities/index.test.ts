@@ -18,26 +18,44 @@ function withNodes(...names: string[]): ObjectInfo {
   return info as unknown as ObjectInfo;
 }
 
-test("a stock ComfyUI with Stable Audio reports audio generation", () => {
-  // StableAudioSampler is a custom pack and was the only audio node mapped,
-  // while hasAudioGen - the other half of canGenerateAudio - was never
-  // assigned anywhere. So an install with full core audio support answered
-  // canGenerateAudio: false.
-  const caps = detectCapabilities(
-    withNodes("EmptyLatentAudio", "VAEDecodeAudio", "SaveAudio")
-  );
+/** An object_info whose checkpoint loader lists the given files. */
+function withCheckpoints(...names: string[]): ObjectInfo {
+  return {
+    CheckpointLoaderSimple: {
+      input: { required: { ckpt_name: ["COMBO", { options: names }] } },
+    },
+  } as unknown as ObjectInfo;
+}
 
-  assert.equal(caps.canGenerateAudio, true);
-  assert.equal(caps.hasStableAudio, true);
-});
-
-test("a stock ComfyUI with ACE-Step reports audio generation", () => {
-  const caps = detectCapabilities(
-    withNodes("EmptyAceStepLatentAudio", "TextEncodeAceStepAudio", "VAEDecodeAudio", "SaveAudioMP3")
-  );
+test("an installed audio model means audio generation", () => {
+  // hasAudioGen was initialised false and assigned nowhere, so
+  // canGenerateAudio was false even with an ACE-Step checkpoint installed.
+  const caps = detectCapabilities(withCheckpoints("ace_step_v1_3.5b.safetensors"));
 
   assert.equal(caps.canGenerateAudio, true);
   assert.equal(caps.hasAudioGen, true);
+});
+
+test("a Stable Audio checkpoint counts too", () => {
+  const caps = detectCapabilities(withCheckpoints("stable_audio_open_1.0.safetensors"));
+
+  assert.equal(caps.canGenerateAudio, true);
+});
+
+test("the core audio nodes alone do not mean audio generation", () => {
+  // EmptyLatentAudio, VAEDecodeAudio and SaveAudio ship unconditionally in
+  // comfy_extras, so keying on them would report "Audio generation" on a
+  // stock SD 1.5-only install. Whether an audio model is installed is the
+  // signal.
+  const objectInfo = {
+    ...withNodes("EmptyLatentAudio", "VAEDecodeAudio", "SaveAudio"),
+    ...withCheckpoints("v1-5-pruned-emaonly.safetensors"),
+  } as ObjectInfo;
+
+  const caps = detectCapabilities(objectInfo);
+
+  assert.equal(caps.canGenerateAudio, false);
+  assert.equal(caps.hasSD15, true, "the install is detected, just not as audio");
 });
 
 test("the custom StableAudioSampler pack still counts", () => {
@@ -47,20 +65,16 @@ test("the custom StableAudioSampler pack still counts", () => {
   assert.equal(caps.hasStableAudio, true);
 });
 
-test("an install with no audio nodes still reports none", () => {
-  const caps = detectCapabilities(withNodes("KSampler", "SaveImage", "CLIPTextEncode"));
+test("an install with no audio at all reports none", () => {
+  const caps = detectCapabilities(withCheckpoints("v1-5-pruned-emaonly.safetensors"));
 
   assert.equal(caps.canGenerateAudio, false);
   assert.equal(caps.hasAudioGen, false);
   assert.equal(caps.hasStableAudio, false);
 });
 
-test("the capability summary names audio when it is available", () => {
-  // getCapabilitySummary reads canGenerateAudio, so the dead flag made it
-  // omit "Audio generation" on every install.
-  const caps = detectCapabilities(
-    withNodes("EmptyAceStepLatentAudio", "VAEDecodeAudio", "SaveAudio")
-  );
+test("the capability summary names audio when a model is installed", () => {
+  const caps = detectCapabilities(withCheckpoints("ace_step_v1_3.5b.safetensors"));
 
   assert.ok(getCapabilitySummary(caps).includes("Audio generation"));
 });

@@ -195,6 +195,7 @@ export async function collectOutputImages(
       };
 
       let absolutePath: string | undefined;
+      let savedFilename = readableFilename;
       if (!skipFileSave) {
         // resolve(), not join(): outputMode's own description promises
         // "absolute paths returned", and the shipped default outputDir is
@@ -203,6 +204,11 @@ export async function collectOutputImages(
         // not the agent's - so the agent could not open the file it was
         // handed.
         const outputPath = uniquePath(resolve(outputDir, readableFilename));
+        // Keep the reported name in step with the file actually written:
+        // uniquePath may have appended -2, and a `filename` that disagreed
+        // with basename(path) would be wrong in exactly the collision case
+        // this exists to handle.
+        savedFilename = basename(outputPath);
         const outputDirPath = dirname(outputPath);
         if (!existsSync(outputDirPath)) {
           await mkdir(outputDirPath, { recursive: true });
@@ -220,9 +226,9 @@ export async function collectOutputImages(
 
       if (includeBase64) {
         const { data, mimeType } = await process();
-        images.push({ filename: readableFilename, path: absolutePath, data, mimeType });
+        images.push({ filename: savedFilename, path: absolutePath, data, mimeType });
       } else {
-        images.push({ filename: readableFilename, path: absolutePath });
+        images.push({ filename: savedFilename, path: absolutePath });
       }
 
       imageIndex++;

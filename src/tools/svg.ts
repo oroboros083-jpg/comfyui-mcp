@@ -116,7 +116,9 @@ export async function renderSvg(
     // width/height pair was also joined with &&, so a root declaring only one
     // of them got neither.
     const rootTag = svgContent.match(/<svg\b[^>]*>/)?.[0] ?? "";
-    const rootHas = (attr: string) => new RegExp(`\\b${attr}\\s*=`).test(rootTag);
+    // Attributes are whitespace-separated in the tag. \b would match after a
+    // hyphen, so a root carrying stroke-width= counted as having width=.
+    const rootHas = (attr: string) => new RegExp(`\\s${attr}\\s*=`).test(rootTag);
 
     const missingAttrs: string[] = [];
     if (!rootHas("width")) missingAttrs.push(`width="${input.width}"`);

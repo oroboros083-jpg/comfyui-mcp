@@ -82,3 +82,16 @@ test("malformed markup is still reported as a failure", async () => {
 
   assert.equal(result.success, false);
 });
+
+test("a root stroke-width is not mistaken for the root's width", async () => {
+  // \b matches after a hyphen, so `stroke-width=` counted as `width=` and
+  // the root never received explicit dimensions.
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" stroke-width="2" viewBox="0 0 50 50">' +
+    '<line x1="0" y1="0" x2="50" y2="50" stroke="black"/></svg>';
+
+  const result = await renderSvg(input({ svg, width: 400, height: 400 }));
+
+  assert.equal(result.success, true, result.error);
+  assert.deepEqual(await size(result.buffer!), { width: 400, height: 400 });
+});
