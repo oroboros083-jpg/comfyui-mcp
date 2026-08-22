@@ -55,13 +55,24 @@ export interface ExecutionErrorMessage {
   };
 }
 
+export interface ExecutionInterruptedMessage {
+  type: "execution_interrupted";
+  data: {
+    prompt_id: string;
+    node_id?: string;
+    node_type?: string;
+    executed?: string[];
+  };
+}
+
 export type ComfyUIMessage =
   | ProgressMessage
   | ExecutingMessage
   | ExecutedMessage
   | ExecutionStartMessage
   | ExecutionCachedMessage
-  | ExecutionErrorMessage;
+  | ExecutionErrorMessage
+  | ExecutionInterruptedMessage;
 
 export interface PromptResult {
   success: boolean;
@@ -88,6 +99,15 @@ const MAX_UNCLAIMED_RESULTS = 32;
  */
 export const DISCONNECT_MARKER =
   "ComfyUI disconnected before this execution finished";
+
+/**
+ * Why an in-flight prompt was failed when the user cancelled it.
+ *
+ * Deliberately not the disconnect marker: an interrupted run really did not
+ * finish, so reconcile must leave it failed rather than hunt for outputs in
+ * ComfyUI's history.
+ */
+export const INTERRUPTED_MARKER = "Execution interrupted";
 
 export class ComfyUIWebSocket extends EventEmitter {
   private ws: WebSocket | null = null;
@@ -308,6 +328,21 @@ export class ComfyUIWebSocket extends EventEmitter {
           error: message.data.exception_message,
         });
         this.emit("execution_error", message.data);
+        break;
+
+      case "execution_interrupted":
+        // comfyui_interrupt ends the run, and ComfyUI says so only here.
+        // Without this branch the waiter was never settled - and
+        // waitForPrompt has no timeout by design - so a sync run blocked
+        // forever, the job row stayed "working", and the entry leaked from
+        // `outputs`, which unlike `unclaimed` has no cap.
+        this.settle({
+          success: false,
+          promptId: message.data.prompt_id,
+          outputs: this.outputsFor(message.data.prompt_id),
+          error: INTERRUPTED_MARKER,
+        });
+        this.emit("execution_interrupted", message.data);
         break;
     }
   }

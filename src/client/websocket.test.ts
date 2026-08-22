@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   ComfyUIWebSocket,
   DISCONNECT_MARKER,
+  INTERRUPTED_MARKER,
   type ComfyUIMessage,
 } from "./websocket.js";
 
@@ -125,4 +126,45 @@ test("disconnect fails in-flight prompts with the marker reconcile keys on", asy
     assert.equal(error.message.includes(DISCONNECT_MARKER), true, error.message);
     return true;
   });
+});
+
+test("an interrupted prompt settles its waiter instead of hanging forever", async () => {
+  // comfyui_interrupt makes ComfyUI emit execution_interrupted and nothing
+  // else. The switch ignored it, so the waiter was never settled - and
+  // waitForPrompt has no timeout by design - leaving a sync run blocked
+  // forever and the job row stuck on "working".
+  const ws = socket();
+
+  const pending = ws.waitForPrompt("p6");
+  deliver(ws, {
+    type: "execution_interrupted",
+    data: { prompt_id: "p6", node_id: "3", node_type: "KSampler" },
+  });
+
+  const result = await pending;
+
+  assert.equal(result.success, false);
+  assert.equal(result.promptId, "p6");
+  assert.equal(result.error, INTERRUPTED_MARKER);
+});
+
+test("an interrupted prompt is not mistaken for a disconnect", async () => {
+  // reconcile hunts ComfyUI's history for anything carrying the disconnect
+  // marker. An interrupted run genuinely did not finish, so it must not
+  // carry that wording or reconcile would keep trying to complete it.
+  assert.notEqual(INTERRUPTED_MARKER, DISCONNECT_MARKER);
+  assert.equal(INTERRUPTED_MARKER.includes(DISCONNECT_MARKER), false);
+});
+
+test("interrupting releases the prompt's partial outputs", async () => {
+  // `outputs` has no cap, unlike `unclaimed`; settle() is the only thing
+  // that deletes an entry, so an unhandled interrupt retained every
+  // partial output until the socket dropped.
+  const ws = socket();
+
+  deliver(ws, executed("p7", "9", { images: [{ filename: "partial.png" }] }));
+  deliver(ws, { type: "execution_interrupted", data: { prompt_id: "p7" } });
+
+  const held = (ws as unknown as { outputs: Map<string, unknown> }).outputs;
+  assert.equal(held.has("p7"), false);
 });
