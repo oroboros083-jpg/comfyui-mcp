@@ -469,20 +469,28 @@ function applyParametersToWorkflow(
 ): Record<string, unknown> {
   const result = JSON.parse(JSON.stringify(workflow)); // Deep clone
 
+  // "Apply the prompt to the first CLIPTextEncode only" used to be enforced
+  // with `delete params.prompt`, which mutated the caller's object - and
+  // get_template reports that same object back as appliedParameters, so the
+  // response said the prompt had not been applied when it had. A local flag
+  // keeps the once-only rule without touching the input.
+  let promptApplied = false;
+
   for (const node of Object.values(result)) {
     const nodeObj = node as Record<string, unknown>;
     if (nodeObj.class_type === "CLIPTextEncode" && nodeObj.inputs) {
       const inputs = nodeObj.inputs as Record<string, unknown>;
       // Apply prompt parameter to first CLIPTextEncode (positive)
-      if (params.prompt !== undefined && inputs.text !== undefined) {
+      if (!promptApplied && params.prompt !== undefined && inputs.text !== undefined) {
         inputs.text = params.prompt;
-        delete params.prompt; // Only apply once
+        promptApplied = true;
       }
     }
     // Apply other parameters (width, height, steps, etc.)
     if (nodeObj.inputs) {
       const inputs = nodeObj.inputs as Record<string, unknown>;
       for (const [key, value] of Object.entries(params)) {
+        if (key === "prompt") continue; // handled above, once
         if (key in inputs) {
           inputs[key] = value;
         }
