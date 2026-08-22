@@ -99,17 +99,27 @@ export async function extractWorkflowFromPng(
         // tEXt: key\0value
         value = new TextDecoder().decode(chunkData.slice(nullIndex + 1));
       } else {
-        // iTXt: key\0compression\0language\0translated\0text
-        // Skip compression flag, method, language tag, translated keyword
-        let valueStart = nullIndex + 1;
+        // iTXt: key\0 flag method language\0 translated\0 text
+        //
+        // The compression flag and method are two *fixed* bytes, not
+        // NUL-terminated fields, and both are normally zero - so counting
+        // NULs from the keyword separator spends two of them on those bytes
+        // and stops one field early, leaving a leading NUL on every value.
+        // Skip the two bytes first, then two NUL-terminated strings.
+        const flag = chunkData[nullIndex + 1];
+        let valueStart = nullIndex + 3;
         let nullCount = 0;
-        for (let i = valueStart; i < chunkData.length && nullCount < 3; i++) {
-          if (chunkData[i] === 0) {
-            nullCount++;
-            valueStart = i + 1;
-          }
+        while (valueStart < chunkData.length && nullCount < 2) {
+          if (chunkData[valueStart] === 0) nullCount++;
+          valueStart++;
         }
-        value = new TextDecoder().decode(chunkData.slice(valueStart));
+
+        // A compression flag of 1 means the text is zlib-deflated. Decoding
+        // it as UTF-8 would yield noise that fails JSON.parse anyway, so
+        // report nothing rather than a value this parser did not read.
+        value = nullCount === 2 && flag === 0
+          ? new TextDecoder().decode(chunkData.slice(valueStart))
+          : "";
       }
 
       // Parse workflow or prompt JSON
