@@ -15,24 +15,37 @@ ComfyUI only needs to *find* it under `custom_nodes`, and a link satisfies
 that: Python's import machinery sees an ordinary directory. So link rather
 than copy, and edits here reach ComfyUI on its next restart.
 
-Windows — a junction, which needs neither admin nor developer mode:
-
-```powershell
-New-Item -ItemType Junction -Path "$env:USERPROFILE\Documents\ComfyUI\custom_nodes\ComfyUI-TabBridge" -Target "$env:USERPROFILE\comfyui-mcp\comfyui-tabbridge"
-```
-
-macOS / Linux:
+From the repo root:
 
 ```bash
-ln -s ~/comfyui-mcp/comfyui-tabbridge ~/ComfyUI/custom_nodes/ComfyUI-TabBridge
+npm run link:tabbridge
 ```
 
-Point it at the install ComfyUI actually runs from — the one named by
-`--base-directory`, which is not necessarily where the models live. Then
-restart ComfyUI and confirm with `curl localhost:8000/tabs/state`.
+It asks a running ComfyUI where it lives — `/system_stats` reports the argv it
+was started with, so the answer is exact — and creates a junction on Windows
+(no admin, no developer mode) or a symlink elsewhere. Re-running it is safe.
+It will not delete anything: if a real directory is already at that path it
+says so and stops. `--check` reports without changing anything, and
+`--base-dir <path>` or `COMFYUI_BASE_DIR` override the detection.
 
-Copying instead of linking works too, and is what you want if ComfyUI runs on
-a different machine from the MCP server. It just means the two can drift.
+Detection matters because `--base-directory` is where custom nodes load from,
+which is **not** necessarily where the models live — those can be pointed
+somewhere else entirely.
+
+Then restart ComfyUI and confirm:
+
+```bash
+curl localhost:8000/tabs/state
+```
+
+If you would rather do it by hand: `New-Item -ItemType Junction -Path
+<custom_nodes>\ComfyUI-TabBridge -Target <repo>\comfyui-tabbridge` on Windows,
+`ln -s` elsewhere. Copying instead of linking also works, and is what you want
+if ComfyUI runs on a different machine from the MCP server — it just means the
+two can drift.
+
+Expect Python to write `__pycache__` into this directory once ComfyUI imports
+it. That is ignored by git.
 
 ## The problem
 

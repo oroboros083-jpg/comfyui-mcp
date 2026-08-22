@@ -100,8 +100,15 @@ together rather than versioning half a protocol.
 
 ComfyUI loads it from `custom_nodes`, which is outside this repo, so a working
 install has that path **linked** here - a directory junction on Windows, a
-symlink elsewhere. Git stores the directory; it does not store the link, so a
-fresh clone has to recreate it. The README says how.
+symlink elsewhere. Git stores the directory but never the link: a clone that
+could create things outside its own tree would be a code-execution vector, so
+this is a post-clone step by design rather than by omission.
+
+`npm run link:tabbridge` is that step. It finds ComfyUI by asking a running
+instance for its own argv (`/system_stats` reports it, so `--base-directory`
+is exact rather than guessed), is safe to re-run, and refuses to delete a real
+directory that is already at the target. `--check` reports without changing
+anything.
 
 Edits here reach ComfyUI on its next restart, not immediately: the Python
 module is already imported.
@@ -145,6 +152,7 @@ Parses `/object_info` response to detect:
 
 ```bash
 npm install          # Install dependencies
+npm run link:tabbridge  # Link the companion custom node into ComfyUI (once per clone)
 npm run build        # Compile TypeScript
 npm test             # Build, then run the test suite
 npm start            # Run the server

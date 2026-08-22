@@ -12,6 +12,7 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "inspector": "npx @anthropics/mcp-inspector dist/index.js",
+    "link:tabbridge": "node scripts/link-tabbridge.mjs",
     "test": "npm run build && node --test \"dist/**/*.test.js\""
   },
   "keywords": [
