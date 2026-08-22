@@ -21,9 +21,10 @@
 
 import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
-import { join, dirname, resolve, extname, basename } from "path";
+import { join, resolve, extname, basename } from "path";
 
 import { ComfyUIClient } from "../client/comfyui.js";
+import { ToolError } from "../utils/errors.js";
 import {
   processImageForTransfer,
   ImageProcessingOptions,
@@ -76,27 +77,47 @@ export function shouldSkipFileSaving(): boolean {
   return !process.env.OUTPUT_DIR;
 }
 
+/** How many suffixed names to try before giving up on a collision. */
+const MAX_FILENAME_ATTEMPTS = 1000;
+
 /**
- * A path that is not already taken, by appending -2, -3 and so on.
+ * Write to the first free name, and report which one that was.
  *
  * The readable filename has one-second resolution and only carries an index
  * from the second image of a batch, so two runs of the same prompt landing in
- * the same second produced the same name and writeFile silently overwrote.
- * The caller was handed two OutputImage entries with identical `path` values,
- * one of which no longer held the bytes it named.
+ * the same second produce the same name. writeFile alone silently overwrote,
+ * handing the caller two OutputImage entries with identical `path` values
+ * where only one held the bytes it named.
+ *
+ * The `wx` flag makes the existence check and the create one operation. A
+ * separate existsSync probe would be divided from the write by the image
+ * conversion's awaits, so two concurrent collections would both find the same
+ * name free and the second would still clobber the first.
  */
-export function uniquePath(candidate: string): string {
-  if (!existsSync(candidate)) return candidate;
+export async function writeUnique(
+  directory: string,
+  filename: string,
+  data: Buffer
+): Promise<string> {
+  const ext = extname(filename);
+  const stem = basename(filename, ext);
 
-  const dir = dirname(candidate);
-  const ext = extname(candidate);
-  const stem = basename(candidate, ext);
-
-  for (let n = 2; n < 1000; n++) {
-    const next = join(dir, `${stem}-${n}${ext}`);
-    if (!existsSync(next)) return next;
+  for (let n = 1; n <= MAX_FILENAME_ATTEMPTS; n++) {
+    const candidate = join(directory, n === 1 ? filename : `${stem}-${n}${ext}`);
+    try {
+      await writeFile(candidate, data, { flag: "wx" });
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
   }
-  return candidate;
+
+  // Refuse rather than overwrite: silently clobbering is the failure this
+  // whole function exists to prevent.
+  throw new ToolError(
+    `Could not find a free filename for '${filename}' after ${MAX_FILENAME_ATTEMPTS} attempts`,
+    "The output directory already holds that many files with this name. Move or clear some, or set a different outputDir."
+  );
 }
 
 /** A filename a human can recognise later, from the prompt and the date. */
@@ -203,19 +224,22 @@ export async function collectOutputImages(
         // process's cwd, which for a stdio server launched by a client is
         // not the agent's - so the agent could not open the file it was
         // handed.
-        const outputPath = uniquePath(resolve(outputDir, readableFilename));
-        // Keep the reported name in step with the file actually written:
-        // uniquePath may have appended -2, and a `filename` that disagreed
-        // with basename(path) would be wrong in exactly the collision case
-        // this exists to handle.
-        savedFilename = basename(outputPath);
-        const outputDirPath = dirname(outputPath);
-        if (!existsSync(outputDirPath)) {
-          await mkdir(outputDirPath, { recursive: true });
+        const directory = resolve(outputDir);
+        if (!existsSync(directory)) {
+          await mkdir(directory, { recursive: true });
         }
         // The converted bytes, so the file on disk is in the requested
         // format. The async path used to write the raw buffer here.
-        await writeFile(outputPath, Buffer.from((await process()).data, "base64"));
+        const outputPath = await writeUnique(
+          directory,
+          readableFilename,
+          Buffer.from((await process()).data, "base64")
+        );
+        // Keep the reported name in step with the file actually written:
+        // writeUnique may have appended -2, and a `filename` disagreeing
+        // with basename(path) would be wrong in exactly the collision case
+        // it exists to handle.
+        savedFilename = basename(outputPath);
         absolutePath = outputPath;
       }
 

@@ -10,7 +10,7 @@ import {
   shouldSkipFileSaving,
   workflowPromptFor,
   generateReadableFilename,
-  uniquePath,
+  writeUnique,
 } from "./outputs.js";
 import { ComfyUIClient } from "../client/comfyui.js";
 
@@ -266,11 +266,32 @@ test("two runs of the same prompt in the same second do not overwrite", async ()
   assert.equal(readdirSync(dir).length, 2);
 });
 
-test("uniquePath leaves a free name alone", () => {
+test("writeUnique takes a free name as-is", async () => {
   const dir = freshDir();
-  const free = join(dir, "nothing-here.png");
 
-  assert.equal(uniquePath(free), free);
+  const written = await writeUnique(dir, "nothing-here.png", Buffer.from("a"));
+
+  assert.equal(written, join(dir, "nothing-here.png"));
+});
+
+test("writeUnique never overwrites, even under concurrency", async () => {
+  // The check and the create are one operation, so racing writers cannot
+  // both see the same name free. An existsSync probe would be separated
+  // from the write by the image conversion's awaits.
+  const dir = freshDir();
+
+  const paths = await Promise.all(
+    Array.from({ length: 20 }, (_, i) =>
+      writeUnique(dir, "same-name.png", Buffer.from(`payload ${i}`))
+    )
+  );
+
+  assert.equal(new Set(paths).size, 20, "every writer got its own path");
+  assert.equal(readdirSync(dir).length, 20, "and every file survives");
+
+  // Each file still holds the bytes its own writer wrote.
+  const contents = new Set(paths.map((p) => readFileSync(p, "utf8")));
+  assert.equal(contents.size, 20);
 });
 
 test("the reported filename matches the file actually written", async () => {
