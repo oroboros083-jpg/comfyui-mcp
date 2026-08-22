@@ -145,7 +145,7 @@ export async function getPrompt(
           systemContext += `- ${tip}\n`;
         });
       } else {
-        systemContext += `Model will be auto-detected. Call get_capabilities first to determine the best prompting approach.\n`;
+        systemContext += `Model will be auto-detected. Call comfyui_get_capabilities first to determine the best prompting approach.\n`;
       }
 
       return {
@@ -155,7 +155,7 @@ export async function getPrompt(
             role: "user",
             content: {
               type: "text",
-              text: `${systemContext}\n\nGenerate an image of: ${prompt}\n\nAspect ratio preference: ${aspectRatio}\n\nPlease:\n1. First call get_capabilities to understand the available models\n2. Then call get_prompting_guide with the detected model type\n3. Finally, use generate_image with an optimized prompt based on the guide`,
+              text: `${systemContext}\n\nGenerate an image of: ${prompt}\n\nAspect ratio preference: ${aspectRatio}\n\nPlease:\n1. First call comfyui_get_capabilities to understand the available models\n2. Then call comfyui_get_prompting_guide with the detected model type\n3. Finally, use comfyui_run_workflow with an optimized prompt based on the guide`,
             },
           },
         ],
@@ -173,7 +173,7 @@ export async function getPrompt(
             role: "user",
             content: {
               type: "text",
-              text: `Help me set up ComfyUI for ${modelType} image generation on ${platform}.\n\nPlease:\n1. First call get_status to check if ComfyUI is already installed/running\n2. If not installed, call get_install_guide for platform: ${platform}\n3. Then call get_model_guide for model type: ${modelType}\n4. List the specific models I need to download with list_downloads\n5. Provide step-by-step instructions for a complete working setup`,
+              text: `Help me set up ComfyUI for ${modelType} image generation on ${platform}.\n\nPlease:\n1. First call comfyui_get_status to check if ComfyUI is already installed/running\n2. If not installed, call comfyui_get_install_guide for platform: ${platform}\n3. Then call comfyui_get_model_guide for model type: ${modelType}\n4. List the specific models I need to download with comfyui_get_download_url\n5. Provide step-by-step instructions for a complete working setup`,
             },
           },
         ],
