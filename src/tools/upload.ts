@@ -214,6 +214,15 @@ export async function uploadImage(
     const fetched = await client.getImage(source.filename, source.subfolder, source.type);
     bytes = Buffer.from(fetched);
     sourceName = basename(source.filename);
+
+    // The same ceiling as a local file, so the limit means one thing. A video
+    // that large would fail the decode below anyway - LoadImage reads stills.
+    if (bytes.length > MAX_UPLOAD_BYTES) {
+      throw new ToolError(
+        `'${sourceName}' is ${Math.round(bytes.length / 1024 / 1024)}MB, over the ${MAX_UPLOAD_BYTES / 1024 / 1024}MB upload limit.`,
+        "Downscale it in a workflow first, or fetch it with comfyui_get_image and upload a re-encoded copy."
+      );
+    }
   }
 
   // Decoding also validates: a PDF or a truncated download reaching ComfyUI

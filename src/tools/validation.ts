@@ -89,6 +89,10 @@ export function similarOptions(value: string, options: string[], max = 3): strin
       const optionStem = stem(lower);
       // Case is the likeliest single-character mistake, so it sorts first.
       if (lower === wanted) return { option, score: 0 };
+      // Below three characters there is nothing to be similar to: an empty or
+      // one-letter value is a substring of everything, and would otherwise
+      // come back as "Closest:" followed by three arbitrary options.
+      if (wantedStem.length < 3) return { option, score: 99 };
       if (overlaps(optionStem, wantedStem)) return { option, score: 1 };
       if (optionStem.includes(wantedStem) || wantedStem.includes(optionStem)) {
         return { option, score: 2 };

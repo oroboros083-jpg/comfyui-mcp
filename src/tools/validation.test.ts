@@ -314,3 +314,10 @@ test("suggestions are ranked, capped, and empty when nothing is close", () => {
   // A difference of case only is the likeliest single mistake, so it leads.
   assert.deepEqual(similarOptions("FLUX1-DEV.safetensors", options), ["flux1-dev.safetensors"]);
 });
+
+test("a value too short to resemble anything suggests nothing", () => {
+  // Every option contains the empty string, so an unguarded substring match
+  // answers a blank input with three arbitrary filenames.
+  assert.deepEqual(similarOptions("", ["a.safetensors", "b.safetensors"]), []);
+  assert.deepEqual(similarOptions("x", ["a.safetensors", "b.safetensors"]), []);
+});
