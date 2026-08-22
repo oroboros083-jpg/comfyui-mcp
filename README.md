@@ -743,7 +743,9 @@ Run this workflow: [paste JSON]
 ```
 
 #### `comfyui_validate_workflow`
-Validate a workflow before running. Checks node types, connections, and required inputs.
+Validate a workflow before running. Checks node types, connections, required inputs, and that each
+fixed-choice value - a model filename, a sampler, an input image - is one this ComfyUI actually has.
+A name that is not installed comes back with the closest installed one rather than the whole list.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

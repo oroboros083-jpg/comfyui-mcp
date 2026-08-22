@@ -223,8 +223,10 @@ export function registerDiscoveryTools(server: McpServer): void {
     name: "validate_workflow",
     description:
       "Validate a workflow before running it: checks that every node type exists, connections point at " +
-      "real nodes and slots, required inputs are present, and types match. Returns errors and warnings. " +
-      "Cheaper than a failed run - call it before comfyui_run_workflow on anything hand-assembled.",
+      "real nodes and slots, required inputs are present, types match, and each fixed-choice value - a " +
+      "model filename, a sampler, an input image - is one this ComfyUI actually has, suggesting the " +
+      "closest installed name when it is not. Returns errors and warnings. Cheaper than a failed run - " +
+      "call it before comfyui_run_workflow on anything hand-assembled.",
     schema: validateWorkflowSchema,
     requiresConnection: true,
     annotations: {
