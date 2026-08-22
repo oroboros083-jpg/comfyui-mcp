@@ -77,6 +77,18 @@ export interface PromptResult {
  */
 const MAX_UNCLAIMED_RESULTS = 32;
 
+/**
+ * Why an in-flight prompt was failed when this process stopped watching it.
+ *
+ * Every path that tears the socket down uses this one string, because
+ * `jobs/reconcile.ts` keys off it to decide a job is worth re-checking
+ * against ComfyUI's history. A second wording anywhere means those runs are
+ * never reconciled: ComfyUI finishes the render and the job stays failed
+ * forever. That is exactly what `disconnect()` did with its own message.
+ */
+export const DISCONNECT_MARKER =
+  "ComfyUI disconnected before this execution finished";
+
 export class ComfyUIWebSocket extends EventEmitter {
   private ws: WebSocket | null = null;
   private url: string;
@@ -184,9 +196,7 @@ export class ComfyUIWebSocket extends EventEmitter {
         // ComfyUI went away mid-execution: the progress stream for anything in
         // flight is gone, so settle those waiters instead of leaking them.
         // reconnect() reconciles them against /history afterwards.
-        this.failPendingPrompts(
-          "ComfyUI disconnected before this execution finished"
-        );
+        this.failPendingPrompts(DISCONNECT_MARKER);
         if (!this.closedByUser) {
           this.attemptReconnect();
         }
@@ -326,8 +336,10 @@ export class ComfyUIWebSocket extends EventEmitter {
       this.ws = null;
       socket.close();
     }
-    // Reject all pending prompts
-    this.failPendingPrompts("WebSocket disconnected");
+    // Reject all pending prompts. A deliberate teardown is no more
+    // authoritative than a dropped socket - ComfyUI carries on rendering
+    // either way - so these carry the same marker and get reconciled.
+    this.failPendingPrompts(DISCONNECT_MARKER);
   }
 
   isConnected(): boolean {

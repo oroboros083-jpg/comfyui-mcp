@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ComfyUIWebSocket, type ComfyUIMessage } from "./websocket.js";
+import {
+  ComfyUIWebSocket,
+  DISCONNECT_MARKER,
+  type ComfyUIMessage,
+} from "./websocket.js";
 
 /**
  * The message handler is private, but it is the whole surface under test here:
@@ -103,4 +107,22 @@ test("held results are bounded so another client cannot fill memory", async () =
   assert.ok(held.size <= 32, `held ${held.size} results`);
   assert.equal(held.has("other-49"), true, "the newest is kept");
   assert.equal(held.has("other-0"), false, "the oldest is dropped");
+});
+
+test("disconnect fails in-flight prompts with the marker reconcile keys on", async () => {
+  // refreshConnection tears the socket down while a generation is running -
+  // get_status, reconnect and start_comfyui all reach it. ComfyUI carries on
+  // rendering regardless, so the waiter has to fail with the one wording
+  // jobs/reconcile.ts recognises. disconnect() used to say "WebSocket
+  // disconnected" instead, and those runs were never reconciled: the images
+  // landed in ComfyUI's output folder and the job stayed failed forever.
+  const ws = socket();
+
+  const pending = ws.waitForPrompt("p5");
+  ws.disconnect();
+
+  await assert.rejects(pending, (error: Error) => {
+    assert.equal(error.message.includes(DISCONNECT_MARKER), true, error.message);
+    return true;
+  });
 });

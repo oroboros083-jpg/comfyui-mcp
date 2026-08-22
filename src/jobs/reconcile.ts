@@ -1,4 +1,5 @@
 import { ComfyUIClient } from "../client/comfyui.js";
+import { DISCONNECT_MARKER } from "../client/websocket.js";
 import { JobManager, Job } from "./manager.js";
 import { collectOutputImages, OutputImage } from "../tools/outputs.js";
 
@@ -6,10 +7,13 @@ import { collectOutputImages, OutputImage } from "../tools/outputs.js";
  * A job is orphaned when this process lost track of its execution: either
  * ComfyUI died while it was running, or the MCP server itself was restarted
  * while the job was in flight. Both leave a row stuck in "working" forever,
- * and the WebSocket close path marks in-flight prompts failed with this
- * marker. Neither is authoritative - ComfyUI's /history is.
+ * and every socket teardown marks in-flight prompts failed with this marker.
+ * Neither is authoritative - ComfyUI's /history is.
+ *
+ * Imported rather than re-declared: a local copy is what let `disconnect()`
+ * drift to its own wording, which this predicate then never matched.
  */
-const DISCONNECT_MARKER = "ComfyUI disconnected before this execution finished";
+export { DISCONNECT_MARKER };
 
 export interface ReconcileSummary {
   checked: number;
