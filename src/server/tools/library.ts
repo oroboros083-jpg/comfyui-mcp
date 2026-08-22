@@ -299,7 +299,7 @@ export function registerLibraryTools(server: McpServer): void {
       idempotentHint: false,
       openWorldHint: false,
     },
-    handler: (input) => textResult(saveCustomTemplate(input)),
+    handler: (input) => dataResult(saveCustomTemplate(input)),
   });
 
   defineTool(server, {
@@ -316,7 +316,7 @@ export function registerLibraryTools(server: McpServer): void {
       idempotentHint: true,
       openWorldHint: false,
     },
-    handler: (input) => textResult(deleteCustomTemplate(input)),
+    handler: (input) => dataResult(deleteCustomTemplate(input)),
   });
 
   defineTool(server, {
@@ -332,7 +332,7 @@ export function registerLibraryTools(server: McpServer): void {
       idempotentHint: true,
       openWorldHint: false,
     },
-    handler: (input) => textResult(getDownloadUrl(input)),
+    handler: (input) => dataResult(getDownloadUrl(input)),
   });
 
   defineTool(server, {

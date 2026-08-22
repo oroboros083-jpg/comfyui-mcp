@@ -543,9 +543,46 @@ export const saveTemplateSchema = z.object({
 
 export type SaveTemplateInput = z.infer<typeof saveTemplateSchema>;
 
-export function saveCustomTemplate(input: SaveTemplateInput): string {
+/** Raised when SQLite refuses the write. */
+export class TemplateSaveError extends ToolError {
+  constructor(cause: unknown) {
+    super(
+      `Failed to save template: ${cause instanceof Error ? cause.message : String(cause)}`,
+      "Check the id is a plain identifier and the workflow is a JSON object. comfyui_search_templates lists what is already stored."
+    );
+  }
+}
+
+/** Raised when the id names a built-in, which is not the caller's to delete. */
+export class BuiltinTemplateError extends ToolError {
+  constructor(templateId: string) {
+    super(
+      `'${templateId}' is a built-in template and cannot be deleted`,
+      "Only templates saved with comfyui_save_template can be deleted. comfyui_search_templates shows which are custom."
+    );
+  }
+}
+
+/** One saved template, as reported back to the caller. */
+export interface SaveTemplateResult {
+  template: {
+    id: string;
+    name: string;
+    description: string;
+    modelType: string;
+    taskType: string;
+    category: string;
+    tags?: string[];
+    createdAt: string;
+    updatedAt: string;
+  };
+  usage: string;
+}
+
+export function saveCustomTemplate(input: SaveTemplateInput): SaveTemplateResult {
+  let saved;
   try {
-    const saved = dbSaveTemplate({
+    saved = dbSaveTemplate({
       id: input.id,
       name: input.name,
       description: input.description,
@@ -556,28 +593,27 @@ export function saveCustomTemplate(input: SaveTemplateInput): string {
       tags: input.tags,
       defaultSettings: input.defaultSettings as Record<string, unknown>,
     });
-
-    return JSON.stringify({
-      success: true,
-      template: {
-        id: saved.id,
-        name: saved.name,
-        description: saved.description,
-        modelType: saved.modelType,
-        taskType: saved.taskType,
-        category: saved.category,
-        tags: saved.tags,
-        createdAt: saved.createdAt,
-        updatedAt: saved.updatedAt,
-      },
-      usage: `Use comfyui_get_template({ templateId: "${saved.id}" }) to retrieve this workflow`,
-    });
-  } catch (error) {
-    return JSON.stringify({
-      success: false,
-      error: error instanceof Error ? error.message : "Failed to save template",
-    });
+  } catch (cause) {
+    // A failure has to be distinguishable from a success. This used to return
+    // {"success":false,...} through textResult, which never sets isError, so
+    // the caller could not tell a refused save from a completed one.
+    throw new TemplateSaveError(cause);
   }
+
+  return {
+    template: {
+      id: saved.id,
+      name: saved.name,
+      description: saved.description,
+      modelType: saved.modelType,
+      taskType: saved.taskType,
+      category: saved.category,
+      tags: saved.tags,
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+    },
+    usage: `Use comfyui_get_template({ templateId: "${saved.id}" }) to retrieve this workflow`,
+  };
 }
 
 // === Delete Template Tool ===
@@ -590,26 +626,28 @@ export const deleteTemplateSchema = z.object({
 
 export type DeleteTemplateInput = z.infer<typeof deleteTemplateSchema>;
 
-export function deleteCustomTemplate(input: DeleteTemplateInput): string {
-  // Don't allow deleting built-in templates
-  if (BUILTIN_TEMPLATES.some((t) => t.id === input.id)) {
-    return JSON.stringify({
-      success: false,
-      error: "Cannot delete built-in templates",
-    });
-  }
-
-  try {
-    const deleted = dbDeleteTemplate(input.id);
-    return JSON.stringify({
-      success: deleted,
-      message: deleted ? `Template '${input.id}' deleted` : `Template '${input.id}' not found`,
-    });
-  } catch (error) {
-    return JSON.stringify({
-      success: false,
-      error: error instanceof Error ? error.message : "Failed to delete template",
-    });
-  }
+/** What a successful delete reports. */
+export interface DeleteTemplateResult {
+  id: string;
+  deleted: true;
+  message: string;
 }
 
+export function deleteCustomTemplate(input: DeleteTemplateInput): DeleteTemplateResult {
+  // Deleting a built-in is not something the caller can do, so it is a
+  // failure rather than a success carrying success:false.
+  if (BUILTIN_TEMPLATES.some((t) => t.id === input.id)) {
+    throw new BuiltinTemplateError(input.id);
+  }
+
+  let deleted: boolean;
+  try {
+    deleted = dbDeleteTemplate(input.id);
+  } catch (cause) {
+    throw new TemplateSaveError(cause);
+  }
+
+  if (!deleted) throw new TemplateNotFoundError(input.id);
+
+  return { id: input.id, deleted: true, message: `Template '${input.id}' deleted` };
+}

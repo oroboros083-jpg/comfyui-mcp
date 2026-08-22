@@ -120,3 +120,64 @@ test("a repeated call from the reported parameters still carries the prompt", as
   const workflow = second.workflow as typeof WORKFLOW;
   assert.equal(workflow["1"].inputs.text, "a cat");
 });
+
+test("deleting a template that does not exist is a failure, not a success", async () => {
+  // These returned {"success":false,...} as a JSON string through
+  // textResult, which never sets isError - so the caller could not tell a
+  // refused delete from a completed one.
+  const { deleteCustomTemplate, TemplateNotFoundError } = await import("./templates.js");
+
+  assert.throws(
+    () => deleteCustomTemplate({ id: "no_such_template" }),
+    (err: unknown) =>
+      err instanceof TemplateNotFoundError && /comfyui_search_templates/.test(err.hint ?? "")
+  );
+});
+
+test("deleting a built-in names the tool that shows which are custom", async () => {
+  const { deleteCustomTemplate, BuiltinTemplateError } = await import("./templates.js");
+  const { BUILTIN_TEMPLATES } = await import("../../workflows/builder.js");
+
+  assert.throws(
+    () => deleteCustomTemplate({ id: BUILTIN_TEMPLATES[0].id }),
+    (err: unknown) =>
+      err instanceof BuiltinTemplateError && /comfyui_search_templates/.test(err.hint ?? "")
+  );
+});
+
+test("a successful delete reports the id it removed", async () => {
+  const { saveCustomTemplate, deleteCustomTemplate } = await import("./templates.js");
+
+  saveCustomTemplate({
+    id: "to_be_deleted",
+    name: "Doomed",
+    description: "d",
+    workflow: WORKFLOW,
+    category: "custom",
+    modelType: "any",
+    taskType: "txt2img",
+  } as Parameters<typeof saveCustomTemplate>[0]);
+
+  const result = deleteCustomTemplate({ id: "to_be_deleted" });
+
+  assert.equal(result.deleted, true);
+  assert.equal(result.id, "to_be_deleted");
+});
+
+test("save_template returns a structured template, not a JSON string", async () => {
+  const { saveCustomTemplate } = await import("./templates.js");
+
+  const result = saveCustomTemplate({
+    id: "structured_probe",
+    name: "Structured",
+    description: "d",
+    workflow: WORKFLOW,
+    category: "custom",
+    modelType: "any",
+    taskType: "txt2img",
+  } as Parameters<typeof saveCustomTemplate>[0]);
+
+  assert.equal(typeof result, "object");
+  assert.equal(result.template.id, "structured_probe");
+  assert.match(result.usage, /comfyui_get_template/);
+});

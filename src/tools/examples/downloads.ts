@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { ModelDownload } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
+import { ToolError } from "../../utils/errors.js";
 
 // Common model download URLs for easy reference
 const MODEL_DOWNLOADS: Record<string, ModelDownload> = {
@@ -112,17 +113,37 @@ export const getDownloadUrlSchema = z.object({
 
 export type GetDownloadUrlInput = z.infer<typeof getDownloadUrlSchema>;
 
-export function getDownloadUrl(input: GetDownloadUrlInput): string {
+/** Raised when no catalogued model answers to the name. */
+export class ModelDownloadNotFoundError extends ToolError {
+  constructor(query: string) {
+    super(
+      `No download is catalogued for '${query}'`,
+      `Known names include: ${Object.keys(MODEL_DOWNLOADS).slice(0, 10).join(", ")}. ` +
+        "comfyui_get_model_guide covers what each architecture needs, and comfyui_list_examples names the models its workflows use."
+    );
+  }
+}
+
+/** A resolved download, with the command that fetches it. */
+export interface GetDownloadUrlResult {
+  model: ModelDownload;
+  downloadCommand: string;
+  /** Present only when the name was ambiguous. */
+  query?: string;
+  matchCount?: number;
+  otherMatches?: ModelDownload[];
+}
+
+export function getDownloadUrl(input: GetDownloadUrlInput): GetDownloadUrlResult {
   const searchTerm = input.modelName.toLowerCase().replace(/[^a-z0-9]/g, "");
 
   // First try exact match
   const exactMatch = MODEL_DOWNLOADS[input.modelName];
   if (exactMatch) {
-    return JSON.stringify({
-      found: true,
+    return {
       model: exactMatch,
       downloadCommand: `wget -P "${exactMatch.destination}" "${exactMatch.url}"`,
-    });
+    };
   }
 
   // Try fuzzy match
@@ -154,13 +175,11 @@ export function getDownloadUrl(input: GetDownloadUrlInput): string {
     }
   }
 
+  // Nothing found is a failure, not a success carrying found:false - and the
+  // full availableModels list was a second copy of the catalogue in every
+  // miss. The hint names a handful and the tools that list the rest.
   if (matches.length === 0) {
-    return JSON.stringify({
-      found: false,
-      query: input.modelName,
-      suggestion: "No matching model found. Try searching for: " + Object.keys(MODEL_DOWNLOADS).slice(0, 10).join(", "),
-      availableModels: Object.keys(MODEL_DOWNLOADS),
-    });
+    throw new ModelDownloadNotFoundError(input.modelName);
   }
 
   // Sort by score and return best matches
@@ -168,19 +187,17 @@ export function getDownloadUrl(input: GetDownloadUrlInput): string {
 
   if (matches.length === 1) {
     const match = matches[0];
-    return JSON.stringify({
-      found: true,
+    return {
       model: match.model,
       downloadCommand: `wget -P "${match.model.destination}" "${match.model.url}"`,
-    });
+    };
   }
 
-  return JSON.stringify({
-    found: true,
+  return {
     query: input.modelName,
     matchCount: matches.length,
-    bestMatch: matches[0].model,
+    model: matches[0].model,
     downloadCommand: `wget -P "${matches[0].model.destination}" "${matches[0].model.url}"`,
     otherMatches: matches.slice(1, 5).map((m) => m.model),
-  });
+  };
 }

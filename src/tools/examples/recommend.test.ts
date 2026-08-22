@@ -103,3 +103,28 @@ test("an example workflow is offered in the format run_workflow accepts", () => 
   assert.deepEqual(apiFormatOf({ workflow: ui }), ui, "falls back when that is all there is");
   assert.equal(apiFormatOf({}), undefined);
 });
+
+test("an uncatalogued model is a failure that names where to look", async () => {
+  // getDownloadUrl returned {"found":false,...} as a JSON string through
+  // textResult, so the miss arrived as an ordinary success - and it carried
+  // the entire model catalogue under availableModels on every miss.
+  const { getDownloadUrl, ModelDownloadNotFoundError } = await import("./downloads.js");
+
+  assert.throws(
+    () => getDownloadUrl({ modelName: "definitely-not-a-real-model" }),
+    (err: unknown) =>
+      err instanceof ModelDownloadNotFoundError &&
+      /comfyui_get_model_guide/.test(err.hint ?? "")
+  );
+});
+
+test("a catalogued model comes back structured, with its command", async () => {
+  const { getDownloadUrl } = await import("./downloads.js");
+
+  // A name the catalogue is built around; the fuzzy matcher resolves it.
+  const result = getDownloadUrl({ modelName: "flux" });
+
+  assert.equal(typeof result, "object");
+  assert.ok(result.model.url, "the model carries its url");
+  assert.match(result.downloadCommand, /^wget -P/);
+});
