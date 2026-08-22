@@ -705,10 +705,28 @@ export const buildNodeSchema = z.object({
 
 export type BuildNodeInput = z.infer<typeof buildNodeSchema>;
 
+/** One output slot of a built node, and the reference that connects it. */
+export interface BuiltNodeOutput {
+  slot: number;
+  type: string;
+  name: string;
+  reference: [string, number];
+}
+
+/** A node built ready to drop into a workflow, with what still needs wiring. */
+export interface BuildNodeResult {
+  node: Record<string, { class_type: string; inputs: Record<string, unknown> }>;
+  outputs: BuiltNodeOutput[];
+  usage: string;
+  missingConnections?: Array<{ input: string; type: string; description: string }>;
+  note?: string;
+  tips?: string[];
+}
+
 export async function buildNode(
   client: ComfyUIClient,
   input: BuildNodeInput
-): Promise<string> {
+): Promise<BuildNodeResult> {
   const objectInfo = await client.getObjectInfo();
   const nodeInfo = objectInfo[input.nodeType];
 
@@ -821,22 +839,18 @@ export async function buildNode(
     };
   });
 
-  const result: Record<string, unknown> = {
+  const tips = getNodeTips(input.nodeType);
+
+  return {
     node,
     outputs,
     usage: `Connect this node's outputs to other nodes using the reference arrays. For example, to connect output 0 to another node's input: "inputName": ["${input.nodeId}", 0]`,
+    ...(missingConnections.length > 0
+      ? {
+          missingConnections,
+          note: "This node has inputs that need to be connected to other nodes. Replace the placeholder values with actual node references.",
+        }
+      : {}),
+    ...(tips ? { tips } : {}),
   };
-
-  if (missingConnections.length > 0) {
-    result.missingConnections = missingConnections;
-    result.note = "This node has inputs that need to be connected to other nodes. Replace the placeholder values with actual node references.";
-  }
-
-  // Include tips for certain node types
-  const tips = getNodeTips(input.nodeType);
-  if (tips) {
-    result.tips = tips;
-  }
-
-  return jsonText(result);
 }

@@ -215,7 +215,7 @@ export function registerDiscoveryTools(server: McpServer): void {
     },
     handler: async (input) => {
       const { client } = await ensureConnected();
-      return textResult(await buildNode(client, input));
+      return dataResult(await buildNode(client, input));
     },
   });
 

@@ -227,9 +227,7 @@ test("buildNode fills a current-form combo instead of faking a connection", asyn
     }),
   });
 
-  const built = JSON.parse(
-    await buildNode(client, { nodeType: "CheckpointLoaderSimple", nodeId: "1" })
-  );
+  const built = await buildNode(client, { nodeType: "CheckpointLoaderSimple", nodeId: "1" });
 
   assert.equal(built.node["1"].inputs.ckpt_name, "sdxl.safetensors");
   assert.equal(
@@ -278,13 +276,11 @@ test("buildNode still accepts optional inputs the node declares", async () => {
     }),
   });
 
-  const built = JSON.parse(
-    await buildNode(client, {
-      nodeType: "Sampler",
-      nodeId: "5",
-      inputs: { denoise: 0.5 },
-    })
-  );
+  const built = await buildNode(client, {
+    nodeType: "Sampler",
+    nodeId: "5",
+    inputs: { denoise: 0.5 },
+  });
 
   assert.equal(built.node["5"].inputs.denoise, 0.5);
   assert.equal(built.node["5"].inputs.steps, 20, "unspecified inputs keep their default");
@@ -304,8 +300,8 @@ test("buildNode normalises a COMBO output instead of inlining its options", asyn
     }),
   });
 
-  const built = JSON.parse(await buildNode(client, { nodeType: "Combo", nodeId: "1" }));
-  const outputs = built.outputs as Array<{ type: string; name: string }>;
+  const built = await buildNode(client, { nodeType: "Combo", nodeId: "1" });
+  const outputs = built.outputs;
 
   assert.equal(outputs[0].type, "COMBO");
   assert.equal(outputs[0].name, "COMBO", "falls back to the type name, not the array");
@@ -319,7 +315,7 @@ test("buildNode survives a node that declares no outputs at all", async () => {
     Sink: node({ name: "Sink", input: { required: {}, optional: {} }, output: undefined }),
   });
 
-  const built = JSON.parse(await buildNode(client, { nodeType: "Sink", nodeId: "1" }));
+  const built = await buildNode(client, { nodeType: "Sink", nodeId: "1" });
 
   assert.deepEqual(built.outputs, []);
 });
