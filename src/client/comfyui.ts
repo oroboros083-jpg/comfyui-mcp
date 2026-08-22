@@ -171,6 +171,8 @@ export class ComfyUIClient {
   private clientId: string;
   private objectInfoCache: { value: ObjectInfo; at: number } | null = null;
   private objectInfoInFlight: Promise<ObjectInfo> | null = null;
+  /** Bumped by invalidateObjectInfo so an in-flight download cannot repopulate. */
+  private objectInfoEpoch = 0;
   private apiKey?: string;
 
   constructor(baseUrl: string, apiKey?: string) {
@@ -198,14 +200,22 @@ export class ComfyUIClient {
    * on. Status is mapped here once: an auth failure and a missing endpoint
    * need different responses, and neither is "try again".
    */
-  private async request(
+  /**
+   * Fetch, mapping a transport failure to guidance the agent can act on.
+   *
+   * Split out of request() for the two calls that need to read a non-ok body
+   * themselves - queuePrompt keeps ComfyUI's per-node validation errors, and
+   * uploadImage builds its own FormData headers. Both used a bare fetch, so a
+   * ComfyUI that stopped between the health probe and the call surfaced as an
+   * undecorated "fetch failed" with no hint at all.
+   */
+  private async send(
     path: string,
     label: string,
     init?: RequestInit & { signal?: AbortSignal }
   ): Promise<Response> {
-    let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}${path}`, {
+      return await fetch(`${this.baseUrl}${path}`, {
         headers: this.getHeaders(),
         ...init,
       });
@@ -216,6 +226,14 @@ export class ComfyUIClient {
         { cause }
       );
     }
+  }
+
+  private async request(
+    path: string,
+    label: string,
+    init?: RequestInit & { signal?: AbortSignal }
+  ): Promise<Response> {
+    const response = await this.send(path, label, init);
 
     if (!response.ok) {
       throw new ToolError(
@@ -261,35 +279,44 @@ export class ComfyUIClient {
 
     // Share one in-flight request rather than starting a second 440KB
     // download when concurrent callers both miss.
-    if (!this.objectInfoInFlight) {
-      this.objectInfoInFlight = (async () => {
-        const response = await this.request("/object_info", "get the node catalogue");
-        return (await response.json()) as ObjectInfo;
-      })();
+    const existing = this.objectInfoInFlight;
+    if (existing) return existing;
 
-      try {
-        const value = await this.objectInfoInFlight;
+    const epoch = this.objectInfoEpoch;
+    const pending = (async () => {
+      const response = await this.request("/object_info", "get the node catalogue");
+      return (await response.json()) as ObjectInfo;
+    })();
+    this.objectInfoInFlight = pending;
+
+    try {
+      const value = await pending;
+      // A restart may have landed while this was in flight. Writing the
+      // pre-restart catalogue would silently undo the invalidation, and
+      // reconnect's whole promise is to pick up newly installed nodes.
+      if (epoch === this.objectInfoEpoch) {
         this.objectInfoCache = { value, at: Date.now() };
-        return value;
-      } finally {
-        this.objectInfoInFlight = null;
       }
+      return value;
+    } finally {
+      if (this.objectInfoInFlight === pending) this.objectInfoInFlight = null;
     }
-
-    return this.objectInfoInFlight;
   }
 
   /** Drop the cached catalogue, so the next read goes back to ComfyUI. */
   invalidateObjectInfo(): void {
     this.objectInfoCache = null;
+    // Also abandon any download already running: it started before the
+    // restart, so its result no longer describes this instance.
+    this.objectInfoInFlight = null;
+    this.objectInfoEpoch++;
   }
 
   async queuePrompt(
     workflow: Record<string, unknown>
   ): Promise<QueuePromptResponse> {
-    const response = await fetch(`${this.baseUrl}/prompt`, {
+    const response = await this.send("/prompt", "submit the workflow", {
       method: "POST",
-      headers: this.getHeaders(),
       body: JSON.stringify({
         prompt: workflow,
         client_id: this.clientId,
@@ -420,19 +447,19 @@ export class ComfyUIClient {
     formData.append("image", new Blob([image]), filename);
     formData.append("overwrite", String(overwrite));
 
+    // FormData sets its own Content-Type boundary, so this one cannot take
+    // the JSON headers request() applies - only the auth header.
     const headers: Record<string, string> = {};
     if (this.apiKey) {
       headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
 
-    const response = await fetch(`${this.baseUrl}/upload/image`, {
+    const response = await this.send("/upload/image", "upload an image", {
       method: "POST",
       headers,
       body: formData,
     });
     if (!response.ok) {
-      // Not routed through request(): this one posts FormData, so it builds
-      // its own headers rather than the JSON ones.
       throw new ToolError(
         `Failed to upload image: ${response.status} ${response.statusText}`,
         requestFailureHint(response.status)
