@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ExampleWorkflow } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
-import { fetchExampleWorkflow } from "./list-examples.js";
+import { fetchExampleWorkflow, apiFormatOf } from "./list-examples.js";
 import { BUILTIN_TEMPLATES } from "../../workflows/builder.js";
 import { architectureById } from "../../architectures/registry.js";
 import { listTemplates as dbListTemplates } from "../../db/index.js";
@@ -24,6 +24,22 @@ interface ModelPattern {
 }
 
 const MODEL_PATTERNS: ModelPattern[] = [
+  // Flux 2. First because this list is first-match-wins in declaration order
+  // and the Flux Dev row below matches "flux2-dev.safetensors" - the real BFL
+  // filename - so every Flux 2 file was answered with Flux Dev's CFG of 1 and
+  // "no negative prompt needed", and this row was unreachable.
+  //
+  // The pattern anchors the 2 to the word "flux" rather than matching any 2
+  // anywhere after it, so a v2 quantization of a Flux 1 model is not caught.
+  {
+    pattern: /flux[\s._-]?2(?!\d)/i,
+    workflowName: "Flux 2",
+    architecture: "flux",
+    defaultSteps: 20,
+    defaultCfg: 3,
+    defaultResolution: { width: 1024, height: 1024 },
+    notes: "Flux 2 with Mistral 3 text encoder. Supports multiple reference images.",
+  },
   // Flux Schnell checkpoint (all-in-one)
   {
     pattern: /flux.*schnell.*\.(safetensors|ckpt)/i,
@@ -362,16 +378,6 @@ const MODEL_PATTERNS: ModelPattern[] = [
     defaultResolution: { width: 1024, height: 1024 },
     notes: "LCM for fast generation in 4-8 steps. Use lcm sampler with sgm_uniform scheduler.",
   },
-  // Flux 2
-  {
-    pattern: /flux.*2|flux2/i,
-    workflowName: "Flux 2",
-    architecture: "flux",
-    defaultSteps: 20,
-    defaultCfg: 3,
-    defaultResolution: { width: 1024, height: 1024 },
-    notes: "Flux 2 with Mistral 3 text encoder. Supports multiple reference images.",
-  },
   // Default SD1.5
   {
     pattern: /\.(safetensors|ckpt)$/i,
@@ -531,8 +537,14 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
   if (example && example.imageUrls.length > 0) {
     try {
       const workflowResult = await fetchExampleWorkflow(example.imageUrls[0]);
-      if (workflowResult.workflow) {
-        recommendation.exampleWorkflow = workflowResult.workflow as Record<string, unknown>;
+      // The docs PNGs embed both graphs: "prompt" is the API format /prompt
+      // accepts, "workflow" is the UI one. Taking `.workflow` handed back a
+      // graph ComfyUI rejects, under a field whose own doc comment and
+      // rendered text both say to pass it straight to run_workflow.
+      // get_example_workflow and handlers/resources.ts both prefer prompt.
+      const apiWorkflow = apiFormatOf(workflowResult);
+      if (apiWorkflow) {
+        recommendation.exampleWorkflow = apiWorkflow as Record<string, unknown>;
         recommendation.exampleSource = example.imageUrls[0];
       }
     } catch {
@@ -655,7 +667,12 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
   } else {
     output += `\n## Next Steps\n`;
     output += `1. Call \`comfyui_get_example_workflow("${rec.matchedWorkflow}")\` to get the workflow JSON\n`;
-    output += `2. Call \`comfyui_get_prompting_guide("${rec.modelType}")\` for prompting best practices\n`;
+    // Reuse the sentence built above rather than naming a guide after
+    // modelType. That was a four-value union when this line was written and
+    // is now any registry id, most of which have no guide - so this told
+    // wan, hidream, lumina, chroma and six others to call a guide that
+    // errors. The computed line already falls back correctly.
+    output += `2. ${rec.promptingGuide}\n`;
     output += `3. Use \`comfyui_run_workflow\` with the workflow\n`;
   }
 

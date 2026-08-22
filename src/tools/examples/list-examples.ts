@@ -149,6 +149,21 @@ export async function extractWorkflowFromPng(
 /**
  * Fetch an example workflow image and extract the embedded workflow
  */
+/**
+ * The API-format graph out of a fetched example, which is what /prompt
+ * accepts and what run_workflow needs.
+ *
+ * The docs PNGs embed both: "prompt" is API format, "workflow" is the UI
+ * graph ComfyUI rejects. Shared because recommend_workflow picked the UI one
+ * while its own field doc and rendered text told the caller to run it.
+ */
+export function apiFormatOf(result: {
+  workflow?: Record<string, unknown>;
+  prompt?: Record<string, unknown>;
+}): Record<string, unknown> | undefined {
+  return result.prompt ?? result.workflow;
+}
+
 export async function fetchExampleWorkflow(
   imageUrl: string
 ): Promise<{
@@ -430,8 +445,7 @@ export async function getExampleWorkflow(
   output += `${example.description}\n\n`;
   output += `Source: ${sourceUrl}\n\n`;
 
-  // Return the prompt (API format) which is what ComfyUI actually executes
-  const workflowData = result.prompt || result.workflow;
+  const workflowData = apiFormatOf(result);
   if (workflowData) {
     output += `## Workflow (API Format)\n`;
     output += "This can be used directly with the `comfyui_run_workflow` tool:\n\n";
