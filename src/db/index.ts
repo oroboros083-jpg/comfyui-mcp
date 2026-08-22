@@ -468,33 +468,66 @@ export function getNoteById(id: number): Note | null {
   return row ? rowToNote(row) : null;
 }
 
-export function getNotesByTopic(topic: string): Note[] {
-  const database = getDatabase();
-  const stmt = database.prepare("SELECT * FROM notes WHERE topic = ? ORDER BY updated_at DESC");
-  const rows = stmt.all(topic) as NoteRow[];
-  return rows.map(rowToNote);
+/** One page of notes, with the real total rather than a capped one. */
+export interface NotePage {
+  notes: Note[];
+  total: number;
 }
 
-export function getAllNotes(limit = 100): Note[] {
+/**
+ * Page notes in SQL, optionally filtered by topic.
+ *
+ * The handlers used to read a 1000-row cap and slice it, which made `total`
+ * the cap: with 1500 notes the response said total 1000 and has_more false,
+ * so the agent was told it had seen everything and 500 were unreachable.
+ * The two branches also disagreed - getNotesByTopic had no cap - so `total`
+ * meant different things depending on which was taken.
+ */
+export function listNotesPage(
+  limit: number,
+  offset: number,
+  topic?: string
+): NotePage {
   const database = getDatabase();
-  const stmt = database.prepare("SELECT * FROM notes ORDER BY updated_at DESC LIMIT ?");
-  const rows = stmt.all(limit) as NoteRow[];
-  return rows.map(rowToNote);
+  const where = topic ? "WHERE topic = ?" : "";
+  const args: unknown[] = topic ? [topic] : [];
+
+  const total = (
+    database.prepare(`SELECT COUNT(*) AS n FROM notes ${where}`).get(...args) as { n: number }
+  ).n;
+
+  const rows = database
+    .prepare(`SELECT * FROM notes ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+    .all(...args, limit, offset) as NoteRow[];
+
+  return { notes: rows.map(rowToNote), total };
 }
 
-export function searchNotes(query: string, limit = 50): Note[] {
+/** Page full-text search results in SQL, for the same reason. */
+export function searchNotesPage(query: string, limit: number, offset: number): NotePage {
   const database = getDatabase();
-  // Use FTS5 for full-text search
-  const stmt = database.prepare(`
-    SELECT notes.* FROM notes
-    JOIN notes_fts ON notes.id = notes_fts.rowid
-    WHERE notes_fts MATCH ?
-    ORDER BY rank
-    LIMIT ?
-  `);
-  const rows = stmt.all(query, limit) as NoteRow[];
-  return rows.map(rowToNote);
+
+  const total = (
+    database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM notes JOIN notes_fts ON notes.id = notes_fts.rowid WHERE notes_fts MATCH ?"
+      )
+      .get(query) as { n: number }
+  ).n;
+
+  const rows = database
+    .prepare(
+      `SELECT notes.* FROM notes
+       JOIN notes_fts ON notes.id = notes_fts.rowid
+       WHERE notes_fts MATCH ?
+       ORDER BY rank
+       LIMIT ? OFFSET ?`
+    )
+    .all(query, limit, offset) as NoteRow[];
+
+  return { notes: rows.map(rowToNote), total };
 }
+
 
 export function deleteNote(id: number): boolean {
   const database = getDatabase();

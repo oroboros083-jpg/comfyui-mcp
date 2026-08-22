@@ -89,6 +89,29 @@ export function paginate<T>(items: T[], limit: number, offset: number): Page<T> 
   };
 }
 
+/**
+ * The same envelope for data the *source* already paged.
+ *
+ * paginate() slices an in-memory array, which needs the whole collection in
+ * hand - fine for ComfyUI's REST responses, wrong for SQLite. Reading a
+ * capped list and slicing that made `total` the cap rather than the real
+ * count, so the caller was told it had seen everything while rows sat
+ * unreachable past the cap. A LIMIT/OFFSET query plus a COUNT(*) reports
+ * through this instead.
+ */
+export function envelopeFor(total: number, count: number, offset: number): PageEnvelope {
+  const consumed = offset + count;
+  const has_more = consumed < total;
+
+  return {
+    total,
+    count,
+    offset,
+    has_more,
+    ...(has_more ? { next_offset: consumed } : {}),
+  };
+}
+
 /** Compact JSON. Indentation is pure token cost for a machine reader. */
 export function jsonText(value: unknown): string {
   return JSON.stringify(value, (_k, v) => (v === undefined ? undefined : v));

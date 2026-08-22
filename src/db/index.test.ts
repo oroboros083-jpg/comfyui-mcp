@@ -64,3 +64,52 @@ test("unnamed jobs are unaffected by the collision handling", () => {
   assert.equal(db.getJobById("fifth")?.name, null);
   assert.equal(db.getJobById("sixth")?.name, null);
 });
+
+test("notes page in SQL, so total is the real count past any cap", () => {
+  // The handlers read a 1000-row cap and sliced that, which made `total` the
+  // cap: with more notes than the cap the response said has_more false and
+  // the rest were unreachable. 1200 rows is enough to cross it.
+  for (let i = 0; i < 1200; i++) {
+    db.saveNote("bulk", `note ${i}`, ["t"]);
+  }
+
+  const first = db.listNotesPage(25, 0);
+  assert.equal(first.total, 1200, "the real count, not the old 1000 cap");
+  assert.equal(first.notes.length, 25);
+
+  // A page starting past the old cap must still return rows.
+  const late = db.listNotesPage(25, 1100);
+  assert.equal(late.total, 1200);
+  assert.equal(late.notes.length, 25, "rows past the old cap are reachable");
+});
+
+test("paging by topic reports that topic's total, not the whole table's", () => {
+  db.saveNote("narrow", "only one of these", []);
+
+  const page = db.listNotesPage(10, 0, "narrow");
+
+  assert.equal(page.total, 1);
+  assert.equal(page.notes.length, 1);
+  assert.equal(page.notes[0].topic, "narrow");
+});
+
+test("a page past the end is empty rather than an error", () => {
+  const page = db.listNotesPage(10, 99999, "narrow");
+
+  assert.equal(page.notes.length, 0);
+  assert.equal(page.total, 1);
+});
+
+test("search pages in SQL too", () => {
+  db.saveNote("searchable", "distinctiveword appears here", []);
+  db.saveNote("searchable", "distinctiveword again", []);
+
+  const page = db.searchNotesPage("distinctiveword", 1, 0);
+
+  assert.equal(page.total, 2, "both matches counted");
+  assert.equal(page.notes.length, 1, "but only one returned");
+
+  const second = db.searchNotesPage("distinctiveword", 1, 1);
+  assert.equal(second.notes.length, 1);
+  assert.notEqual(second.notes[0].id, page.notes[0].id);
+});

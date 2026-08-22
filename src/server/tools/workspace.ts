@@ -12,7 +12,7 @@ import {
   dataResult,
   errorResult,
   formattedResult,
-  paginate,
+  envelopeFor,
   paginationFields,
   responseFormatField,
 } from "../../utils/response.js";
@@ -99,12 +99,17 @@ export function registerWorkspaceTools(server: McpServer): void {
       openWorldHint: false,
     },
     handler: (input) => {
-      // getNotesByTopic has no limit of its own; page both paths here so the
-      // response size does not depend on which branch was taken.
-      const notes = input.topic
-        ? db.getNotesByTopic(input.topic)
-        : db.getAllNotes(1000);
-      const { items, ...envelope } = paginate(notes, input.limit, input.offset);
+      // Paged in SQL. Reading a 1000-row cap and slicing that made `total`
+      // the cap rather than the real count, so with more notes than that the
+      // response claimed has_more: false and the rest were unreachable - and
+      // the topic branch, which had no cap, meant something different by
+      // `total` than this one did.
+      const { notes: items, total } = db.listNotesPage(
+        input.limit,
+        input.offset,
+        input.topic
+      );
+      const envelope = envelopeFor(total, items.length, input.offset);
       const data = { ...envelope, notes: items };
 
       return formattedResult(input.response_format, data, () =>
@@ -140,8 +145,12 @@ export function registerWorkspaceTools(server: McpServer): void {
       openWorldHint: false,
     },
     handler: (input) => {
-      const notes = db.searchNotes(input.query, 1000);
-      const { items, ...envelope } = paginate(notes, input.limit, input.offset);
+      const { notes: items, total } = db.searchNotesPage(
+        input.query,
+        input.limit,
+        input.offset
+      );
+      const envelope = envelopeFor(total, items.length, input.offset);
       const data = { query: input.query, ...envelope, notes: items };
 
       return formattedResult(input.response_format, data, () =>

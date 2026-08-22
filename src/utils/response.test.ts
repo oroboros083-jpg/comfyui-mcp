@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { paginate, jsonText, capText, ResponseFormat } from "./response.js";
+import {
+  paginate,
+  jsonText,
+  capText,
+  ResponseFormat,
+  envelopeFor,
+} from "./response.js";
 import { CHARACTER_LIMIT } from "../constants.js";
 
 test("paginate reports totals independent of page size", () => {
@@ -71,4 +77,37 @@ test("capText truncates and says how to narrow the request", () => {
 test("ResponseFormat exposes the two documented formats", () => {
   assert.equal(ResponseFormat.MARKDOWN, "markdown");
   assert.equal(ResponseFormat.JSON, "json");
+});
+
+test("envelopeFor reports the same boundaries paginate does", () => {
+  // Same contract, for data the source already paged. The two must agree or
+  // a caller cannot page a SQL-backed listing the way it pages an in-memory
+  // one.
+  for (const [total, limit] of [[0, 10], [1, 10], [10, 10], [11, 10], [95, 25]]) {
+    for (let offset = 0; offset <= total; offset += limit) {
+      const items = Array.from({ length: total }, (_, i) => i);
+      const sliced = paginate(items, limit, offset);
+      const { items: _drop, ...expected } = sliced;
+
+      assert.deepEqual(
+        envelopeFor(total, sliced.count, offset),
+        expected,
+        `total ${total}, limit ${limit}, offset ${offset}`
+      );
+    }
+  }
+});
+
+test("envelopeFor omits next_offset on the final page", () => {
+  const last = envelopeFor(30, 5, 25);
+
+  assert.equal(last.has_more, false);
+  assert.equal("next_offset" in last, false);
+});
+
+test("envelopeFor names the next offset when more remain", () => {
+  const page = envelopeFor(100, 25, 25);
+
+  assert.equal(page.has_more, true);
+  assert.equal(page.next_offset, 50);
 });
