@@ -167,6 +167,15 @@ export const getHistorySchema = z
       .describe(
         "Fetch one prompt's full detail, including its output files. Omit for a paginated listing."
       ),
+    order: z
+      .enum(["newest", "oldest"])
+      .optional()
+      .default("newest")
+      .describe(
+        "Which end of ComfyUI's history to page from. Defaults to 'newest', " +
+          "because the usual question is about a run just submitted; 'oldest' " +
+          "walks the history in execution order."
+      ),
     ...paginationFields,
     response_format: responseFormatField,
   })
@@ -221,6 +230,15 @@ export async function getHistory(
     completed: entry.status.completed,
     hasOutputs: Object.keys(entry.outputs).length > 0,
   }));
+
+  // ComfyUI's /history is a dict appended to in execution order and retained
+  // up to 10000 entries, so Object.entries is oldest-first. Paging that
+  // directly meant the default page returned the oldest prompts the instance
+  // still remembers - and the common question, including the one
+  // PromptNotFoundError's hint sends the caller here to answer, is about a
+  // run just submitted. getQueue beside this orders running-first for the
+  // same reason.
+  if (input.order === "newest") rows.reverse();
 
   const { items, ...envelope } = paginate(rows, input.limit, input.offset);
   return { ...envelope, entries: items };

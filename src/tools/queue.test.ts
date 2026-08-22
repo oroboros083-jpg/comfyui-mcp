@@ -9,6 +9,7 @@ import {
   PromptNotFoundError,
   renderQueue,
   renderHistory,
+  getHistorySchema,
 } from "./queue.js";
 import { ResponseFormat, paginatedOutputSchema } from "../utils/response.js";
 
@@ -128,6 +129,7 @@ test("getHistory lists identifying fields only, leaving outputs to the detail ca
   const result = await getHistory(stubClient({ history }), {
     limit: 25,
     offset: 0,
+    order: "newest",
     response_format: ResponseFormat.JSON,
   });
 
@@ -149,6 +151,7 @@ test("getHistory pages rather than honouring only a limit", async () => {
   const result = await getHistory(stubClient({ history }), {
     limit: 20,
     offset: 60,
+    order: "newest",
     response_format: ResponseFormat.JSON,
   });
 
@@ -166,6 +169,7 @@ test("getHistory returns full outputs when asked for one prompt", async () => {
   const result = await getHistory(stubClient({ history }), {
     promptId: "abc",
     limit: 25,
+    order: "newest",
     offset: 0,
     response_format: ResponseFormat.JSON,
   });
@@ -183,7 +187,8 @@ test("getHistory raises an identifiable error for an unknown prompt", async () =
       getHistory(stubClient({ history: {} }), {
         promptId: "missing",
         limit: 25,
-        offset: 0,
+        order: "newest",
+    offset: 0,
         response_format: ResponseFormat.JSON,
       }),
     (err: unknown) =>
@@ -198,6 +203,7 @@ test("renderHistory tells the caller how to reach the next page", async () => {
 
   const result = await getHistory(stubClient({ history }), {
     limit: 10,
+    order: "newest",
     offset: 0,
     response_format: ResponseFormat.MARKDOWN,
   });
@@ -226,4 +232,60 @@ test("every getQueue page satisfies the declared outputSchema", async () => {
     });
     assert.equal(schema.safeParse(page).success, true, label);
   }
+});
+
+test("getHistory leads with the newest run, not the oldest ComfyUI remembers", async () => {
+  // /history is a dict appended to in execution order and retained up to
+  // 10000 entries, so paging it directly returned the oldest prompts the
+  // instance still remembers. The common question - the one
+  // PromptNotFoundError's hint sends the caller here to answer - is about a
+  // run just submitted.
+  const history = Object.fromEntries(
+    Array.from({ length: 90 }, (_, i) => [`p${i}`, entry("success", {})])
+  );
+
+  const result = await getHistory(stubClient({ history }), {
+    limit: 3,
+    offset: 0,
+    order: "newest",
+    response_format: ResponseFormat.JSON,
+  });
+
+  assert.ok(!isHistoryDetail(result));
+  assert.deepEqual(
+    result.entries.map((e) => e.promptId),
+    ["p89", "p88", "p87"]
+  );
+  assert.equal(result.total, 90, "paging still spans everything");
+});
+
+test("getHistory can still walk history in execution order", async () => {
+  const history = Object.fromEntries(
+    Array.from({ length: 90 }, (_, i) => [`p${i}`, entry("success", {})])
+  );
+
+  const result = await getHistory(stubClient({ history }), {
+    limit: 3,
+    offset: 0,
+    order: "oldest",
+    response_format: ResponseFormat.JSON,
+  });
+
+  assert.ok(!isHistoryDetail(result));
+  assert.deepEqual(
+    result.entries.map((e) => e.promptId),
+    ["p0", "p1", "p2"]
+  );
+});
+
+test("getHistory defaults to newest without being asked", async () => {
+  const history = Object.fromEntries(
+    Array.from({ length: 5 }, (_, i) => [`p${i}`, entry("success", {})])
+  );
+
+  const parsed = getHistorySchema.parse({});
+  const result = await getHistory(stubClient({ history }), parsed);
+
+  assert.ok(!isHistoryDetail(result));
+  assert.equal(result.entries[0].promptId, "p4");
 });
