@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, isAbsolute, relative as relativePath } from "node:path";
 import sharp from "sharp";
 
 import {
@@ -10,6 +10,7 @@ import {
   shouldSkipFileSaving,
   workflowPromptFor,
   generateReadableFilename,
+  uniquePath,
 } from "./outputs.js";
 import { ComfyUIClient } from "../client/comfyui.js";
 
@@ -41,6 +42,11 @@ function stubClient(): ComfyUIClient {
 
 const OUTPUTS = { "9": { images: [{ filename: "ComfyUI_00001_.png", subfolder: "", type: "output" }] } };
 const WORKFLOW = { "1": { class_type: "CLIPTextEncode", inputs: { text: "a red square" } } };
+
+/** The same directory expressed relative to the process cwd. */
+function relativeTo(dir: string): string {
+  return relativePath(process.cwd(), dir);
+}
 
 function freshDir(): string {
   return mkdtempSync(join(outDir, "run-"));
@@ -216,4 +222,53 @@ test("when nothing is saved the bytes still travel inline", async () => {
     if (priorDocker === undefined) delete process.env.DOCKER;
     else process.env.DOCKER = priorDocker;
   }
+});
+
+test("the returned path is absolute even when outputDir is relative", async () => {
+  // The shipped default outputDir is "./outputs", and outputModeSchema
+  // promises "absolute paths returned". join() left it relative, resolved
+  // against the server process's cwd - which for a stdio server launched by
+  // a client is not the agent's, so the agent could not open the file.
+  const relative = relativeTo(freshDir());
+
+  const [image] = await collectOutputImages(
+    stubClient(),
+    OUTPUTS,
+    { outputMode: "file" },
+    WORKFLOW,
+    relative,
+    1024 * 1024
+  );
+
+  assert.ok(image.path, "a path was returned");
+  assert.equal(isAbsolute(image.path!), true, image.path);
+  assert.ok(existsSync(image.path!), "and it names a real file");
+});
+
+test("two runs of the same prompt in the same second do not overwrite", async () => {
+  // The readable name has one-second resolution and only carries an index
+  // from the second image of a batch, so a retry or a second seed landing in
+  // the same second produced the same name and writeFile clobbered it. The
+  // caller got two entries with identical paths, one of which no longer held
+  // the bytes it named.
+  const dir = freshDir();
+
+  const first = await collectOutputImages(
+    stubClient(), OUTPUTS, { outputMode: "file" }, WORKFLOW, dir, 1024 * 1024
+  );
+  const second = await collectOutputImages(
+    stubClient(), OUTPUTS, { outputMode: "file" }, WORKFLOW, dir, 1024 * 1024
+  );
+
+  assert.notEqual(first[0].path, second[0].path, "distinct paths");
+  assert.ok(existsSync(first[0].path!), "the first file survives");
+  assert.ok(existsSync(second[0].path!), "and the second exists too");
+  assert.equal(readdirSync(dir).length, 2);
+});
+
+test("uniquePath leaves a free name alone", () => {
+  const dir = freshDir();
+  const free = join(dir, "nothing-here.png");
+
+  assert.equal(uniquePath(free), free);
 });

@@ -21,7 +21,7 @@
 
 import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
-import { join, dirname } from "path";
+import { join, dirname, resolve, extname, basename } from "path";
 
 import { ComfyUIClient } from "../client/comfyui.js";
 import {
@@ -74,6 +74,29 @@ export function isRunningInDocker(): boolean {
 export function shouldSkipFileSaving(): boolean {
   if (!isRunningInDocker()) return false;
   return !process.env.OUTPUT_DIR;
+}
+
+/**
+ * A path that is not already taken, by appending -2, -3 and so on.
+ *
+ * The readable filename has one-second resolution and only carries an index
+ * from the second image of a batch, so two runs of the same prompt landing in
+ * the same second produced the same name and writeFile silently overwrote.
+ * The caller was handed two OutputImage entries with identical `path` values,
+ * one of which no longer held the bytes it named.
+ */
+export function uniquePath(candidate: string): string {
+  if (!existsSync(candidate)) return candidate;
+
+  const dir = dirname(candidate);
+  const ext = extname(candidate);
+  const stem = basename(candidate, ext);
+
+  for (let n = 2; n < 1000; n++) {
+    const next = join(dir, `${stem}-${n}${ext}`);
+    if (!existsSync(next)) return next;
+  }
+  return candidate;
 }
 
 /** A filename a human can recognise later, from the prompt and the date. */
@@ -173,7 +196,13 @@ export async function collectOutputImages(
 
       let absolutePath: string | undefined;
       if (!skipFileSave) {
-        const outputPath = join(outputDir, readableFilename);
+        // resolve(), not join(): outputMode's own description promises
+        // "absolute paths returned", and the shipped default outputDir is
+        // "./outputs". A relative path is resolved against the MCP server
+        // process's cwd, which for a stdio server launched by a client is
+        // not the agent's - so the agent could not open the file it was
+        // handed.
+        const outputPath = uniquePath(resolve(outputDir, readableFilename));
         const outputDirPath = dirname(outputPath);
         if (!existsSync(outputDirPath)) {
           await mkdir(outputDirPath, { recursive: true });
