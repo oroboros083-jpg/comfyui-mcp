@@ -12,6 +12,8 @@ import {
   NoTypeFilterError,
   parseInputSpec,
   buildNode,
+  listModels,
+  listModelsSchema,
 } from "./models.js";
 import type { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
 import { ToolError } from "../utils/errors.js";
@@ -320,4 +322,36 @@ test("buildNode survives a node that declares no outputs at all", async () => {
   const built = JSON.parse(await buildNode(client, { nodeType: "Sink", nodeId: "1" }));
 
   assert.deepEqual(built.outputs, []);
+});
+
+test("every model type getModels populates can be filtered for", async () => {
+  // hypernetworks was added to MODEL_SOURCES and to ModelInfo but not to the
+  // enum, so it appeared under type:"all" and Zod rejected the call that
+  // would page into it. The agent could see the models and not enumerate
+  // them.
+  const client = {
+    getModels: async () => ({
+      checkpoints: ["a.safetensors"],
+      loras: ["b.safetensors"],
+      vae: ["c.safetensors"],
+      controlnet: ["d.safetensors"],
+      upscale_models: ["e.safetensors"],
+      embeddings: ["f.pt"],
+      hypernetworks: ["g.pt"],
+      clip: ["h.safetensors"],
+      unet: ["i.safetensors"],
+    }),
+  } as unknown as ComfyUIClient;
+
+  const everything = await listModels(client, listModelsSchema.parse({}));
+  const populated = Object.keys(everything.models);
+  assert.ok(populated.includes("hypernetworks"), "the group is visible under 'all'");
+
+  for (const type of populated) {
+    const parsed = listModelsSchema.safeParse({ type });
+    assert.ok(parsed.success, `type:"${type}" is visible but not accepted by the schema`);
+
+    const page = await listModels(client, parsed.data!);
+    assert.deepEqual(Object.keys(page.models), [type], type);
+  }
 });

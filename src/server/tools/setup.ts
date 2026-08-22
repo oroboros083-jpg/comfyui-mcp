@@ -91,12 +91,27 @@ export function registerSetupTools(server: McpServer, ctx: () => ServerContext):
         // Was a second copy of discovery.ts's ladder, already drifted from it:
         // this one omitted the advice text and knew nothing of Cascade.
         const primary = primaryArchitectureOf(c.capabilities);
-        const modelType = primary?.id ?? "sd15";
 
-        status.promptingAdvice = {
-          detectedModelType: modelType,
-          recommendation: `Call comfyui_get_prompting_guide('${modelType}') before generating - prompting style materially changes output quality.`,
-        };
+        // Report what was detected, or say nothing was. The `?? "sd15"` this
+        // replaces published a guess as a positive detection on any install
+        // whose checkpoints are custom-named, which is the ladder's old final
+        // `else` reappearing in the one place the registry could not see.
+        //
+        // The guide key is `guide`, not `id`: most registry rows have no
+        // guide of their own, so naming the id sent the agent to a
+        // get_prompting_guide call that errors.
+        status.promptingAdvice = primary
+          ? {
+              detectedModelType: primary.id,
+              recommendation: primary.guide
+                ? `Call comfyui_get_prompting_guide('${primary.guide}') before generating - prompting style materially changes output quality.`
+                : `No dedicated prompting guide for ${primary.displayName} yet. ${primary.advice}`,
+            }
+          : {
+              detectedModelType: "unknown",
+              recommendation:
+                "No model architecture detected. Call comfyui_list_models to see what is installed.",
+            };
       }
 
       return dataResult(status);

@@ -370,7 +370,7 @@ export function registerWorkspaceTools(server: McpServer): void {
       if (!result.success) {
         return errorResult(
           result.error ?? "Font download failed.",
-          `Check the font name, or try one of: ${RECOMMENDED_MAP_FONTS.join(", ")}`
+          `Check the font name, or try one of: ${RECOMMENDED_MAP_FONTS.map((f) => f.family).join(", ")}`
         );
       }
       return dataResult({

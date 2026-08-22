@@ -34,6 +34,7 @@ export const listModelsSchema = z.object({
       "controlnet",
       "upscale_models",
       "embeddings",
+      "hypernetworks",
       "clip",
       "unet",
     ])
