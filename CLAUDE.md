@@ -35,6 +35,7 @@ src/
 │   ├── generate.ts         # Workflow/image schemas, get_image
 │   ├── generate-async.ts   # Submit a workflow and track it to completion
 │   ├── outputs.ts          # Collect a finished prompt's images
+│   ├── upload.ts           # Put an image into ComfyUI's input dir for LoadImage
 │   ├── models.ts           # Model/node listing and building
 │   ├── queue.ts            # Queue management tools
 │   ├── install.ts          # Installation assistance

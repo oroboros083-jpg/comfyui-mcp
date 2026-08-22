@@ -9,6 +9,7 @@ import { defineTool } from "../register.js";
 import { ensureConnected } from "../connection.js";
 import { dataResult, textResult, errorResult, ToolResult } from "../../utils/response.js";
 import { runWorkflowSchema, getImageSchema, getImage } from "../../tools/generate.js";
+import { uploadImageSchema, uploadImage } from "../../tools/upload.js";
 import { runWorkflowAsync } from "../../tools/generate-async.js";
 import {
   listOpenWorkflowsSchema,
@@ -174,6 +175,38 @@ export function registerGenerationTools(
           },
         ],
       } as unknown as ToolResult;
+    },
+  });
+
+  defineTool(server, {
+    name: "upload_image",
+    description:
+      "Put an image into ComfyUI's input directory so a LoadImage node can read it, and return the " +
+      "reference to use. Every img2img, inpainting, ControlNet and image-to-video workflow needs this " +
+      "first: LoadImage reads only from that directory, so neither a file on disk nor a previous " +
+      "generation is reachable until it is uploaded.\n\n" +
+      "Give 'path' for a local file, or 'from_output' to feed a generated image back in (upscaling, " +
+      "refinement, animating a still). Exactly one of the two.\n\n" +
+      "Returns: { filename, subfolder, type, reference, width, height, format, sizeBytes }. Use " +
+      "'reference' verbatim - with overwrite false, ComfyUI stores a colliding name as 'photo (1).png' " +
+      "and the workflow must name the file that actually exists. 'width'/'height' are the uploaded " +
+      "image's own, for sizing the latent or a resize node.\n\n" +
+      "Errors if the path is unreadable, the file is not a raster image, or it exceeds 64MB. SVG " +
+      "markup goes through comfyui_render_svg instead.",
+    schema: uploadImageSchema,
+    requiresConnection: true,
+    annotations: {
+      title: "Upload Input Image",
+      readOnlyHint: false,
+      // Writes a new file into input/. Only overwrite:true can replace one,
+      // and that is the caller asking for it explicitly.
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    handler: async (input) => {
+      const { client } = await ensureConnected();
+      return dataResult(await uploadImage(client, input));
     },
   });
 

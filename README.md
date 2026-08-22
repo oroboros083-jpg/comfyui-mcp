@@ -63,6 +63,7 @@
       - [`comfyui_run_workflow`](#run_workflow)
       - [`comfyui_validate_workflow`](#validate_workflow)
       - [`comfyui_get_image`](#get_image)
+      - [`comfyui_upload_image`](#upload_image)
     - [Workflow Composition Tools](#workflow-composition-tools-1)
       - [`comfyui_build_node`](#build_node)
       - [`comfyui_get_node_info`](#get_node_info)
@@ -771,6 +772,39 @@ Retrieve a generated image as base64. Use this to fetch images from ComfyUI's ou
 
 ```
 Get the image named ComfyUI_00042_.png
+```
+
+#### `comfyui_upload_image`
+Put an image into ComfyUI's input directory so a `LoadImage` node can read it. Required before any
+img2img, inpainting, ControlNet or image-to-video workflow: `LoadImage` reads only from that
+directory, so a file on your disk - or the image the last run produced - is unreachable until it is
+uploaded.
+
+Pass exactly one source.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | `string?` | Absolute path to an image file on the machine running this server |
+| `from_output` | `object?` | An image ComfyUI already has: `{ filename, subfolder?, type? }` |
+| `filename` | `string?` | Name to store it under (default: the source filename) |
+| `subfolder` | `string?` | Subfolder within the input directory |
+| `overwrite` | `boolean?` | Replace a file of the same name (default: false) |
+
+Returns:
+- `reference`: The exact string to put in a `LoadImage` node's `image` input
+- `filename`, `subfolder`, `type`: Where ComfyUI actually stored it
+- `width`, `height`, `format`, `sizeBytes`: The uploaded image, for sizing the latent or a resize node
+
+With `overwrite` false a colliding name is stored as `photo (1).png`, so build the workflow from the
+returned `reference` rather than the name you asked for. SVG markup goes through
+[`comfyui_render_svg`](#render_svg) instead, which rasterizes and uploads in one step.
+
+```
+Upload ~/photos/portrait.jpg and use it as the ControlNet reference
+```
+
+```
+Take the image that last run produced and feed it back in for an upscale pass
 ```
 
 ### Workflow Composition Tools

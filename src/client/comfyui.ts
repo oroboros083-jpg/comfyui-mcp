@@ -441,11 +441,16 @@ export class ComfyUIClient {
   async uploadImage(
     image: Buffer,
     filename: string,
-    overwrite: boolean = false
+    overwrite: boolean = false,
+    subfolder: string = ""
   ): Promise<{ name: string; subfolder: string; type: string }> {
     const formData = new FormData();
     formData.append("image", new Blob([image]), filename);
     formData.append("overwrite", String(overwrite));
+    // Omitted rather than sent empty: ComfyUI joins whatever arrives onto the
+    // input directory, and the response echoes it back as the subfolder the
+    // caller must then name in LoadImage.
+    if (subfolder) formData.append("subfolder", subfolder);
 
     // FormData sets its own Content-Type boundary, so this one cannot take
     // the JSON headers request() applies - only the auth header.
