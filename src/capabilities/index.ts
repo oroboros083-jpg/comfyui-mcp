@@ -38,8 +38,10 @@ export interface Capabilities {
   hasMochiVideo: boolean;
   hasCogVideo: boolean;
 
-  // Audio capabilities
+  // Audio capabilities.
+  /** Any audio generation path at all: ACE-Step, or the shared decode/save nodes. */
   hasAudioGen: boolean;
+  /** Stable Audio specifically. */
   hasStableAudio: boolean;
 
   // Special features
@@ -87,8 +89,22 @@ const NODE_CAPABILITY_MAP: Record<string, keyof Capabilities> = {
   DownloadAndLoadMochiModel: "hasMochiVideo",
   CogVideoSampler: "hasCogVideo",
 
-  // Audio nodes
+  // Audio nodes.
+  //
+  // StableAudioSampler is a custom pack, not core, and it was the only audio
+  // node mapped - while hasAudioGen, the other half of canGenerateAudio, was
+  // initialised false and never assigned anywhere. So a stock ComfyUI with
+  // full audio support reported canGenerateAudio: false and the summary
+  // omitted "Audio generation" entirely. These are the core nodes the
+  // bundled Stable Audio and ACE-Step examples actually need.
+  EmptyLatentAudio: "hasStableAudio",
   StableAudioSampler: "hasStableAudio",
+  EmptyAceStepLatentAudio: "hasAudioGen",
+  TextEncodeAceStepAudio: "hasAudioGen",
+  VAEDecodeAudio: "hasAudioGen",
+  SaveAudio: "hasAudioGen",
+  SaveAudioMP3: "hasAudioGen",
+  SaveAudioOpus: "hasAudioGen",
 
   // Special features
   InpaintModelConditioning: "hasInpainting",
