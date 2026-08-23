@@ -41,13 +41,25 @@ export const runWorkflowSchema = z.object({
     .string()
     .optional()
     .describe("Descriptive name for this generation (e.g., 'beach_sunset_v2', 'logo_blue_variant'). Use clear, searchable names to find it later with get_generation_by_name."),
+  collectText: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Node IDs whose text output to return, e.g. ['7'] for a tagger or captioner node. " +
+        "Omitted, no text is returned at all - which is the default because a graph emits a " +
+        "great deal of text through the same channel as its images (echoed prompts, seeds, " +
+        "debug and progress logging), and returning that costs context for nothing. " +
+        "Deliberately node IDs rather than a boolean: naming what you want is the point. " +
+        "Only the keys 'text', 'tags', 'caption' and 'string' are read, and values are " +
+        "capped per node and overall."
+    ),
 }).strict();
 
 export type RunWorkflowInput = z.infer<typeof runWorkflowSchema>;
 
 // Defined in outputs.ts, which owns the shape; re-exported because
 // jobs/manager.ts and the tool modules import it from here.
-export type { RunWorkflowResult, OutputImage } from "./outputs.js";
+export type { RunWorkflowResult, OutputImage, TextOutput } from "./outputs.js";
 
 export const getImageSchema = z.object({
   filename: z

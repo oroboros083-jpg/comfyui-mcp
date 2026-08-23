@@ -61,6 +61,7 @@
       - [`comfyui_get_example_workflow`](#comfyui_get_example_workflow)
       - [`comfyui_extract_workflow`](#comfyui_extract_workflow)
       - [`comfyui_recommend_workflow`](#comfyui_recommend_workflow)
+      - [`comfyui_plan_iteration`](#comfyui_plan_iteration)
       - [`comfyui_get_download_url`](#comfyui_get_download_url)
       - [`comfyui_get_prompting_guide`](#comfyui_get_prompting_guide)
       - [`comfyui_search_tags`](#comfyui_search_tags)
@@ -70,6 +71,7 @@
       - [`comfyui_validate_workflow`](#comfyui_validate_workflow)
       - [`comfyui_get_image`](#comfyui_get_image)
       - [`comfyui_upload_image`](#comfyui_upload_image)
+      - [`comfyui_describe_image`](#comfyui_describe_image)
     - [Workflow File Tools](#workflow-file-tools)
       - [`comfyui_list_open_workflows`](#comfyui_list_open_workflows)
       - [`comfyui_read_workflow`](#comfyui_read_workflow)
@@ -887,6 +889,39 @@ Returns:
 What workflow should I use for flux1-schnell-fp8.safetensors?
 ```
 
+#### `comfyui_plan_iteration`
+Get a two-stage plan: a cheap draft stage for farming prompts and seeds, then
+the final render, each with its own steps/CFG/sampler. Call this before
+starting a batch — iterating on a 20-step model while a 4-step draft path sits
+installed spends most of a time budget on renders nobody keeps.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `model` | `string` | The model you intend to render the FINAL image with |
+| `seed` | `number?` | Seed echoed in both stages, so the two runs are comparable (default: chosen) |
+| `availableCheckpoints` | `string[]?` | Plan against this list instead of asking ComfyUI |
+| `availableUnets` | `string[]?` | Plan against this list instead of asking ComfyUI |
+| `availableLoras` | `string[]?` | Plan against this list instead of asking ComfyUI |
+| + [shared parameters](#shared-parameters) | | `response_format` |
+
+Returns `{ draft?, final, seedCarryOver, note, suggestedDownloads? }`.
+
+**`seedCarryOver` is the field that matters**, because the two draft paths do
+not behave the same way:
+
+| Draft path | `seedCarryOver` | What transfers |
+|---|---|---|
+| Same base model + a distill LoRA (Lightning, Hyper, LCM, DMD2, TCD) | `composition` | Layout, pose and framing largely survive at the same seed. The draft is a real preview, so seed farming pays off. |
+| A separate distilled checkpoint (`flux1-schnell` → `flux1-dev`) | `prompt-only` | Different weights, so the same seed renders a **different image**. Only prompt wording and framing intent carry. |
+| Nothing fast installed | `none` | Nothing — the response names distill LoRAs to fetch through [`comfyui_get_download_url`](#comfyui_get_download_url). |
+
+The LoRA path wins when both are available, since it is the only one that
+previews composition. Works with ComfyUI stopped if you pass the model lists.
+
+```
+Plan a cheap iteration loop for flux1-dev.safetensors
+```
+
 #### `comfyui_get_download_url`
 Get the download URL for a model by name, with its destination folder and a
 ready-to-run `wget` command.
@@ -1021,9 +1056,18 @@ Async by default: returns immediately with a task ID. Use
 | `sync` | `boolean?` | Wait for completion (default: `false`, async) |
 | `imageFormat` | `"jpeg" \| "png" \| "webp"` | Output format (default: `jpeg`) |
 | `imageQuality` | `number?` | Quality 1-100 for JPEG/WebP (default: 85) |
+| `collectText` | `string[]?` | Node IDs whose text output to return. Omitted, **no text is returned at all** — see below |
 
 Sync and async are one code path — a sync run is the async run plus a wait — so
 the two cannot drift in what they return.
+
+`collectText` is node IDs rather than a boolean on purpose. A graph emits a
+great deal of text through the same channel that carries its images — echoed
+prompts, seeds, node debug strings, progress logging — and returning all of it
+costs context for nothing. Naming the nodes you want is the point; only the
+keys `text`, `tags`, `caption` and `string` are read, and values are capped per
+node and overall. [`comfyui_describe_image`](#comfyui_describe_image) builds its
+own graph and so names its own nodes.
 
 ```
 Run this workflow: [paste JSON]
@@ -1114,6 +1158,52 @@ Paths are relative to ComfyUI's user directory (e.g.
 be listed in `workflowWriteDirs` in the config file, which is edited by hand:
 there is deliberately no tool for granting that, because a permission an agent
 can grant itself is not a permission.
+
+#### `comfyui_describe_image`
+Run an image through an installed tagger or captioner and get back what it says
+is in it. Use this on a reference image **before** writing a prompt from it: it
+answers in the vocabulary the diffusion model was trained on, which your own
+description of the image is not. A booru model does not know "glancing over her
+shoulder"; it knows `looking_back`.
+
+Pass exactly one image source.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | `string?` | Absolute path to an image on the machine running this server |
+| `from_output` | `object?` | An image ComfyUI already has: `{ filename, subfolder?, type? }` |
+| `reference` | `string?` | An image already in the input directory, as [`comfyui_upload_image`](#comfyui_upload_image) reported it |
+| `backends` | `string[]?` | Backend ids to run. Omitted, one is chosen from `promptingStyle` |
+| `promptingStyle` | `"booru_tags" \| "natural_language" \| "keywords" \| "hybrid"` | The style of the model you will generate with, from [`comfyui_get_prompting_guide`](#comfyui_get_prompting_guide) |
+| `prompt` | `string?` | A steer for the backends that take one (a question for Florence-2, an extra instruction for JoyCaption) |
+| + [shared parameters](#shared-parameters) | | `response_format` |
+
+Returns `{ reference, descriptions: [{ backend, kind, nodeType, values }], hint }`.
+
+Pass several ids to run a tagger **and** a captioner in one call —
+`backends: ["wd14", "florence2"]` — and each answer stays labelled by backend
+rather than merged into one blob.
+
+| Backend | Kind | Node type(s) | Install |
+|---|---|---|---|
+| `wd14` | tags | `WD14Tagger\|pysssss` | [ComfyUI-WD14-Tagger](https://github.com/pythongosssss/ComfyUI-WD14-Tagger) |
+| `florence2` | prose | `Florence2Run` | [ComfyUI-Florence2](https://github.com/kijai/ComfyUI-Florence2) |
+| `joycaption` | prose | `JJC_JoyCaption` and the other forks' names | [joycaption_comfyui](https://github.com/fpgaminer/joycaption_comfyui) |
+
+Each backend lists several candidate node types and takes the first one your
+instance actually offers — JoyCaption in particular has several competing
+wrappers, so pinning one name would pick a winner you may not have installed.
+
+`wd14` is an OUTPUT_NODE and terminates its own graph. The two captioners
+return a plain string, so they also need a text preview node to surface it at
+all; ComfyUI's built-in `PreviewAny` is enough, and a backend without one is
+reported as unavailable rather than run to produce nothing. With no backend
+installed the tool errors naming the repos, rather than returning an empty
+description that reads as "there is nothing in this image".
+
+```
+Describe ~/refs/pose.jpg as tags I can use with an Illustrious model
+```
 
 #### `comfyui_list_open_workflows`
 List the workflows currently open in the user's ComfyUI browser tabs, and which

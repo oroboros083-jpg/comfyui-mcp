@@ -7,9 +7,22 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { defineTool } from "../register.js";
 import { ensureConnected } from "../connection.js";
-import { dataResult, textResult, errorResult, ToolResult } from "../../utils/response.js";
+import {
+  dataResult,
+  textResult,
+  errorResult,
+  formattedResult,
+  ToolResult,
+} from "../../utils/response.js";
 import { runWorkflowSchema, getImageSchema, getImage } from "../../tools/generate.js";
 import { uploadImageSchema, uploadImage } from "../../tools/upload.js";
+import {
+  describeImageSchema,
+  describeImage,
+  chooseBackends,
+  resolveImageReference,
+  renderDescription,
+} from "../../tools/describe.js";
 import { runWorkflowAsync } from "../../tools/generate-async.js";
 import {
   listOpenWorkflowsSchema,
@@ -138,6 +151,79 @@ export function registerGenerationTools(
       return imagesToContent(
         `Workflow completed (prompt_id: ${task.promptId}).`,
         job.result.images
+      );
+    },
+  });
+
+  defineTool(server, {
+    name: "describe_image",
+    description:
+      "Run an image through an installed tagger or captioner and return what it says is in it. Use " +
+      "this on a reference image BEFORE writing a prompt from it: it answers in the vocabulary the " +
+      "diffusion model was trained on, which your own description of the image is not. A booru model " +
+      "does not know 'glancing over her shoulder'; it knows 'looking_back'.\n\n" +
+      "Pass 'promptingStyle' from comfyui_get_prompting_guide and the right kind of backend is " +
+      "chosen - a tagger for booru_tags models, a captioner otherwise. Pass 'backends' to choose " +
+      "explicitly, or to run a tagger AND a captioner in one call ('backends': ['wd14','florence2']); " +
+      "each answer stays labelled by backend.\n\n" +
+      "Backends: 'wd14' (Danbooru tags), 'florence2' (prose caption, plus OCR and grounded/region " +
+      "tasks via 'prompt'), 'joycaption' (prose written specifically for diffusion training data). " +
+      "Each needs its custom node installed; the captioners also need a text preview node such as " +
+      "ComfyUI's built-in PreviewAny to return their caption at all.\n\n" +
+      "Returns: { reference, descriptions: [{ backend, kind, nodeType, values }], hint }. Errors " +
+      "naming the repos to install when no backend is present.",
+    schema: describeImageSchema,
+    requiresConnection: true,
+    annotations: {
+      title: "Describe Image (Tagger/Captioner)",
+      readOnlyHint: false,
+      // Uploads the image into input/ and runs a graph; it writes, but it
+      // replaces nothing.
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    handler: async (input) => {
+      const c = ctx();
+      const { client, ws } = await ensureConnected();
+
+      const objectInfo = c.objectInfo ?? (await client.getObjectInfo());
+      const chosen = chooseBackends(objectInfo, input);
+      const reference = await resolveImageReference(client, input);
+
+      // The one execution path. Each backend graph goes through
+      // runWorkflowAsync like everything else, awaited rather than tracked,
+      // and `collectText` names only the nodes this module built.
+      const run = async (workflow: Record<string, unknown>) => {
+        const { task, completion } = await runWorkflowAsync(
+          c.server,
+          c.jobManager,
+          client,
+          ws,
+          {
+            workflow,
+            outputMode: "file",
+            sync: true,
+            name: `describe ${reference}`,
+          } as Parameters<typeof runWorkflowAsync>[4],
+          c.config.outputDir,
+          c.config.outputSizeThreshold
+        );
+        await completion;
+
+        const job = c.jobManager.getJob(task.taskId);
+        if (!job?.result?.success) {
+          throw new Error(job?.error ?? "the backend graph recorded no result");
+        }
+        return job.result.outputs;
+      };
+
+      const result = await describeImage(reference, chosen, run, input.prompt);
+      return formattedResult(
+        input.response_format,
+        result,
+        () => renderDescription(result),
+        "Request one backend at a time with 'backends'."
       );
     },
   });
