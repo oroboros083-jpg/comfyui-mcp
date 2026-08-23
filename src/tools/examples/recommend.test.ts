@@ -128,3 +128,42 @@ test("a catalogued model comes back structured, with its command", async () => {
   assert.ok(result.model.url, "the model carries its url");
   assert.match(result.downloadCommand, /^wget -P/);
 });
+
+/** Same, but for a task other than the default txt2img. */
+async function recommendFor(
+  modelName: string,
+  taskType: "txt2img" | "img2img" | "inpaint" | "edit" | "video"
+): Promise<WorkflowRecommendation> {
+  return recommendWorkflow({ modelName, taskType } as Parameters<
+    typeof recommendWorkflow
+  >[0]);
+}
+
+test("a Qwen model editing is sent to Qwen Image Edit, not Flux Kontext", async () => {
+  // Qwen was flux-shaped under the old conflated label, so "edit" recommended
+  // Flux Kontext - while the Qwen Image Edit examples sat unused in the same
+  // library. Separating the single-encoder shape from Flux fixed the routing.
+  const rec = await recommendFor("qwen_image_fp8_e4m3fn.safetensors", "edit");
+
+  assert.ok(
+    rec.alternativeWorkflows?.some((w) => w.includes("Qwen Image Edit")),
+    `expected a Qwen edit workflow, got ${JSON.stringify(rec.alternativeWorkflows)}`
+  );
+  assert.ok(
+    !rec.alternativeWorkflows?.some((w) => w.includes("Kontext")),
+    "Flux Kontext is a Flux workflow and does not apply to Qwen"
+  );
+});
+
+test("a Flux model editing still gets Flux Kontext", async () => {
+  const rec = await recommendFor("flux1-dev.safetensors", "edit");
+  assert.ok(rec.alternativeWorkflows?.some((w) => w.includes("Kontext")));
+});
+
+test("single-encoder architectures still get UNET sampler defaults", async () => {
+  // The sampler/scheduler defaults key off "loads a bare UNET", which is true
+  // of both UNET shapes - that predicate was written as `=== "flux"`.
+  const rec = await recommend("qwen_image_fp8_e4m3fn.safetensors");
+  assert.equal(rec.recommendedSettings.sampler, "euler");
+  assert.equal(rec.recommendedSettings.scheduler, "simple");
+});

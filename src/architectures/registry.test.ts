@@ -7,6 +7,7 @@ import {
   architectureFor,
   detectArchitectures,
   primaryArchitecture,
+  isUnetShape,
 } from "./registry.js";
 import { PROMPTING_GUIDES, getPromptingGuide } from "../resources/prompting-guide.js";
 import { ObjectInfo } from "../client/comfyui.js";
@@ -223,4 +224,38 @@ test("detected architectures are ordered, not merely filtered", () => {
     [...priorities].sort((a, b) => b - a),
     "descending priority"
   );
+});
+
+test("isUnetShape covers both bare-UNET shapes", () => {
+  // The predicate exists because several call sites tested `=== "flux"` when
+  // what they meant was "loads a bare UNET rather than a checkpoint".
+  assert.equal(isUnetShape("flux"), true);
+  assert.equal(isUnetShape("unet_clip"), true);
+  assert.equal(isUnetShape("standard"), false);
+});
+
+test("single-encoder architectures declare the unet_clip shape", () => {
+  // Both load UNETLoader + ONE CLIPLoader. Marked "flux" they were built a
+  // DualCLIPLoader graph naming a second encoder they do not use.
+  for (const id of ["anima", "qwen"]) {
+    const spec = architectureById(id);
+    assert.equal(spec?.workflow, "unet_clip", id);
+    assert.ok(spec?.clipTypeHints?.length, `${id} should hint a CLIPLoader type`);
+  }
+});
+
+test("Flux itself keeps the dual-encoder shape", () => {
+  assert.equal(architectureById("flux")?.workflow, "flux");
+});
+
+test("every unet_clip architecture carries clipTypeHints", () => {
+  // Without a hint the builder falls back to whatever the combo lists first,
+  // which is usually "flux" and wrong for these models.
+  for (const spec of ARCHITECTURES) {
+    if (spec.workflow !== "unet_clip") continue;
+    assert.ok(
+      spec.clipTypeHints?.length,
+      `${spec.id} uses unet_clip but names no preferred CLIPLoader type`
+    );
+  }
 });

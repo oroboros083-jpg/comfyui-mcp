@@ -113,6 +113,57 @@ export interface ModelReference {
   note?: string;
 }
 
+/** One construct in a prompt language: weighting, escaping, embeddings. */
+export interface SyntaxConstruct {
+  name: string;
+  /** The literal form, e.g. "(tag:1.2)". */
+  syntax: string;
+  description: string;
+  example?: string;
+  /** Set when the construct is NOT available and something else is needed. */
+  unsupported?: boolean;
+}
+
+/**
+ * The prompt language a model's text encoder is driven through.
+ *
+ * This is a property of the *encoder path*, not of the model's taste. Whether
+ * `(tag:1.2)` works is decided by CLIPTextEncode, which is why the answer is
+ * the same for every SD-lineage model and different for the ones whose
+ * encoder ignores weighting entirely. Stating it explicitly stops the guide
+ * from having to imply it through prose in `tips`.
+ */
+export interface PromptSyntax {
+  /** What separates one element from the next. */
+  separator: string;
+  /** Does casing change the result? */
+  caseSensitive: boolean;
+  /** Whether multi-word tags want underscores. */
+  underscores: "required" | "optional" | "avoid" | "n/a";
+  constructs: SyntaxConstruct[];
+  notes?: string;
+}
+
+/**
+ * Exact tags a model was trained on, grouped so a caller can pick from a real
+ * vocabulary instead of inventing phrases.
+ *
+ * This matters specifically for booru models: an unrecognised tag contributes
+ * close to nothing, so "windswept auburn tresses" is dead weight where
+ * `long_hair, brown_hair, floating_hair` is three working tags. The list is
+ * curated, not exhaustive - Danbooru has six figures of tags - so it names its
+ * `reference` for looking up anything absent.
+ */
+export interface TagVocabulary {
+  /** Where the vocabulary comes from, e.g. "Danbooru". */
+  source: string;
+  /** Where to look up tags this list does not carry. */
+  reference?: string;
+  /** Exact tags, grouped by what they control. */
+  categories: Record<string, string[]>;
+  notes?: string;
+}
+
 export interface ModelPromptingGuide {
   modelType: string;
   description: string;
@@ -134,6 +185,10 @@ export interface ModelPromptingGuide {
   examplePrompt: string;
   structure?: PromptStructure;
   specialTags?: SpecialTags;
+  /** The prompt language: weighting, escaping, separators. */
+  syntax?: PromptSyntax;
+  /** Exact tags this model knows, for models with a fixed vocabulary. */
+  vocabulary?: TagVocabulary;
   starters?: StarterPrompt[];
   models?: ModelReference[];
 }
@@ -147,7 +202,9 @@ export interface ModelPromptingGuide {
 export const GUIDE_SECTIONS = [
   "overview",
   "structure",
+  "syntax",
   "tags",
+  "vocabulary",
   "tips",
   "mistakes",
   "starters",
@@ -160,7 +217,9 @@ export type GuideSection = (typeof GUIDE_SECTIONS)[number];
 export function sectionsPresent(guide: ModelPromptingGuide): GuideSection[] {
   const present: GuideSection[] = ["overview"];
   if (guide.structure) present.push("structure");
+  if (guide.syntax) present.push("syntax");
   if (guide.specialTags) present.push("tags");
+  if (guide.vocabulary) present.push("vocabulary");
   if (guide.tips.length) present.push("tips");
   if (guide.commonMistakes.length) present.push("mistakes");
   if (guide.starters?.length || guide.examplePrompt) present.push("starters");

@@ -401,7 +401,14 @@ export function registerLibraryTools(server: McpServer): void {
         // the available keys implies the caller named something invalid.
         const spec = architectureFor(input.modelType);
         if (spec) {
-          const closest = spec.workflow === "flux" ? "flux" : "sdxl";
+          // Unreachable while every row carries a guide, which a test
+          // enforces - but it is the guard for the row that forgets one.
+          const closest =
+            spec.workflow === "flux"
+              ? "flux"
+              : spec.workflow === "unet_clip"
+                ? "qwen"
+                : "sdxl";
           return errorResult(
             `No prompting guide for ${spec.displayName} yet.`,
             `It uses the ${spec.workflow} workflow shape, so comfyui_get_prompting_guide('${closest}') is the closest fit. ` +

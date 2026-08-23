@@ -76,6 +76,7 @@ src/
 │       ├── render.ts       # Section rendering (progressive disclosure)
 │       ├── index.ts        # Aggregation, lookup, the index table
 │       └── guides/         # stable-diffusion, flux, anime, dit, video, audio
+│           └── vocabulary.ts  # Shared Danbooru tags + ComfyUI prompt syntax
 ├── analysis/
 │   ├── outputs.ts          # User output history analysis
 │   └── hash.ts             # Workflow hashing
@@ -153,6 +154,7 @@ Parses `/object_info` response to detect:
 `workflows/builder.ts` generates workflows based on detected capabilities:
 - Standard workflow for SD 1.5/SDXL (CheckpointLoaderSimple)
 - Flux workflow for Flux models (UNETLoader + DualCLIPLoader)
+- Single-encoder workflow for Anima/Qwen (UNETLoader + one CLIPLoader + VAELoader)
 
 ## Commands
 
@@ -280,6 +282,7 @@ One row in `src/architectures/registry.ts`:
   detect: { checkpoints: /myarch/i, unets: /myarch/i },
   workflow: "flux",          // which graph shape builder.ts produces
   guide: "myarch",           // key into PROMPTING_GUIDES - see below
+  // clipTypeHints: ["qwen_image"],  // unet_clip only; see below
   advice: "One line of prompting steer.",
   priority: 50,              // higher = more specific; beats the generic bases
 }
@@ -306,6 +309,17 @@ natural-language SDXL guide — close to the inverse of what they want. If a new
 architecture wants a fixed tag vocabulary, a tag order, or quality/rating
 tokens, it needs its own row and its own guide, however familiar its graph
 looks. Fill in `structure` and `specialTags` on the guide when so.
+
+**There are three graph shapes, not two.** `standard` is
+CheckpointLoaderSimple; `flux` is UNETLoader + **Dual**CLIPLoader; `unet_clip`
+is UNETLoader + a **single** CLIPLoader. Picking `flux` for a single-encoder
+model builds a graph naming a second encoder that model does not have, which
+is what Anima and Qwen-Image were getting. A `unet_clip` row must also set
+`clipTypeHints` — the CLIPLoader `type` combo moves between ComfyUI versions,
+so the builder takes the first hint the running instance actually offers
+rather than a hardcoded string. Use `isUnetShape()` rather than
+`workflow === "flux"` whenever you mean "loads a bare UNET"; several call
+sites meant that and tested the other thing.
 
 **Keep `id` and `workflow` distinct.** `id` is identity ("this is a Qwen
 model"); `workflow` is graph shape ("loads through UNETLoader +
