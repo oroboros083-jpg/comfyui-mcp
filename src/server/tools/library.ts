@@ -43,6 +43,9 @@ import {
 } from "../../tools/examples/index.js";
 import {
   getPromptingGuide,
+  GUIDE_SECTIONS,
+  GuideSection,
+  sectionsPresent,
   getComprehensiveGuide,
   formatPromptingGuide,
   PROMPTING_GUIDES,
@@ -339,8 +342,13 @@ export function registerLibraryTools(server: McpServer): void {
     name: "get_prompting_guide",
     description:
       "Get prompting best practices for a model architecture. These differ substantially - Flux and SD3 " +
-      "want natural language and ignore negative prompts, while SD1.5 wants keyword lists and depends " +
-      "on them. Ask for one architecture rather than 'all' unless you actually need the comparison.",
+      "want natural language and ignore negative prompts, SD1.5 wants keyword lists and depends on them, " +
+      "and the booru-tag anime models (illustrious, noobai, pony, animagine, anima) want a fixed tag " +
+      "vocabulary in a specific ORDER, which is close to the opposite of the SDXL advice.\n\n" +
+      "Progressive: 'all' returns a one-table index of every guide, a modelType returns that guide's " +
+      "overview, and section/detail fetch the rest. Sections are overview, structure (the tag order), " +
+      "tags (quality/rating tokens), tips, mistakes, starters (paste-ready prompts) and models " +
+      "(Hugging Face cards). Take the overview first and ask for a section only when you need it.",
     schema: z
       .object({
         // A free string, validated against the guides that actually exist,
@@ -354,7 +362,21 @@ export function registerLibraryTools(server: McpServer): void {
           .default("all")
           .describe(
             `Which architecture's guide to return: ${Object.keys(PROMPTING_GUIDES).join(", ")}, ` +
-              "or a raw model filename. 'all' returns the full comparison."
+              "or a raw model filename. 'all' returns the index of every guide."
+          ),
+        detail: z
+          .enum(["overview", "full"])
+          .optional()
+          .default("overview")
+          .describe(
+            "'overview' (default) returns style, settings and the prompt order, then names the " +
+              "sections it withheld. 'full' returns the entire guide. Ignored when modelType is 'all'."
+          ),
+        section: z
+          .enum(GUIDE_SECTIONS)
+          .optional()
+          .describe(
+            `Return only this section: ${GUIDE_SECTIONS.join(", ")}. Overrides 'detail'.`
           ),
       })
       .strict(),
@@ -367,10 +389,9 @@ export function registerLibraryTools(server: McpServer): void {
     },
     handler: (input) => {
       if (input.modelType === "all") {
-        return textResult(
-          getComprehensiveGuide(),
-          "Request a single modelType instead of 'all'."
-        );
+        // The index is a table of every guide, not every guide concatenated,
+        // so there is nothing left to narrow and no hint to give.
+        return textResult(getComprehensiveGuide());
       }
 
       const guide = getPromptingGuide(input.modelType);
@@ -392,7 +413,18 @@ export function registerLibraryTools(server: McpServer): void {
           `Available: ${Object.keys(PROMPTING_GUIDES).join(", ")}. A model filename works too.`
         );
       }
-      return textResult(formatPromptingGuide(guide));
+      // section wins over detail; detail:"full" means every section, which
+      // formatPromptingGuide renders when given no list at all.
+      const sections = input.section
+        ? [input.section]
+        : input.detail === "full"
+          ? undefined
+          : (["overview"] as GuideSection[]);
+
+      return textResult(
+        formatPromptingGuide(guide, sections),
+        `Ask for one section instead: ${sectionsPresent(guide).join(", ")}.`
+      );
     },
   });
 }

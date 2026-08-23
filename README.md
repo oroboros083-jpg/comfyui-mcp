@@ -20,7 +20,7 @@
     - [Works Without ComfyUI Running](#works-without-comfyui-running)
     - [Workflow-First Architecture](#workflow-first-architecture)
     - [77 Example Workflows](#77-example-workflows)
-    - [21 Model Architectures](#21-model-architectures)
+    - [26 Model Architectures, 26 Prompting Guides](#26-model-architectures-26-prompting-guides)
     - [Template System](#template-system)
     - [Workflow Composition Tools](#workflow-composition-tools)
     - [Safe Workflow-File Editing](#safe-workflow-file-editing)
@@ -229,19 +229,31 @@ Library of example workflows from the [official ComfyUI documentation](https://c
 | `unclip` | 3 | `turbo` / `hunyuan` | 2 each |
 | `lora`, `hypernetworks`, `embeddings`, `upscale`, `lcm`, `aura_flow`, `chroma`, `lumina`, `edit`, `omnigen`, `audio`, `3d` | 1 each | | |
 
-### 21 Model Architectures
+### 26 Model Architectures, 26 Prompting Guides
 Architecture detection, prompting advice, and workflow-shape selection are
 driven by one registry, so all of it agrees:
 
-`sd15`, `sdxl`, `sd3`, `cascade`, `flux`, `qwen`, `hunyuan`, `auraflow`,
-`kolors`, `pixart`, `playground`, `hidream`, `wan`, `lumina`, `chroma`,
-`zimage`, `mochi`, `ltxvideo`, `cosmos`, `aceaudio`, `omnigen`
+| Family | Architectures |
+|---|---|
+| Stable Diffusion | `sd15`, `sdxl`, `sd3`, `cascade` |
+| Flux and derivatives | `flux`, `chroma` |
+| Booru-tag anime | `anima`, `illustrious`, `noobai`, `pony`, `animagine` |
+| Other transformers | `qwen`, `hunyuan`, `auraflow`, `kolors`, `pixart`, `playground`, `hidream`, `lumina`, `zimage`, `omnigen` |
+| Video | `wan`, `ltxvideo`, `mochi`, `cosmos` |
+| Audio | `aceaudio` |
 
-Eleven of them ship a dedicated prompting guide (`sd15`, `sdxl`, `sd3`,
-`flux`, `qwen`, `hunyuan`, `auraflow`, `kolors`, `pixart`, `playground`,
-`cascade`); the rest report which guide is the closest fit and a one-line
-steer. Architectures are matched most-specific-first, so a Flux-derived model
-is identified as itself rather than as Flux.
+**Every architecture has its own guide**, and a test enforces it in both
+directions — no architecture may point at a guide that does not exist, and no
+guide may be unreachable. Previously eleven of twenty-one had one and the rest
+answered "no dedicated prompting guide yet".
+
+Architectures are matched most-specific-first, so a Flux-derived model is
+identified as itself rather than as Flux — and a booru-tag anime finetune is
+identified as itself rather than as the SDXL it is built on. That last point
+matters more than it sounds: `illustrious`, `pony` and `noobai` used to be
+listed as *aliases of SDXL*, so their users were told to write natural-language
+scene descriptions and that quality tags were unnecessary, which is close to
+the opposite of what those models want.
 
 ### Template System
 Three sources of workflow templates:
@@ -884,23 +896,40 @@ Where can I download flux1-schnell?
 #### `comfyui_get_prompting_guide`
 Get prompting best practices for a model architecture. These differ
 substantially — Flux and SD3 want natural language and ignore negative
-prompts, while SD1.5 wants keyword lists and depends on them.
+prompts, SD1.5 wants keyword lists and depends on them, and the booru-tag
+anime models want a fixed tag vocabulary in a specific order.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `modelType` | `string?` | An architecture id, an alias, or a raw model filename. `"all"` (default) returns the full comparison. |
+| `modelType` | `string?` | An architecture id, an alias, or a raw model filename. `"all"` (default) returns the index. |
+| `detail` | `"overview" \| "full"?` | `overview` (default) or the whole guide. Ignored when `modelType` is `"all"`. |
+| `section` | `string?` | Return just one section. Overrides `detail`. |
 
-Guides exist for `sd15`, `sdxl`, `sd3`, `flux`, `qwen`, `hunyuan`, `auraflow`,
-`kolors`, `pixart`, `playground` and `cascade`. A model filename is resolved
-through the architecture registry, so `flux1-schnell-fp8.safetensors` works.
-An architecture the registry knows but has no guide for reports the closest fit
-plus a one-line steer, rather than erroring blankly.
+**Progressive disclosure.** The guides total roughly 70,000 characters — nearly
+three times the 25,000-character response cap — so asking for everything used
+to return a truncated document. Three levels instead:
 
-Ask for one architecture rather than `all` unless you actually need the
-comparison — `all` is large.
+| Call | Returns | Size |
+|---|---|---|
+| `{}` or `modelType: "all"` | An index: every guide in one table, plus how to choose | ~3.5KB |
+| `{ modelType: "anima" }` | That guide's overview, ending with the sections it withheld | ~0.9KB |
+| `{ modelType: "anima", section: "structure" }` | Just the tag order | ~1.3KB |
+| `{ modelType: "anima", detail: "full" }` | Everything | ~5KB |
+
+Sections are `overview`, `structure` (the tag order), `tags` (quality and
+rating tokens), `tips`, `mistakes`, `starters` (paste-ready prompts) and
+`models` (Hugging Face cards).
+
+A model filename resolves through the architecture registry, so
+`flux1-schnell-fp8.safetensors` and `waiIllustriousSDXL_v170.safetensors` both
+work — the latter now reaching the Illustrious guide rather than the SDXL one.
 
 ```
 How should I write prompts for Flux?
+```
+
+```
+What tag order does Anima want?
 ```
 
 ### Generation Tools
@@ -1432,7 +1461,7 @@ that support them.
 | URI | Contents |
 |-----|----------|
 | `comfyui://guides/prompting/all` | The complete prompting guide |
-| `comfyui://guides/prompting/<architecture>` | One architecture's guide, for each of the eleven that have one |
+| `comfyui://guides/prompting/<architecture>` | One architecture's guide, for each of the 26 |
 | `comfyui://examples/<slug>` | One documentation example workflow, one entry per example that has a source image |
 | `comfyui://models/checkpoints` | Installed checkpoints |
 | `comfyui://models/loras` | Installed LoRAs |
@@ -1521,7 +1550,7 @@ without restarting this server or your MCP client.
 
 On connection, the server queries ComfyUI's `/object_info` endpoint to detect:
 
-- **Model Architectures**: all 21 in the registry, matched most-specific-first
+- **Model Architectures**: all 26 in the registry, matched most-specific-first
   against installed checkpoints and UNETs
 - **Extensions**: LoRA, ControlNet, IP-Adapter, AnimateDiff, etc. (based on available nodes)
 - **Features**: Video generation, audio generation, upscaling, inpainting

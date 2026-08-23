@@ -108,9 +108,20 @@ test("a specific architecture outranks the generic base beside it", () => {
   );
 
   assert.equal(primaryArchitecture(detected)?.id, "qwen");
+  // The WAI checkpoint matches both `illustrious` and SDXL's deliberately
+  // loose bare `xl`, so both are reported - detectArchitectures returns every
+  // match, and ranking is priority's job, not filtering's. `illustrious`
+  // outranks `sdxl`, which is the point: this file is a booru-tag model that
+  // merely happens to be SDXL-shaped.
   assert.deepEqual(
     detected.map((a) => a.id).sort(),
-    ["flux", "qwen", "sdxl"]
+    ["flux", "illustrious", "qwen", "sdxl"]
+  );
+
+  const ranked = detected.map((a) => a.id);
+  assert.ok(
+    ranked.indexOf("illustrious") < ranked.indexOf("sdxl"),
+    "the specific anime finetune must rank above the generic base it is built on"
   );
 });
 
