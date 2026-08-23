@@ -44,6 +44,12 @@ export interface RunWorkflowResult {
   promptId: string;
   outputs: Record<string, unknown>;
   images: OutputImage[];
+  /**
+   * Text from the nodes the caller named in `collectText`. Absent unless it
+   * asked - see collectTextOutputs below for why that default is not
+   * negotiable.
+   */
+  texts?: TextOutput[];
   error?: string;
 }
 
@@ -260,4 +266,132 @@ export async function collectOutputImages(
   }
 
   return images;
+}
+
+/**
+ * Text collection: opt-in, by node id, never by sniffing.
+ *
+ * A ComfyUI graph emits a great deal of text through the same `outputs`
+ * channel that carries images - echoed prompts, seeds, node debug strings,
+ * progress logging. Hoovering all of it into a tool response is exactly the
+ * context pollution the response conventions exist to prevent: a caption is
+ * one sentence and a tag list a few hundred characters, so anything much
+ * larger is almost certainly noise the caller did not ask for.
+ *
+ * So collection is scoped to node ids the caller names. A tool that builds
+ * its own graph (comfyui_describe_image) knows the tagger is node "2" and
+ * asks for that node only; a caller passing someone else's workflow has to
+ * name the nodes it wants, which it can resolve with comfyui_get_node_info
+ * or comfyui_validate_workflow. Nothing is guessed and nothing else is
+ * admitted.
+ */
+
+/** One text value a named node produced. */
+export interface TextOutput {
+  nodeId: string;
+  /** Which output key it came from, e.g. "tags" or "text". */
+  key: string;
+  text: string;
+  /** Set when the value was longer than the per-node cap. */
+  truncated?: boolean;
+}
+
+/**
+ * Output keys worth reading.
+ *
+ * A small allowlist rather than "any string-valued field", because the
+ * field a debug node logs under is also a string-valued field.
+ */
+export const TEXT_OUTPUT_KEYS = ["text", "tags", "caption", "string"] as const;
+
+export interface TextCollectionOptions {
+  /**
+   * Node ids to read. **Undefined collects nothing** - opt-in by
+   * construction, so no existing caller can start leaking text.
+   */
+  fromNodes?: string[];
+  /** Output keys to read. Defaults to TEXT_OUTPUT_KEYS. */
+  keys?: readonly string[];
+  /** Character cap per node. */
+  maxPerNode?: number;
+  /** Character cap across all nodes. */
+  maxTotal?: number;
+}
+
+const DEFAULT_MAX_PER_NODE = 4000;
+const DEFAULT_MAX_TOTAL = 12000;
+
+/**
+ * Truncate and say so.
+ *
+ * `capText` in utils/response.ts does this for a whole response against
+ * CHARACTER_LIMIT; these are per-node caps well below it, so the limit is a
+ * parameter here. The suffix follows the same convention on purpose - a
+ * silently clipped caption reads as a complete one.
+ */
+function truncateTo(text: string, max: number): { text: string; truncated: boolean } {
+  if (text.length <= max) return { text, truncated: false };
+  return {
+    text: text.slice(0, max) + `\n[TRUNCATED at ${max} of ${text.length} characters]`,
+    truncated: true,
+  };
+}
+
+/** Flatten a node output value into the strings inside it. */
+function stringsIn(value: unknown, depth = 0): string[] {
+  if (typeof value === "string") return value.trim() ? [value] : [];
+  if (depth > 2) return [];
+  if (Array.isArray(value)) return value.flatMap((v) => stringsIn(v, depth + 1));
+  return [];
+}
+
+/**
+ * Collect text from the nodes the caller named.
+ *
+ * Image collection is untouched by this; the two read the same `outputs`
+ * object independently.
+ */
+export function collectTextOutputs(
+  outputs: Record<string, unknown>,
+  options: TextCollectionOptions = {}
+): TextOutput[] {
+  // The guard the whole design rests on. Not an early return for tidiness:
+  // it is what makes every existing caller byte-identical.
+  if (!options.fromNodes?.length) return [];
+
+  const wanted = new Set(options.fromNodes);
+  const keys = options.keys ?? TEXT_OUTPUT_KEYS;
+  const maxPerNode = options.maxPerNode ?? DEFAULT_MAX_PER_NODE;
+  const maxTotal = options.maxTotal ?? DEFAULT_MAX_TOTAL;
+
+  const collected: TextOutput[] = [];
+  // Some nodes echo the same value in `ui` and in `outputs`, and a caption
+  // returned twice is paid for twice.
+  const seen = new Set<string>();
+  let total = 0;
+
+  for (const [nodeId, nodeOutput] of Object.entries(outputs)) {
+    if (!wanted.has(nodeId)) continue;
+    if (!nodeOutput || typeof nodeOutput !== "object") continue;
+
+    for (const key of keys) {
+      const raw = (nodeOutput as Record<string, unknown>)[key];
+      if (raw === undefined) continue;
+
+      for (const value of stringsIn(raw)) {
+        const dedupeKey = `${nodeId} ${value}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+
+        if (total >= maxTotal) return collected;
+
+        const budget = Math.min(maxPerNode, maxTotal - total);
+        const { text, truncated } = truncateTo(value, budget);
+        total += text.length;
+        collected.push({ nodeId, key, text, ...(truncated ? { truncated } : {}) });
+      }
+    }
+  }
+
+  return collected;
 }

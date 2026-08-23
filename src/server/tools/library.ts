@@ -19,6 +19,11 @@ import {
   paginatedOutputSchema,
 } from "../../utils/response.js";
 import { safeFetch } from "../../utils/safe-fetch.js";
+import {
+  planIterationSchema,
+  planIteration,
+  renderIterationPlan,
+} from "../../tools/iteration.js";
 import { architectureFor } from "../../architectures/registry.js";
 import { ServerContext } from "../../context.js";
 import {
@@ -345,6 +350,43 @@ export function registerLibraryTools(
       openWorldHint: false,
     },
     handler: (input) => dataResult(deleteCustomTemplate(input)),
+  });
+
+  defineTool(server, {
+    name: "plan_iteration",
+    description:
+      "Given the model you want the FINAL image on, return a two-stage plan: a cheap draft stage for " +
+      "farming prompts and seeds, then the final render, each with its own steps/CFG/sampler. Call this " +
+      "before starting a batch - iterating on a 20-step model when a 4-step draft path is installed " +
+      "wastes most of the time budget.\n\n" +
+      "The field that matters is 'seedCarryOver'. A distill LoRA over the same base weights gives " +
+      "'composition': the draft previews the final image at the same seed, so seed farming pays off. A " +
+      "separate distilled checkpoint (flux1-schnell against flux1-dev) gives 'prompt-only': different " +
+      "weights, so the same seed renders a DIFFERENT image and only prompt wording transfers. 'none' " +
+      "means nothing fast is installed, and the response names distill LoRAs to fetch through " +
+      "comfyui_get_download_url.\n\n" +
+      "Returns: { draft?, final, seedCarryOver, note, suggestedDownloads? }.",
+    schema: planIterationSchema,
+    requiresConnection: false,
+    annotations: {
+      title: "Plan Draft-then-Final Iteration",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    handler: async (input) => {
+      // Connection is optional rather than required: the caller may pass the
+      // model lists itself, and a plan built from those is just as correct
+      // with ComfyUI stopped.
+      const ctxValue = ctx();
+      const plan = await planIteration(ctxValue.client ?? undefined, input);
+      return formattedResult(
+        input.response_format,
+        plan,
+        () => renderIterationPlan(plan),
+        "Pass availableLoras/availableCheckpoints to plan against a specific set."
+      );
+    },
   });
 
   defineTool(server, {

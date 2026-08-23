@@ -7,10 +7,12 @@ import sharp from "sharp";
 
 import {
   collectOutputImages,
+  collectTextOutputs,
   shouldSkipFileSaving,
   workflowPromptFor,
   generateReadableFilename,
   writeUnique,
+  TEXT_OUTPUT_KEYS,
 } from "./outputs.js";
 import { ComfyUIClient } from "../client/comfyui.js";
 
@@ -314,4 +316,134 @@ test("the reported filename matches the file actually written", async () => {
       `${image.filename} vs ${image.path}`
     );
   }
+});
+
+// --- text collection ------------------------------------------------------
+
+/**
+ * A finished prompt's outputs, shaped as ComfyUI records them: one entry per
+ * OUTPUT_NODE, holding whatever that node put in its `ui` dict.
+ *
+ * Node "2" is a WD14 tagger, node "4" a caption preview, node "5" a logging
+ * node of the kind that makes unscoped collection a context leak, and node
+ * "9" a SaveImage.
+ */
+function mixedOutputs(): Record<string, unknown> {
+  return {
+    "2": { tags: ["1girl, solo, looking_back, cowboy_shot"] },
+    "4": { text: ["A woman in a red coat glances back over her shoulder."] },
+    "5": {
+      text: [
+        "[INFO] loading model...\n".repeat(200) +
+          "[INFO] sampler: euler | scheduler: simple | seed: 883120",
+      ],
+    },
+    "9": { images: [{ filename: "ComfyUI_00001_.png", subfolder: "", type: "output" }] },
+  };
+}
+
+// --- the guard the design rests on ---------------------------------------
+
+test("no fromNodes collects nothing at all", () => {
+  // This is the regression that matters: every caller that existed before
+  // text collection must behave exactly as it did.
+  assert.deepEqual(collectTextOutputs(mixedOutputs()), []);
+  assert.deepEqual(collectTextOutputs(mixedOutputs(), {}), []);
+  assert.deepEqual(collectTextOutputs(mixedOutputs(), { fromNodes: [] }), []);
+});
+
+test("only the named node's text comes back", () => {
+  const collected = collectTextOutputs(mixedOutputs(), { fromNodes: ["2"] });
+
+  assert.equal(collected.length, 1);
+  assert.equal(collected[0]!.nodeId, "2");
+  assert.equal(collected[0]!.key, "tags");
+  assert.match(collected[0]!.text, /looking_back/);
+});
+
+test("a noisy logging node is not collected even though it is string-valued", () => {
+  // Node 5 emits under "text", the same key the caption uses. Nothing about
+  // the value distinguishes it - only the fact that nobody asked for it.
+  const collected = collectTextOutputs(mixedOutputs(), { fromNodes: ["2", "4"] });
+
+  assert.equal(collected.length, 2);
+  assert.ok(!collected.some((entry) => entry.nodeId === "5"));
+  assert.ok(!collected.some((entry) => /\[INFO\]/.test(entry.text)));
+});
+
+test("a key outside the allowlist is not collected even from a named node", () => {
+  const collected = collectTextOutputs(
+    { "2": { tags: ["1girl"], debug: ["internal state dump"], seeds: ["883120"] } },
+    { fromNodes: ["2"] }
+  );
+
+  assert.deepEqual(collected.map((entry) => entry.key), ["tags"]);
+});
+
+test("the allowlist is small and deliberate", () => {
+  // Widening this is how "collect text" turns back into "collect everything",
+  // so a change here should be a conscious one.
+  assert.deepEqual([...TEXT_OUTPUT_KEYS], ["text", "tags", "caption", "string"]);
+});
+
+// --- caps -----------------------------------------------------------------
+
+test("an oversized value is truncated and flagged, not passed through whole", () => {
+  const long = "x".repeat(9000);
+  const collected = collectTextOutputs({ "2": { text: [long] } }, {
+    fromNodes: ["2"],
+    maxPerNode: 100,
+  });
+
+  assert.equal(collected[0]!.truncated, true);
+  assert.ok(collected[0]!.text.length < 200);
+  // Silently clipped text reads as complete text, so it has to say so.
+  assert.match(collected[0]!.text, /TRUNCATED/);
+});
+
+test("the total cap stops collection across nodes", () => {
+  const collected = collectTextOutputs(
+    { "1": { text: ["a".repeat(80)] }, "2": { text: ["b".repeat(80)] } },
+    { fromNodes: ["1", "2"], maxPerNode: 100, maxTotal: 100 }
+  );
+
+  const total = collected.reduce((n, entry) => n + entry.text.length, 0);
+  assert.ok(total <= 160, `collected ${total} characters against a 100 cap`);
+});
+
+test("a value repeated within a node is returned once", () => {
+  const collected = collectTextOutputs(
+    { "2": { text: ["a caption"], caption: ["a caption"] } },
+    { fromNodes: ["2"] }
+  );
+
+  assert.equal(collected.length, 1);
+});
+
+// --- shapes ---------------------------------------------------------------
+
+test("a bare string is read as well as a list of them", () => {
+  const collected = collectTextOutputs(
+    { "2": { tags: "1girl, solo" }, "3": { text: ["one", "two"] } },
+    { fromNodes: ["2", "3"] }
+  );
+
+  assert.deepEqual(collected.map((entry) => entry.text), ["1girl, solo", "one", "two"]);
+});
+
+test("empty and whitespace values are dropped", () => {
+  const collected = collectTextOutputs({ "2": { text: ["", "   ", "real"] } }, {
+    fromNodes: ["2"],
+  });
+
+  assert.deepEqual(collected.map((entry) => entry.text), ["real"]);
+});
+
+test("an image-only node named for text yields nothing", () => {
+  // SaveImage has no text keys; naming it should be a no-op, not a crash.
+  assert.deepEqual(collectTextOutputs(mixedOutputs(), { fromNodes: ["9"] }), []);
+});
+
+test("a node id that does not exist is a no-op", () => {
+  assert.deepEqual(collectTextOutputs(mixedOutputs(), { fromNodes: ["99"] }), []);
 });

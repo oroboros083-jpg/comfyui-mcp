@@ -34,7 +34,11 @@ src/
 ├── tools/
 │   ├── generate.ts         # Workflow/image schemas, get_image
 │   ├── generate-async.ts   # Submit a workflow and track it to completion
-│   ├── outputs.ts          # Collect a finished prompt's images
+│   ├── outputs.ts          # Collect a finished prompt's images, and its text by node id
+│   ├── iteration.ts        # Draft-then-final planning; what a seed carries over
+│   ├── describe.ts         # Image -> tags/prose, orchestration and rendering
+│   ├── describe/
+│   │   └── backends.ts     # One row per tagger/captioner; node-type candidates
 │   ├── upload.ts           # Put an image into ComfyUI's input dir for LoadImage
 │   ├── models.ts           # Model/node listing and building
 │   ├── queue.ts            # Queue management tools
@@ -283,6 +287,50 @@ Only declare `outputSchema` where the response shape is genuinely fixed. The
 SDK validates every response against it and fails the whole call on a
 mismatch, including on branches you did not think about (empty results, the
 final page, error paths).
+
+### Collecting Text From a Workflow
+
+`collectTextOutputs` in `tools/outputs.ts` reads text out of a finished
+prompt, and it reads it **only from node ids the caller names**. Passing no
+`fromNodes` returns `[]`.
+
+That is not a convenience default. A ComfyUI graph emits a great deal of text
+through the same `outputs` channel that carries images - echoed prompts,
+seeds, node debug strings, progress logging - and a tool that collects "any
+string-valued field" is a context leak wearing a feature's clothes. Scoping by
+node id means nothing is guessed and nothing else is admitted: `describe_image`
+builds its own graph and so knows the captioner is node `"4"`.
+
+Keep it that way. In particular:
+
+- Do not add a boolean "collect all text" option. `comfyui_run_workflow` takes
+  `collectText: string[]` for exactly this reason - naming what you want is the
+  point, and the caller has the ids because it supplied the workflow.
+- Do not widen `TEXT_OUTPUT_KEYS` without a reason. It is an allowlist, and
+  the field a debug node logs under is also a string-valued field.
+- Per-node and total caps stay. A caption is a sentence; anything much larger
+  is noise.
+
+### Adding an Image-to-Text Backend
+
+One row in `src/tools/describe/backends.ts`. Two things about ComfyUI make the
+rows less uniform than they look, and both bite silently:
+
+- **`nodeTypes` is a list.** Popular nodes get forked, and the forks rename
+  the class. JoyCaption has at least four wrappers. Candidates resolve against
+  the live `object_info` and the first one present wins, the same way
+  `resolveClipType()` handles `clipTypeHints`.
+- **Only an `OUTPUT_NODE` reaches `history[...].outputs`.** WD14Tagger is one;
+  Florence2Run and JoyCaption are not - they return a plain STRING, so their
+  graphs must end in a preview node (`terminalNode`, defaulting to core's
+  `PreviewAny`). Without one the graph submits happily and returns nothing,
+  which is why `resolveBackend` treats a missing preview node as "unavailable"
+  rather than running it.
+
+Read the node's own source for its `INPUT_TYPES` and return shape rather than
+inferring from docs - the output index in particular. JoyCaption returns
+`("query","caption")` and Florence2Run returns `("image","mask","caption",
+"data")`, so index 0 is the wrong one in both.
 
 ### Running a Workflow
 

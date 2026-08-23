@@ -19,7 +19,7 @@ import {
   sendCompletionNotification,
 } from "../jobs/notifications.js";
 import { RunWorkflowInput } from "./generate.js";
-import { collectOutputImages, RunWorkflowResult } from "./outputs.js";
+import { collectOutputImages, collectTextOutputs, RunWorkflowResult } from "./outputs.js";
 
 /**
  * Result returned immediately when starting a generation.
@@ -135,6 +135,13 @@ export async function runWorkflowAsync(
             sizeThreshold
           ),
         };
+
+        // Opt-in, and by node id. With `collectText` absent this returns [],
+        // so the field stays off the result entirely and every existing
+        // caller sees exactly what it saw before.
+        const texts = collectTextOutputs(result.outputs, { fromNodes: input.collectText });
+        if (texts.length) workflowResult.texts = texts;
+
         jobManager.completeJob(promptId, workflowResult);
       }
 
