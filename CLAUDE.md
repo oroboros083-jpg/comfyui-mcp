@@ -41,6 +41,7 @@ src/
 │   ├── install.ts          # Installation assistance
 │   ├── launch.ts           # Launcher detection and detached process start
 │   ├── validation.ts       # Workflow validation
+│   ├── tags.ts             # Danbooru tag search + co-occurrence lookup
 │   ├── svg.ts              # SVG rendering to PNG
 │   ├── fonts.ts            # Font download and management
 │   └── examples/           # Example workflows and templates
@@ -98,6 +99,30 @@ comfyui-tabbridge/           # Companion ComfyUI custom node (Python, adds no no
 ├── tab_bridge.py           # Serves /tabs/state, /tabs/flush, /tabs/reload
 └── web/js/tab_bridge.js    # Frontend half; reports open tabs to the server
 ```
+
+### Optional: ComfyUI-Autocomplete-Plus
+
+`tools/tags.ts` backs `comfyui_search_tags` and `comfyui_related_tags`. Its
+data comes from [ComfyUI-Autocomplete-Plus](https://github.com/newtextdoc1111/ComfyUI-Autocomplete-Plus),
+which downloads two CSVs from Hugging Face and serves them over ComfyUI's own
+HTTP server:
+
+- `GET /autocomplete-plus/csv/danbooru/tags/base` — `tag,category,count,alias`
+- `GET /autocomplete-plus/csv/danbooru/tags_cooccurrence/base` — `tagA,tagB,count`
+
+Danbooru category codes are positional: `0` general, `1` artist, `2` unused,
+`3` copyright, `4` character, `5` meta.
+
+That node does its searching in the browser, so this server does its own:
+fetch once, index in memory, answer from the index. The index is cached per
+base url and dropped by `clearConnectionState()`, since a reconnect may reach
+a different instance.
+
+Unlike TabBridge this is a **third-party** node and not vendored here. It is
+also genuinely optional: without it both tools answer from the curated
+`DANBOORU_VOCABULARY` in the prompting guides and set `source: "builtin"`, so
+callers can tell a small answer from a full one. Never make these tools fail
+when it is absent — a smaller answer beats no answer.
 
 ### comfyui-tabbridge
 

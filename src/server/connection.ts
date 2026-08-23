@@ -23,6 +23,7 @@ import {
   Capabilities,
 } from "../capabilities/index.js";
 import { detectInstallation } from "../tools/install.js";
+import { clearTagIndexCache } from "../tools/tags.js";
 import { reconcileOrphanedJobs, ReconcileSummary } from "../jobs/reconcile.js";
 import {
   analyzeUserOutputs,
@@ -186,6 +187,10 @@ export function clearConnectionState(): void {
   ctx.discoveredUrl = null;
   ctx.discoverySource = null;
   ctx.lastHealthyAt = 0;
+  // The tag index is ComfyUI-derived too: it is parsed from CSVs served by a
+  // custom node, and the instance that comes back may be a different one, or
+  // the same one with refreshed tag data.
+  clearTagIndexCache();
 }
 
 /**

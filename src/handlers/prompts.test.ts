@@ -33,7 +33,7 @@ function registeredToolNames(): Set<string> {
   registerDiscoveryTools(server);
   registerGenerationTools(server, ctx);
   registerTaskTools(server, ctx);
-  registerLibraryTools(server);
+  registerLibraryTools(server, ctx);
   registerWorkspaceTools(server);
 
   return names;

@@ -133,7 +133,17 @@ function renderVocabulary(guide: ModelPromptingGuide): string[] {
     lines.push(`**${category}**`, tags.join(", "), "");
   }
 
-  if (notes) lines.push(notes);
+  if (notes) lines.push(notes, "");
+
+  // The curated list is deliberately small. An agent that has read this far
+  // is about to want a tag it does not contain, so name the lookup here
+  // rather than leaving it to be found in the tool list.
+  lines.push(
+    "Beyond this list: `comfyui_search_tags` looks up any tag by substring and " +
+      "reports its post count, and `comfyui_related_tags` returns what commonly " +
+      "co-occurs with the tags already in your prompt."
+  );
+
   return lines;
 }
 
