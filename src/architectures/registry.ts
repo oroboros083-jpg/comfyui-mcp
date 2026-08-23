@@ -23,8 +23,30 @@
 
 import { comboOptions, ObjectInfo } from "../client/comfyui.js";
 
-/** Graph shapes builder.ts knows how to produce. */
-export type WorkflowShape = "standard" | "flux";
+/**
+ * Graph shapes builder.ts knows how to produce.
+ *
+ *  - `standard`   CheckpointLoaderSimple: one file carrying UNET, CLIP and VAE.
+ *  - `flux`       UNETLoader + DualCLIPLoader + VAELoader. Two text encoders.
+ *  - `unet_clip`  UNETLoader + a SINGLE CLIPLoader + VAELoader.
+ *
+ * `unet_clip` exists because "loads a bare UNET" and "needs two text encoders"
+ * are separate facts, and squashing them sent every single-encoder model down
+ * the DualCLIPLoader path. Anima (Qwen-3 0.6B) and Qwen-Image (Qwen-2.5-VL)
+ * each load exactly one encoder, so the graph built for them named a second
+ * one that does not exist for that model.
+ */
+export type WorkflowShape = "standard" | "flux" | "unet_clip";
+
+/**
+ * Does this shape load a bare UNET rather than a packaged checkpoint?
+ *
+ * The distinction drives template lookup and sampler defaults, both of which
+ * were written as `workflow === "flux"` when what they meant was this.
+ */
+export function isUnetShape(shape: WorkflowShape): boolean {
+  return shape === "flux" || shape === "unet_clip";
+}
 
 export interface ArchitectureSpec {
   /** Stable identifier, also the templates/db `modelType` value. */
@@ -44,6 +66,13 @@ export interface ArchitectureSpec {
   };
   /** Which graph shape a workflow for this architecture uses. */
   workflow: WorkflowShape;
+  /**
+   * Preferred values for CLIPLoader's `type` combo, best first, for
+   * `unet_clip` architectures. The builder picks the first that this ComfyUI
+   * actually offers, so a hint that a given version spells differently
+   * degrades to a valid option instead of a rejected graph.
+   */
+  clipTypeHints?: string[];
   /** Key into PROMPTING_GUIDES, when a guide for this architecture exists. */
   guide?: string;
   /** Extra substrings that should resolve to this architecture by name. */
@@ -179,7 +208,10 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     id: "qwen",
     displayName: "Qwen Image",
     detect: { checkpoints: /qwen/i, unets: /qwen/i },
-    workflow: "flux",
+    // One encoder (qwen_2.5_vl), not two. Was "flux", which built a
+    // DualCLIPLoader naming a second encoder Qwen does not use.
+    workflow: "unet_clip",
+    clipTypeHints: ["qwen_image"],
     guide: "qwen",
     advice:
       "Natural language prompts, strong at rendered text. No negative prompts.",
@@ -191,12 +223,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     // `\banima` with a letter excluded after it, so this does not swallow
     // "animagine" (its own row above) or "animatediff" (not an architecture).
     detect: { checkpoints: /\banima(?![a-z])/i, unets: /\banima(?![a-z])/i },
-    // Anima actually loads UNETLoader + a SINGLE CLIPLoader (qwen_3_06b_base)
-    // + VAELoader. "flux" is the closest shape this builder has and is what
-    // `qwen` already uses for the same reason; the graph builder emits a
-    // DualCLIPLoader where Anima wants one encoder. Detection, guidance and
-    // recommendations are unaffected - only builder.ts output is approximate.
-    workflow: "flux",
+    // UNETLoader + a single CLIPLoader (qwen_3_06b_base) + VAELoader.
+    workflow: "unet_clip",
+    clipTypeHints: ["qwen_image", "lumina2"],
     guide: "anima",
     advice:
       "Booru tags, natural language, or both. Lead with quality/score/safety tags. Turbo variant runs at CFG 1.",

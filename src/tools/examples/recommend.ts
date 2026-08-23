@@ -3,7 +3,7 @@ import { ExampleWorkflow } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
 import { fetchExampleWorkflow, apiFormatOf } from "./list-examples.js";
 import { BUILTIN_TEMPLATES } from "../../workflows/builder.js";
-import { architectureById } from "../../architectures/registry.js";
+import { architectureById, isUnetShape } from "../../architectures/registry.js";
 import { listTemplates as dbListTemplates } from "../../db/index.js";
 
 interface ModelPattern {
@@ -470,18 +470,21 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
   // for "loads through UNETLoader + DualCLIPLoader", which is why every
   // architecture with that shape had to claim it was Flux.
   const spec = architectureById(match.architecture);
-  const usesFluxShape = spec?.workflow === "flux";
+  const shape = spec?.workflow;
+  // "Loads a bare UNET" - true of both the dual-encoder Flux shape and the
+  // single-encoder one. Sampler defaults and the checkpoint/UNET naming below
+  // follow from the loader, not from the encoder count.
+  const usesUnetShape = shape ? isUnetShape(shape) : false;
 
-  // Templates are indexed by graph shape, not by architecture: a Qwen model
+  // Templates are indexed by graph shape, not by architecture: a HiDream model
   // legitimately matches the Flux-shaped templates, because that is the graph
-  // it runs on. This is the one place the old conflated label was right, and
-  // it stays - explicitly, and under a name that says which of the two facts
-  // it means.
-  const templateModelType = usesFluxShape ? "flux" : match.architecture;
+  // it runs on. Single-encoder architectures keep their own id, because their
+  // graph really is different and they have their own templates.
+  const templateModelType = shape === "flux" ? "flux" : match.architecture;
 
   // Adjust workflow name based on checkpoint vs UNET
   let workflowName = match.workflowName;
-  if (usesFluxShape && !isCheckpoint) {
+  if (usesUnetShape && !isCheckpoint) {
     // If it's a UNET file, recommend the UNET workflow instead of checkpoint
     if (workflowName.includes("Checkpoint")) {
       workflowName = workflowName.replace(" Checkpoint", "");
@@ -509,7 +512,7 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
   };
 
   // Add sampler/scheduler recommendations
-  if (usesFluxShape) {
+  if (usesUnetShape) {
     recommendation.recommendedSettings.sampler = "euler";
     recommendation.recommendedSettings.scheduler = "simple";
   } else if (match.workflowName.includes("Turbo")) {
@@ -517,15 +520,28 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
     recommendation.recommendedSettings.scheduler = "sgm_uniform";
   }
 
-  // Add alternative workflows based on task type
+  // Add alternative workflows based on task type.
+  //
+  // These name Flux-family workflows, so they key off the Flux shape
+  // specifically, not off `usesUnetShape`. Under the old conflated label a
+  // Qwen model was flux-shaped and so was told to edit with Flux Kontext -
+  // while the Qwen Image Edit examples it should have been given sat unused
+  // in the same library.
   if (input.taskType === "inpaint") {
-    if (usesFluxShape) {
+    if (shape === "flux") {
       recommendation.alternativeWorkflows = ["Flux Fill (Inpaint/Outpaint)"];
     } else {
       recommendation.alternativeWorkflows = ["Inpainting (Basic)", "Inpainting (Dedicated Model)"];
     }
   } else if (input.taskType === "edit") {
-    if (usesFluxShape) {
+    if (match.architecture === "qwen") {
+      recommendation.alternativeWorkflows = [
+        "Qwen Image Edit (v2509)",
+        "Qwen Image Edit (Original)",
+      ];
+    } else if (match.architecture === "hidream") {
+      recommendation.alternativeWorkflows = ["HiDream Edit (E1.1)"];
+    } else if (shape === "flux") {
       recommendation.alternativeWorkflows = ["Flux Kontext"];
     } else {
       recommendation.alternativeWorkflows = ["SDXL Edit (CosXL Edit)"];

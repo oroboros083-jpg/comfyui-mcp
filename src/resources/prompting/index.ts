@@ -6,25 +6,59 @@
  */
 
 import { architectureFor } from "../../architectures/registry.js";
-import { ModelPromptingGuide } from "./types.js";
+import { GUIDE_SECTIONS, ModelPromptingGuide } from "./types.js";
 import { STABLE_DIFFUSION_GUIDES } from "./guides/stable-diffusion.js";
 import { FLUX_GUIDES } from "./guides/flux.js";
 import { ANIME_GUIDES } from "./guides/anime.js";
 import { DIT_GUIDES } from "./guides/dit.js";
 import { VIDEO_GUIDES } from "./guides/video.js";
 import { AUDIO_GUIDES } from "./guides/audio.js";
+import {
+  COMFY_TEXT_ENCODE_SYNTAX,
+  NATURAL_LANGUAGE_SYNTAX,
+} from "./guides/vocabulary.js";
 
 export * from "./types.js";
 export { formatPromptingGuide, huggingFaceUrl } from "./render.js";
 
-export const PROMPTING_GUIDES: Record<string, ModelPromptingGuide> = {
-  ...STABLE_DIFFUSION_GUIDES,
-  ...FLUX_GUIDES,
-  ...ANIME_GUIDES,
-  ...DIT_GUIDES,
-  ...VIDEO_GUIDES,
-  ...AUDIO_GUIDES,
-};
+/**
+ * Fill in `syntax` for any guide that did not declare one.
+ *
+ * The prompt language is not a free choice per model - it follows from
+ * whether the encoder honours attention weighting, which `supportsPromptWeights`
+ * already records. Deriving it here states that rule once instead of copying a
+ * syntax block into two dozen guides and letting them drift. A guide that
+ * genuinely differs (audio, whose "syntax" is a separate lyrics field) sets
+ * its own or leaves it undefined.
+ */
+function withDefaultSyntax(
+  guides: Record<string, ModelPromptingGuide>
+): Record<string, ModelPromptingGuide> {
+  const filled: Record<string, ModelPromptingGuide> = {};
+  for (const [key, guide] of Object.entries(guides)) {
+    if (guide.syntax || guide.promptingStyle === "keywords") {
+      filled[key] = guide;
+      continue;
+    }
+    filled[key] = {
+      ...guide,
+      syntax: guide.supportsPromptWeights
+        ? COMFY_TEXT_ENCODE_SYNTAX
+        : NATURAL_LANGUAGE_SYNTAX,
+    };
+  }
+  return filled;
+}
+
+export const PROMPTING_GUIDES: Record<string, ModelPromptingGuide> =
+  withDefaultSyntax({
+    ...STABLE_DIFFUSION_GUIDES,
+    ...FLUX_GUIDES,
+    ...ANIME_GUIDES,
+    ...DIT_GUIDES,
+    ...VIDEO_GUIDES,
+    ...AUDIO_GUIDES,
+  });
 
 /**
  * Resolve a free-form name to a guide.
@@ -91,9 +125,15 @@ export function getGuideIndex(): string {
     "",
     "## Sections",
     "",
-    "Each guide is divided into sections, and you can ask for one instead of the whole thing:",
-    "`overview` (default), `structure`, `tags`, `tips`, `mistakes`, `starters`, `models`.",
-    "Use `detail: \"full\"` for the complete guide.",
+    "Each guide is divided into sections, and you can ask for one instead of the whole thing.",
+    // Generated, not spelled out: the hand-written copy of this list went
+    // stale the first time a section was added.
+    GUIDE_SECTIONS.map((s) => `\`${s}\``).join(", ") +
+      " — `overview` is the default; `detail: \"full\"` returns all of them.",
+    "",
+    "- **structure** — the tag order, for models that publish one.",
+    "- **syntax** — weighting, escaping and which A1111 constructs ComfyUI silently ignores.",
+    "- **vocabulary** — exact tags, for models with a fixed vocabulary.",
     "",
     "## Choosing",
     "",

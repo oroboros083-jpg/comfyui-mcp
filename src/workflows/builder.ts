@@ -1,5 +1,6 @@
 import { ObjectInfo, comboOptions } from "../client/comfyui.js";
 import { ToolError } from "../utils/errors.js";
+import { architectureById } from "../architectures/registry.js";
 
 export interface WorkflowNode {
   class_type: string;
@@ -22,7 +23,14 @@ export interface WorkflowTemplate {
   id: string;
   name: string;
   description: string;
-  modelType: "sd15" | "sdxl" | "sd3" | "flux" | "any";
+  /**
+   * Which models this template suits. Mostly a graph-shape label rather than
+   * an identity - `flux` here means "UNETLoader + DualCLIPLoader", which is
+   * why several non-Flux architectures legitimately match it. `qwen` and
+   * `anima` are named individually because their single-encoder graph is a
+   * different shape, not because they are special.
+   */
+  modelType: "sd15" | "sdxl" | "sd3" | "flux" | "qwen" | "anima" | "any";
   taskType: "txt2img" | "img2img" | "inpaint" | "controlnet" | "upscale" | "video" | "audio";
   category: string;
   requiredNodes: string[];
@@ -350,6 +358,139 @@ export function buildFluxWorkflow(
   return workflow;
 }
 
+export interface UnetClipOptions {
+  prompt: string;
+  negativePrompt?: string;
+  unet?: string;
+  clip?: string;
+  vae?: string;
+  /**
+   * Preferred CLIPLoader `type` values, best first. The first one this
+   * ComfyUI actually offers wins; see `resolveClipType`.
+   */
+  clipTypePreference?: string[];
+  width: number;
+  height: number;
+  steps: number;
+  cfg: number;
+  seed: number;
+  sampler: string;
+  scheduler: string;
+}
+
+/**
+ * Pick a `type` for CLIPLoader that this ComfyUI will accept.
+ *
+ * The combo's contents move between ComfyUI versions as encoders are added,
+ * so a hardcoded string is a graph that stops validating after an update.
+ * Preference order first, then whatever the node actually offers.
+ */
+export function resolveClipType(
+  objectInfo: ObjectInfo,
+  preference: string[] = []
+): string | undefined {
+  const available = comboOptions(objectInfo["CLIPLoader"]?.input?.required?.type);
+  if (available.length === 0) {
+    // Older builds typed this as a free string rather than a combo. Passing
+    // the caller's first preference through is better than omitting a
+    // required input.
+    return preference[0];
+  }
+
+  const lower = new Map(available.map((opt) => [opt.toLowerCase(), opt]));
+  for (const want of preference) {
+    const hit = lower.get(want.toLowerCase());
+    if (hit) return hit;
+  }
+  return available[0];
+}
+
+/**
+ * Build a workflow for models that load a bare UNET but need only ONE text
+ * encoder: UNETLoader + CLIPLoader + VAELoader.
+ *
+ * Distinct from `buildFluxWorkflow` in two ways that matter beyond the loader
+ * count. These models take a real negative prompt, so the negative branch gets
+ * its own CLIPTextEncode rather than being wired back to the positive one; and
+ * they take a real CFG, so there is no FluxGuidance node and `cfg` is passed
+ * to the sampler as given.
+ */
+export function buildUnetClipWorkflow(
+  options: UnetClipOptions,
+  objectInfo: ObjectInfo
+): Workflow {
+  const unet =
+    options.unet || requireModel(objectInfo, "UNETLoader", "unet_name", "UNET model");
+  const clip =
+    options.clip || requireModel(objectInfo, "CLIPLoader", "clip_name", "CLIP model");
+  const vae = options.vae || requireModel(objectInfo, "VAELoader", "vae_name", "VAE");
+
+  const seed =
+    options.seed === -1 ? Math.floor(Math.random() * 2147483647) : options.seed;
+
+  const clipType = resolveClipType(objectInfo, options.clipTypePreference);
+
+  const workflow: Workflow = {
+    "1": {
+      class_type: "UNETLoader",
+      inputs: { unet_name: unet, weight_dtype: "default" },
+    },
+    "2": {
+      class_type: "CLIPLoader",
+      inputs: {
+        clip_name: clip,
+        // Omitted rather than set to undefined: JSON.stringify drops an
+        // undefined value, and the node would then report a missing required
+        // input instead of using its own default.
+        ...(clipType ? { type: clipType } : {}),
+      },
+    },
+    "3": {
+      class_type: "VAELoader",
+      inputs: { vae_name: vae },
+    },
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: { clip: ["2", 0], text: options.prompt },
+    },
+    "5": {
+      class_type: "CLIPTextEncode",
+      inputs: { clip: ["2", 0], text: options.negativePrompt ?? "" },
+    },
+    "6": {
+      // 16-channel latent: these models pair with a 16-channel VAE, so the
+      // 4-channel EmptyLatentImage produces a shape the decoder rejects.
+      class_type: "EmptySD3LatentImage",
+      inputs: { width: options.width, height: options.height, batch_size: 1 },
+    },
+    "7": {
+      class_type: "KSampler",
+      inputs: {
+        model: ["1", 0],
+        positive: ["4", 0],
+        negative: ["5", 0],
+        latent_image: ["6", 0],
+        seed,
+        steps: options.steps,
+        cfg: options.cfg,
+        sampler_name: options.sampler,
+        scheduler: options.scheduler,
+        denoise: 1,
+      },
+    },
+    "8": {
+      class_type: "VAEDecode",
+      inputs: { samples: ["7", 0], vae: ["3", 0] },
+    },
+    "9": {
+      class_type: "SaveImage",
+      inputs: { images: ["8", 0], filename_prefix: "ComfyUI_MCP_UnetClip" },
+    },
+  };
+
+  return workflow;
+}
+
 // === Built-in Workflow Templates ===
 
 export const BUILTIN_TEMPLATES: WorkflowTemplate[] = [
@@ -410,6 +551,70 @@ export const BUILTIN_TEMPLATES: WorkflowTemplate[] = [
       height: 1024,
       sampler: "euler",
       scheduler: "normal",
+    },
+  },
+  {
+    id: "anima_txt2img",
+    name: "Anima Text-to-Image",
+    description:
+      "Anima txt2img using UNETLoader + a single CLIPLoader (Qwen-3 0.6B) + VAELoader (Qwen-Image VAE). Takes a real negative prompt and a real CFG, unlike the Flux-shaped templates.",
+    modelType: "anima",
+    taskType: "txt2img",
+    category: "anime",
+    requiredNodes: ["UNETLoader", "CLIPLoader", "VAELoader", "KSampler", "CLIPTextEncode", "EmptySD3LatentImage", "VAEDecode", "SaveImage"],
+    parameters: [
+      { name: "prompt", type: "string", required: true, description: "Positive prompt. Booru tags in order: quality/score/safety, count, character, series, artist, general" },
+      { name: "negativePrompt", type: "string", required: false, default: "worst quality, low quality, score_1, score_2, score_3", description: "Negative prompt" },
+      { name: "unet", type: "model", required: false, description: "Anima diffusion model" },
+      { name: "clip", type: "model", required: false, description: "Text encoder (qwen_3_06b_base)" },
+      { name: "vae", type: "model", required: false, description: "VAE (qwen_image_vae)" },
+      { name: "width", type: "number", required: false, default: 1024, description: "Image width (512-1536)" },
+      { name: "height", type: "number", required: false, default: 1024, description: "Image height (512-1536)" },
+      { name: "steps", type: "number", required: false, default: 35, description: "Sampling steps (30-50 for Base, 8-12 for Turbo)" },
+      { name: "cfg", type: "number", required: false, default: 4.5, description: "CFG (4-5 for Base, 1 for Turbo)" },
+      { name: "seed", type: "number", required: false, default: -1, description: "Random seed (-1 for random)" },
+      { name: "sampler", type: "sampler", required: false, default: "euler", description: "Sampler" },
+      { name: "scheduler", type: "scheduler", required: false, default: "simple", description: "Scheduler" },
+    ],
+    defaultSettings: {
+      steps: 35,
+      cfg: 4.5,
+      width: 1024,
+      height: 1024,
+      sampler: "euler",
+      scheduler: "simple",
+    },
+  },
+  {
+    id: "qwen_txt2img",
+    name: "Qwen Image Text-to-Image",
+    description:
+      "Qwen-Image txt2img using UNETLoader + a single CLIPLoader (Qwen-2.5-VL) + VAELoader. Strong at rendered text; quote exact strings in the prompt.",
+    modelType: "qwen",
+    taskType: "txt2img",
+    category: "qwen",
+    requiredNodes: ["UNETLoader", "CLIPLoader", "VAELoader", "KSampler", "CLIPTextEncode", "EmptySD3LatentImage", "VAEDecode", "SaveImage"],
+    parameters: [
+      { name: "prompt", type: "string", required: true, description: "Positive prompt (natural language; quote text to render)" },
+      { name: "negativePrompt", type: "string", required: false, default: "", description: "Negative prompt" },
+      { name: "unet", type: "model", required: false, description: "Qwen-Image diffusion model" },
+      { name: "clip", type: "model", required: false, description: "Text encoder (qwen_2.5_vl_7b)" },
+      { name: "vae", type: "model", required: false, description: "VAE (qwen_image_vae)" },
+      { name: "width", type: "number", required: false, default: 1024, description: "Image width" },
+      { name: "height", type: "number", required: false, default: 1024, description: "Image height" },
+      { name: "steps", type: "number", required: false, default: 30, description: "Sampling steps (8 with Lightning LoRA, 25-40 native)" },
+      { name: "cfg", type: "number", required: false, default: 4, description: "CFG (1 for Lightning, 3-5 native)" },
+      { name: "seed", type: "number", required: false, default: -1, description: "Random seed (-1 for random)" },
+      { name: "sampler", type: "sampler", required: false, default: "euler", description: "Sampler" },
+      { name: "scheduler", type: "scheduler", required: false, default: "simple", description: "Scheduler" },
+    ],
+    defaultSettings: {
+      steps: 30,
+      cfg: 4,
+      width: 1024,
+      height: 1024,
+      sampler: "euler",
+      scheduler: "simple",
     },
   },
   {
@@ -520,6 +725,29 @@ export function buildFromTemplate(
           height: (mergedParams.height as number) || template.defaultSettings.height,
           steps: (mergedParams.steps as number) || template.defaultSettings.steps,
           guidance: (mergedParams.guidance as number) || (mergedParams.cfg as number) || template.defaultSettings.cfg,
+          seed: (mergedParams.seed as number) ?? -1,
+          sampler: (mergedParams.sampler as string) || template.defaultSettings.sampler || "euler",
+          scheduler: (mergedParams.scheduler as string) || template.defaultSettings.scheduler || "simple",
+        },
+        objectInfo
+      );
+
+    case "anima_txt2img":
+    case "qwen_txt2img":
+      return buildUnetClipWorkflow(
+        {
+          prompt: (mergedParams.prompt as string) || "",
+          negativePrompt: (mergedParams.negativePrompt as string) || "",
+          unet: mergedParams.unet as string | undefined,
+          clip: mergedParams.clip as string | undefined,
+          vae: mergedParams.vae as string | undefined,
+          clipTypePreference:
+            architectureById(templateId === "anima_txt2img" ? "anima" : "qwen")
+              ?.clipTypeHints ?? [],
+          width: (mergedParams.width as number) || template.defaultSettings.width,
+          height: (mergedParams.height as number) || template.defaultSettings.height,
+          steps: (mergedParams.steps as number) || template.defaultSettings.steps,
+          cfg: (mergedParams.cfg as number) || template.defaultSettings.cfg,
           seed: (mergedParams.seed as number) ?? -1,
           sampler: (mergedParams.sampler as string) || template.defaultSettings.sampler || "euler",
           scheduler: (mergedParams.scheduler as string) || template.defaultSettings.scheduler || "simple",

@@ -6,6 +6,9 @@ import {
   getFirstAvailableModel,
   buildStandardTxt2Img,
   buildFluxWorkflow,
+  buildUnetClipWorkflow,
+  buildFromTemplate,
+  resolveClipType,
 } from "./builder.js";
 import { ToolError } from "../utils/errors.js";
 import type { ObjectInfo } from "../client/comfyui.js";
@@ -197,4 +200,126 @@ test("a lone CLIP model is reused rather than emitting nothing", () => {
 
   assert.equal(inputs.clip_name1, "t5xxl_fp16.safetensors");
   assert.equal(inputs.clip_name2, "t5xxl_fp16.safetensors");
+});
+
+// === unet_clip: UNETLoader + a SINGLE CLIPLoader ===
+
+/** An object_info with the loaders a unet_clip graph needs. */
+function unetClipInfo(clipTypes: string[] = ["flux", "qwen_image"]): ObjectInfo {
+  return {
+    ...loaderWith("UNETLoader", "unet_name", ["COMBO", { options: ["anima.safetensors"] }]),
+    ...loaderWith("VAELoader", "vae_name", ["COMBO", { options: ["qwen_image_vae.safetensors"] }]),
+    CLIPLoader: {
+      name: "CLIPLoader",
+      display_name: "CLIPLoader",
+      category: "loaders",
+      description: "",
+      input: {
+        required: {
+          clip_name: ["COMBO", { options: ["qwen_3_06b_base.safetensors"] }],
+          type: ["COMBO", { options: clipTypes }],
+        },
+      },
+      output: [],
+      output_name: [],
+      output_is_list: [],
+    },
+    // Present but must NOT be used: the whole point of the shape is that a
+    // single-encoder model does not get a DualCLIPLoader just because the
+    // install happens to offer one.
+    ...loaderWith("DualCLIPLoader", "clip_name1", ["COMBO", { options: ["t5.safetensors"] }]),
+  } as unknown as ObjectInfo;
+}
+
+const UNET_CLIP_OPTS = {
+  prompt: "a cat",
+  negativePrompt: "blurry",
+  width: 1024,
+  height: 1024,
+  steps: 30,
+  cfg: 4.5,
+  seed: 1,
+  sampler: "euler",
+  scheduler: "simple",
+};
+
+test("buildUnetClipWorkflow loads one CLIP, not a DualCLIPLoader", () => {
+  const workflow = buildUnetClipWorkflow(UNET_CLIP_OPTS, unetClipInfo());
+  const types = Object.values(workflow).map((n) => n.class_type);
+
+  assert.ok(types.includes("CLIPLoader"));
+  assert.ok(
+    !types.includes("DualCLIPLoader"),
+    "a single-encoder model must not be given a second encoder just because one is installed"
+  );
+  assert.ok(types.includes("UNETLoader"));
+  assert.ok(types.includes("VAELoader"));
+});
+
+test("buildUnetClipWorkflow gives the negative prompt its own encoder", () => {
+  // buildFluxWorkflow wires the negative back to the positive, because Flux
+  // ignores it. These models do not, so a shared node would silently apply
+  // the positive prompt as the negative.
+  const workflow = buildUnetClipWorkflow(UNET_CLIP_OPTS, unetClipInfo());
+
+  const sampler = Object.values(workflow).find((n) => n.class_type === "KSampler")!;
+  const [posId] = sampler.inputs.positive as [string, number];
+  const [negId] = sampler.inputs.negative as [string, number];
+
+  assert.notEqual(posId, negId, "positive and negative must be distinct nodes");
+  assert.equal(workflow[posId]!.inputs.text, "a cat");
+  assert.equal(workflow[negId]!.inputs.text, "blurry");
+});
+
+test("buildUnetClipWorkflow passes CFG through instead of forcing 1", () => {
+  const workflow = buildUnetClipWorkflow(UNET_CLIP_OPTS, unetClipInfo());
+  const types = Object.values(workflow).map((n) => n.class_type);
+  const sampler = Object.values(workflow).find((n) => n.class_type === "KSampler")!;
+
+  assert.equal(sampler.inputs.cfg, 4.5);
+  assert.ok(!types.includes("FluxGuidance"), "guidance is CFG here, not a node");
+});
+
+test("buildUnetClipWorkflow uses a 16-channel latent", () => {
+  // These models pair with a 16-channel VAE; EmptyLatentImage is 4-channel
+  // and the decoder rejects its shape.
+  const workflow = buildUnetClipWorkflow(UNET_CLIP_OPTS, unetClipInfo());
+  const types = Object.values(workflow).map((n) => n.class_type);
+
+  assert.ok(types.includes("EmptySD3LatentImage"));
+  assert.ok(!types.includes("EmptyLatentImage"));
+});
+
+test("resolveClipType honours preference order, then falls back", () => {
+  const info = unetClipInfo(["flux", "qwen_image", "sd3"]);
+
+  assert.equal(resolveClipType(info, ["qwen_image"]), "qwen_image");
+  // First preference absent, second present.
+  assert.equal(resolveClipType(info, ["nope", "sd3"]), "sd3");
+  // Nothing matches: a real option beats a rejected graph.
+  assert.equal(resolveClipType(info, ["nope"]), "flux");
+  assert.equal(resolveClipType(info), "flux");
+});
+
+test("resolveClipType matches case-insensitively", () => {
+  assert.equal(resolveClipType(unetClipInfo(["Qwen_Image"]), ["qwen_image"]), "Qwen_Image");
+});
+
+test("resolveClipType passes the hint through when the node has no combo", () => {
+  // Older builds typed `type` as a free string. Omitting a required input is
+  // worse than sending the caller's best guess.
+  const info = { CLIPLoader: { input: { required: {} } } } as unknown as ObjectInfo;
+  assert.equal(resolveClipType(info, ["qwen_image"]), "qwen_image");
+});
+
+test("the anima template builds a unet_clip graph end to end", () => {
+  const workflow = buildFromTemplate("anima_txt2img", { prompt: "1girl, solo" }, unetClipInfo());
+  assert.ok(workflow, "template should build");
+
+  const types = Object.values(workflow!).map((n) => n.class_type);
+  assert.ok(types.includes("CLIPLoader"));
+  assert.ok(!types.includes("DualCLIPLoader"));
+
+  const clipLoader = Object.values(workflow!).find((n) => n.class_type === "CLIPLoader")!;
+  assert.equal(clipLoader.inputs.type, "qwen_image", "clipTypeHints should reach the graph");
 });

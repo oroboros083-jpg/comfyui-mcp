@@ -7,6 +7,7 @@
  */
 
 import { ModelPromptingGuide } from "../types.js";
+import { COMFY_TEXT_ENCODE_SYNTAX, NATURAL_LANGUAGE_SYNTAX } from "./vocabulary.js";
 
 export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
   sd15: {
@@ -34,6 +35,7 @@ export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
       notes:
         "SD 1.5 depends on quality boosters more than any later model, and its negative prompt is not optional - an empty negative visibly costs quality.",
     },
+    syntax: COMFY_TEXT_ENCODE_SYNTAX,
     tips: [
       "Use comma-separated keywords rather than full sentences",
       "Put the most important elements first in the prompt",
@@ -91,6 +93,7 @@ export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
       resolution:
         "1024x1024 (native), 1152x896, 896x1152, 1216x832, 832x1216",
     },
+    syntax: COMFY_TEXT_ENCODE_SYNTAX,
     tips: [
       "Natural language descriptions work well - describe scenes like a photographer",
       "Keyword style still works but natural language often produces better results",
@@ -158,6 +161,7 @@ export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
       cfg: "4-7",
       resolution: "1024x1024 (native), various aspect ratios supported",
     },
+    syntax: NATURAL_LANGUAGE_SYNTAX,
     tips: [
       "Use natural, descriptive language - write like you're describing to an artist",
       "Prompt positioning matters: beginning and end carry more weight than middle",
@@ -212,6 +216,7 @@ export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
       cfg: "4-7",
       resolution: "1024x1024, efficient at high resolutions",
     },
+    syntax: NATURAL_LANGUAGE_SYNTAX,
     tips: [
       "Natural language prompts work well, but old keyword prompts are also understood",
       "Faster than SDXL - about 2x speed improvement",

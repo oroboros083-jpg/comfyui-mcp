@@ -31,7 +31,10 @@ import {
 
 export const searchTemplatesSchema = z.object({
   modelType: z
-    .enum(["sd15", "sdxl", "sd3", "flux", "any"])
+    // `qwen` and `anima` are here because they have built-in templates of
+    // their own: their single-encoder graph is a different shape from Flux's,
+    // so they are not reachable through the `flux` filter.
+    .enum(["sd15", "sdxl", "sd3", "flux", "qwen", "anima", "any"])
     .optional()
     .describe("Filter by model architecture"),
   taskType: z

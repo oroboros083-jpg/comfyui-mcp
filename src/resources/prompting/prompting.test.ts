@@ -245,3 +245,103 @@ test("GUIDE_SECTIONS is the full set the renderer handles", () => {
     assert.ok(rendered.length > 0, `${section} rendered nothing`);
   }
 });
+
+// --- syntax ---------------------------------------------------------------
+
+test("weighting is marked unsupported exactly where weights do not work", () => {
+  // The silent failure this guards: (tag:1.2) parses fine on every model
+  // because CLIPTextEncode parses it - it just does nothing on an encoder
+  // that ignores attention weighting. So the prompt looks right and is not.
+  for (const [key, guide] of Object.entries(PROMPTING_GUIDES)) {
+    if (!guide.syntax) continue;
+    const weighting = guide.syntax.constructs.find((c) => c.name === "weighting");
+    if (!weighting) continue;
+
+    assert.equal(
+      !weighting.unsupported,
+      guide.supportsPromptWeights,
+      `${key}: supportsPromptWeights=${guide.supportsPromptWeights} but weighting.unsupported=${weighting.unsupported}`
+    );
+  }
+});
+
+test("the syntax section flags A1111 constructs ComfyUI ignores", () => {
+  const syntax = formatPromptingGuide(PROMPTING_GUIDES.illustrious!, ["syntax"]);
+
+  assert.match(syntax, /NOT supported/);
+  assert.match(syntax, /BREAK/);
+  // Escaping is the one that silently corrupts booru character tags.
+  assert.match(syntax, /\\\(/);
+});
+
+test("every guide with a syntax lists escaping", () => {
+  // Character tags carry their series in parentheses, and an unescaped
+  // bracket is read as a weight group rather than as text.
+  for (const [key, guide] of Object.entries(PROMPTING_GUIDES)) {
+    if (!guide.syntax) continue;
+    assert.ok(
+      guide.syntax.constructs.some((c) => c.name === "escaping"),
+      `${key} does not say how to escape a literal parenthesis`
+    );
+  }
+});
+
+// --- vocabulary -----------------------------------------------------------
+
+test("every booru-tag guide carries an exact tag vocabulary", () => {
+  for (const [key, guide] of Object.entries(PROMPTING_GUIDES)) {
+    if (guide.promptingStyle !== "booru_tags") continue;
+    assert.ok(guide.vocabulary, `${key} is booru-tag styled but has no vocabulary`);
+    assert.ok(
+      guide.vocabulary!.reference,
+      `${key} must name where to look up tags the curated list omits`
+    );
+  }
+});
+
+test("vocabulary tags are lowercase and space-free", () => {
+  // A tag with a space in it is two tags after the comma split, and a tag
+  // with a capital is a tag the lookup will miss.
+  for (const [key, guide] of Object.entries(PROMPTING_GUIDES)) {
+    for (const [category, tags] of Object.entries(guide.vocabulary?.categories ?? {})) {
+      for (const tag of tags) {
+        assert.equal(tag, tag.toLowerCase(), `${key}/${category}: '${tag}' is not lowercase`);
+        assert.ok(!/\s/.test(tag), `${key}/${category}: '${tag}' contains a space`);
+      }
+    }
+  }
+});
+
+test("the vocabulary section renders every category with a count", () => {
+  const guide = PROMPTING_GUIDES.noobai!;
+  const rendered = formatPromptingGuide(guide, ["vocabulary"]);
+
+  for (const category of Object.keys(guide.vocabulary!.categories)) {
+    assert.ok(rendered.includes(category), `vocabulary section omits '${category}'`);
+  }
+
+  const total = Object.values(guide.vocabulary!.categories).reduce(
+    (n, tags) => n + tags.length,
+    0
+  );
+  assert.match(rendered, new RegExp(`${total} exact`));
+});
+
+test("a full booru guide stays inside the response cap", () => {
+  // Adding two sections to the largest guides is exactly how a response
+  // starts getting truncated, so pin it.
+  for (const [key, guide] of Object.entries(PROMPTING_GUIDES)) {
+    const full = formatPromptingGuide(guide);
+    assert.ok(
+      full.length < CHARACTER_LIMIT,
+      `${key} renders ${full.length} chars, over the ${CHARACTER_LIMIT} cap`
+    );
+  }
+});
+
+test("the index names the sections that actually exist", () => {
+  const index = getGuideIndex();
+  for (const section of GUIDE_SECTIONS) {
+    assert.ok(index.includes(section), `index does not mention section '${section}'`);
+  }
+});

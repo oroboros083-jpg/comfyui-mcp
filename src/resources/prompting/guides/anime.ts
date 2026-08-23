@@ -19,6 +19,7 @@
  */
 
 import { ModelPromptingGuide } from "../types.js";
+import { COMFY_TEXT_ENCODE_SYNTAX, DANBOORU_VOCABULARY } from "./vocabulary.js";
 
 /** Shared by every model in this family, stated once. */
 const BOORU_SYNTAX =
@@ -97,6 +98,8 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
         BOORU_SYNTAX +
         " Put the rating tag you want in the positive prompt and the ones you do not in the negative - that is the documented way to hold the model to a rating.",
     },
+    syntax: COMFY_TEXT_ENCODE_SYNTAX,
+    vocabulary: DANBOORU_VOCABULARY,
     tips: [
       "Lead with the switch block: quality, score, then the safety tag",
       "A character tag works far better when the series tag follows it",
@@ -223,6 +226,8 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
       rating: ["safe", "sensitive", "nsfw", "explicit"],
       notes: BOORU_SYNTAX,
     },
+    syntax: COMFY_TEXT_ENCODE_SYNTAX,
+    vocabulary: DANBOORU_VOCABULARY,
     tips: [
       "Native 1536x1536 - generating at 1024 leaves resolution on the table",
       "Danbooru tag vocabulary: check the tag exists rather than inventing a phrase",
@@ -329,6 +334,8 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
         BOORU_SYNTAX +
         " The recency tags select an era of art style rather than a subject - `newest` pulls toward contemporary Danbooru style, `old` toward mid-2000s.",
     },
+    syntax: COMFY_TEXT_ENCODE_SYNTAX,
+    vocabulary: DANBOORU_VOCABULARY,
     tips: [
       "Recency tags are the strongest single style lever: `newest` versus `old` changes the whole look",
       "Knows e621 tags as well as Danbooru ones, so the vocabulary is wider than Illustrious",
@@ -433,6 +440,8 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
         BOORU_SYNTAX +
         " Pony's tokens all keep underscores - `score_9`, `source_anime`, `rating_safe` - and the score chain belongs at the very front of the positive prompt.",
     },
+    syntax: COMFY_TEXT_ENCODE_SYNTAX,
+    vocabulary: DANBOORU_VOCABULARY,
     tips: [
       "Open with the score chain; without it output quality drops sharply",
       "`source_anime` versus `source_cartoon` versus `source_furry` is the biggest style switch available",
@@ -544,6 +553,8 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
         BOORU_SYNTAX +
         " Quality tags go at the end of the positive prompt, not the beginning.",
     },
+    syntax: COMFY_TEXT_ENCODE_SYNTAX,
+    vocabulary: DANBOORU_VOCABULARY,
     tips: [
       "Follow the published order: count, character, series, rating, general, quality",
       "Character plus series is the pair that makes character recall reliable",

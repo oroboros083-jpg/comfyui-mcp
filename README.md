@@ -257,7 +257,7 @@ the opposite of what those models want.
 
 ### Template System
 Three sources of workflow templates:
-- **Built-in templates**: Standard txt2img for SD1.5, SDXL, and Flux
+- **Built-in templates**: Standard txt2img for SD1.5, SDXL, Flux, Qwen and Anima
 - **Example workflows**: 77 from official ComfyUI docs
 - **Custom templates**: Save and reuse your successful workflows, stored in a local SQLite database
 
@@ -755,7 +755,7 @@ settings and runnable JSON.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `modelType` | `"sd15" \| "sdxl" \| "sd3" \| "flux" \| "any"` | Filter by model type (default: `any`) |
+| `modelType` | `"sd15" \| "sdxl" \| "sd3" \| "flux" \| "qwen" \| "anima" \| "any"` | Filter by model type (default: `any`) |
 | `taskType` | `"txt2img" \| "img2img" \| "inpaint" \| "outpaint" \| "upscale" \| "controlnet" \| "video" \| "audio" \| "any"` | Filter by task type (default: `any`) |
 | `category` | `string?` | Filter by category |
 | `query` | `string?` | Free text search |
@@ -914,11 +914,25 @@ to return a truncated document. Three levels instead:
 | `{}` or `modelType: "all"` | An index: every guide in one table, plus how to choose | ~3.5KB |
 | `{ modelType: "anima" }` | That guide's overview, ending with the sections it withheld | ~0.9KB |
 | `{ modelType: "anima", section: "structure" }` | Just the tag order | ~1.3KB |
+| `{ modelType: "illustrious", section: "vocabulary" }` | Just the exact tag list | ~2.4KB |
 | `{ modelType: "anima", detail: "full" }` | Everything | ~5KB |
 
-Sections are `overview`, `structure` (the tag order), `tags` (quality and
-rating tokens), `tips`, `mistakes`, `starters` (paste-ready prompts) and
-`models` (Hugging Face cards).
+Sections are `overview`, `structure` (the tag order), `syntax` (weighting,
+escaping, and which A1111 constructs ComfyUI silently ignores), `tags`
+(quality and rating tokens), `vocabulary` (exact Danbooru tags), `tips`,
+`mistakes`, `starters` (paste-ready prompts) and `models` (Hugging Face cards).
+
+Two of those are worth calling out:
+
+- **`syntax`** records what CLIPTextEncode actually implements. `(tag:1.2)`
+  parses on every model but does nothing on an encoder that ignores attention
+  weighting, and `BREAK` / `[a|b]` are A1111 constructs ComfyUI encodes as
+  literal text. Both fail silently, so the guide states them rather than
+  leaving them to be discovered.
+- **`vocabulary`** carries exact Danbooru tags grouped by what they control —
+  framing, gaze, expression, lighting and so on. On a booru model an
+  unrecognised tag contributes almost nothing, so `cowboy_shot` beats
+  "three-quarter length shot", which is not a tag at all.
 
 A model filename resolves through the architecture registry, so
 `flux1-schnell-fp8.safetensors` and `waiIllustriousSDXL_v170.safetensors` both
@@ -1570,6 +1584,22 @@ When you call `comfyui_run_workflow`, the server:
 
 Sync and async share one implementation, so `comfyui_get_task_result` and a
 `sync: true` run return the same thing.
+
+**Graph shapes.** `comfyui_get_template` builds one of three shapes, chosen by
+the architecture registry rather than by the model's name:
+
+| Shape | Loaders | Used by |
+|---|---|---|
+| `standard` | CheckpointLoaderSimple | SD1.5, SDXL and its anime finetunes, SD3, Cascade |
+| `flux` | UNETLoader + **Dual**CLIPLoader + VAELoader | Flux and the models that genuinely take two text encoders |
+| `unet_clip` | UNETLoader + **one** CLIPLoader + VAELoader | Anima, Qwen-Image |
+
+The third exists because "loads a bare UNET" and "needs two text encoders" are
+separate facts. Squashing them meant Anima and Qwen-Image — which each load a
+single encoder — were built a DualCLIPLoader graph naming a second encoder
+they do not use. `unet_clip` also wires the negative prompt to its own
+encoder and passes CFG straight through, where the Flux shape ties the
+negative to the positive and pins CFG to 1.
 
 ### Image Output
 

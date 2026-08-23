@@ -80,6 +80,63 @@ function renderStructure(guide: ModelPromptingGuide): string[] {
   return lines;
 }
 
+function renderSyntax(guide: ModelPromptingGuide): string[] {
+  if (!guide.syntax) return [];
+  const { separator, caseSensitive, underscores, constructs, notes } = guide.syntax;
+
+  const lines = [
+    "## Prompt Syntax",
+    "",
+    `- Separator: \`${separator}\``,
+    `- Case sensitive: ${caseSensitive ? "yes" : "no"}`,
+    `- Underscores in multi-word tags: ${underscores}`,
+  ];
+
+  const supported = constructs.filter((c) => !c.unsupported);
+  const unsupported = constructs.filter((c) => c.unsupported);
+
+  if (supported.length) {
+    lines.push("", "### Supported");
+    for (const c of supported) {
+      lines.push("", `**${c.name}** — \`${c.syntax}\``, "", c.description);
+      if (c.example) lines.push("", "```", c.example, "```");
+    }
+  }
+
+  // Listed as loudly as the supported ones on purpose: silently-ignored
+  // syntax is worse than absent syntax, because the prompt still looks right.
+  if (unsupported.length) {
+    lines.push("", "### NOT supported here (silently ignored)");
+    for (const c of unsupported) {
+      lines.push("", `**${c.name}** — \`${c.syntax}\``, "", c.description);
+    }
+  }
+
+  if (notes) lines.push("", notes);
+  return lines;
+}
+
+function renderVocabulary(guide: ModelPromptingGuide): string[] {
+  if (!guide.vocabulary) return [];
+  const { source, reference, categories, notes } = guide.vocabulary;
+
+  const total = Object.values(categories).reduce((n, tags) => n + tags.length, 0);
+  const lines = [
+    "## Tag Vocabulary",
+    "",
+    `${total} exact ${source} tags across ${Object.keys(categories).length} groups.` +
+      (reference ? ` Anything absent: ${reference}` : ""),
+    "",
+  ];
+
+  for (const [category, tags] of Object.entries(categories)) {
+    lines.push(`**${category}**`, tags.join(", "), "");
+  }
+
+  if (notes) lines.push(notes);
+  return lines;
+}
+
 function renderTags(guide: ModelPromptingGuide): string[] {
   if (!guide.specialTags) return [];
   const { quality, negativeQuality, rating, other, notes } = guide.specialTags;
@@ -150,7 +207,9 @@ function renderModels(guide: ModelPromptingGuide): string[] {
 const RENDERERS: Record<GuideSection, (g: ModelPromptingGuide) => string[]> = {
   overview: renderOverview,
   structure: renderStructure,
+  syntax: renderSyntax,
   tags: renderTags,
+  vocabulary: renderVocabulary,
   tips: renderTips,
   mistakes: renderMistakes,
   starters: renderStarters,
