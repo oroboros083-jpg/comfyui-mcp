@@ -15,10 +15,21 @@ import {
   textResult,
   errorResult,
   formattedResult,
+  paginate,
   paginatedOutputSchema,
 } from "../../utils/response.js";
 import { safeFetch } from "../../utils/safe-fetch.js";
 import { architectureFor } from "../../architectures/registry.js";
+import { ServerContext } from "../../context.js";
+import {
+  searchTagsSchema,
+  searchTags,
+  renderTagSearch,
+  relatedTagsSchema,
+  relatedTags,
+  renderRelatedTags,
+  getTagIndex,
+} from "../../tools/tags.js";
 import {
   listExamplesSchema,
   listExamples,
@@ -60,7 +71,21 @@ import {
  */
 const MAX_LOCAL_IMAGE_BYTES = 50 * 1024 * 1024;
 
-export function registerLibraryTools(server: McpServer): void {
+/**
+ * Which ComfyUI the tag tools should ask for CSVs, or null when nothing is
+ * connected - in which case they answer from the builtin vocabulary rather
+ * than failing.
+ */
+function tagTarget(c: ServerContext) {
+  return c.discoveredUrl
+    ? { baseUrl: c.discoveredUrl, apiKey: c.config.comfyui.apiKey }
+    : null;
+}
+
+export function registerLibraryTools(
+  server: McpServer,
+  ctx: () => ServerContext
+): void {
   defineTool(server, {
     name: "list_examples",
     description:
@@ -336,6 +361,83 @@ export function registerLibraryTools(server: McpServer): void {
       openWorldHint: false,
     },
     handler: (input) => dataResult(getDownloadUrl(input)),
+  });
+
+  // === Tag discovery ===
+
+  defineTool(server, {
+    name: "search_tags",
+    description:
+      "Search the Danbooru tag vocabulary by substring, for the booru-tag models (illustrious, noobai, " +
+      "pony, animagine, anima). Use it to CHECK a tag exists before putting it in a prompt, and to find " +
+      "the real tag for an idea - an unrecognised tag contributes almost nothing on these models, so " +
+      "'looking over her shoulder' is dead weight where 'looking_back' works.\n\n" +
+      "Underscores and spaces are interchangeable in the query. Results are ranked exact, then prefix, " +
+      "then substring, then alias, and within each by Danbooru post count - a high count means the tag " +
+      "is well represented in training data.\n\n" +
+      "Returns: { source, query, total, count, offset, tags, has_more, next_offset }. 'source' is " +
+      "'autocomplete-plus' for the full vocabulary or 'builtin' for the ~150-tag curated fallback.",
+    schema: searchTagsSchema,
+    requiresConnection: false,
+    annotations: {
+      title: "Search Danbooru Tags",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    handler: async (input) => {
+      const index = await getTagIndex(tagTarget(ctx()));
+      const result = searchTags(index, input);
+      const { items, ...envelope } = paginate(result.matches, input.limit, input.offset);
+      const page = { items, ...envelope };
+
+      return formattedResult(
+        input.response_format,
+        { source: result.source, query: result.query, ...envelope, tags: items, ...(result.note ? { note: result.note } : {}) },
+        () => renderTagSearch(result, page),
+        "Narrow the query, raise 'minCount', or page with 'offset'."
+      );
+    },
+  });
+
+  defineTool(server, {
+    name: "related_tags",
+    description:
+      "Given tags already in a prompt, find tags that commonly appear alongside them on Danbooru. Use " +
+      "to fill out a booru prompt with vocabulary that actually co-occurs, rather than guessing.\n\n" +
+      "With several input tags, results are ranked first by how many of them a tag co-occurs with, then " +
+      "by total co-occurrence - so the suggestions fit the whole prompt instead of just its most common " +
+      "tag.\n\n" +
+      "Needs ComfyUI-Autocomplete-Plus installed for its co-occurrence data; without it this reports " +
+      "that and the built-in vocabulary is all comfyui_search_tags can offer.",
+    schema: relatedTagsSchema,
+    requiresConnection: false,
+    annotations: {
+      title: "Find Related Tags",
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    handler: async (input) => {
+      const index = await getTagIndex(tagTarget(ctx()));
+      const result = relatedTags(index, input);
+      const { items, ...envelope } = paginate(result.related, input.limit, input.offset);
+      const page = { items, ...envelope };
+
+      return formattedResult(
+        input.response_format,
+        {
+          source: result.source,
+          tags: result.tags,
+          ...(result.unknown.length ? { unknown: result.unknown } : {}),
+          ...envelope,
+          related: items,
+          ...(result.note ? { note: result.note } : {}),
+        },
+        () => renderRelatedTags(result, page),
+        "Give fewer input tags, or page with 'offset'."
+      );
+    },
   });
 
   defineTool(server, {

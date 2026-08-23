@@ -79,7 +79,7 @@ registerSetupTools(server, context);
 registerDiscoveryTools(server);
 registerGenerationTools(server, context);
 registerTaskTools(server, context);
-registerLibraryTools(server);
+registerLibraryTools(server, context);
 registerWorkspaceTools(server);
 
 // Must run after every tool is registered - it wraps the finished tools/list

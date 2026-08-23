@@ -63,6 +63,8 @@
       - [`comfyui_recommend_workflow`](#comfyui_recommend_workflow)
       - [`comfyui_get_download_url`](#comfyui_get_download_url)
       - [`comfyui_get_prompting_guide`](#comfyui_get_prompting_guide)
+      - [`comfyui_search_tags`](#comfyui_search_tags)
+      - [`comfyui_related_tags`](#comfyui_related_tags)
     - [Generation Tools](#generation-tools)
       - [`comfyui_run_workflow`](#comfyui_run_workflow)
       - [`comfyui_validate_workflow`](#comfyui_validate_workflow)
@@ -246,6 +248,10 @@ driven by one registry, so all of it agrees:
 directions — no architecture may point at a guide that does not exist, and no
 guide may be unreachable. Previously eleven of twenty-one had one and the rest
 answered "no dedicated prompting guide yet".
+
+For the booru-tag models, `comfyui_search_tags` and `comfyui_related_tags`
+look tags up in the full Danbooru vocabulary rather than the curated list in
+the guide — see [Where the tag data comes from](#where-the-tag-data-comes-from).
 
 Architectures are matched most-specific-first, so a Flux-derived model is
 identified as itself rather than as Flux — and a booru-tag anime finetune is
@@ -945,6 +951,59 @@ How should I write prompts for Flux?
 ```
 What tag order does Anima want?
 ```
+
+#### `comfyui_search_tags`
+Search the Danbooru tag vocabulary by substring, for the booru-tag models
+(`illustrious`, `noobai`, `pony`, `animagine`, `anima`). Use it to **check a
+tag exists** before putting it in a prompt, and to find the real tag for an
+idea — an unrecognised tag contributes almost nothing on these models, so
+"looking over her shoulder" is dead weight where `looking_back` works.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | `string` | Substring to match against tag names and aliases. Underscores and spaces are interchangeable. |
+| `category` | `"general" \| "artist" \| "copyright" \| "character" \| "meta" \| "any"?` | Restrict to one Danbooru category (default: `any`) |
+| `minCount` | `number?` | Only tags with at least this many posts (default: 0) |
+| + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
+
+Results rank exact match, then prefix, then substring, then alias — and within
+each by Danbooru post count, which stands in for how well a model knows the
+tag. A tag with 400 posts is technically valid and practically inert.
+
+```
+Is there a tag for looking over your shoulder?
+```
+
+#### `comfyui_related_tags`
+Given tags already in a prompt, find tags that commonly appear alongside them
+on Danbooru. This is the "what else should be in this prompt" tool.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tags` | `string[]` | Tags already in the prompt (1–20) |
+| `category` | `string?` | Restrict suggestions to one category |
+| + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
+
+With several inputs, a tag that co-occurs with **all** of them outranks one
+that is merely very common beside a single input — otherwise every query
+returns `1girl` and `solo`, which you already had.
+
+```
+What tags usually go with 1girl, maid, indoors?
+```
+
+#### Where the tag data comes from
+
+Both tools prefer [ComfyUI-Autocomplete-Plus](https://github.com/newtextdoc1111/ComfyUI-Autocomplete-Plus),
+a third-party custom node that downloads the Danbooru tag and co-occurrence
+CSVs and serves them over ComfyUI's HTTP server. This server fetches them
+once, indexes them in memory, and searches server-side.
+
+It is optional. Without it both tools still answer, from the ~150-tag curated
+vocabulary built into the prompting guides, and report `source: "builtin"` so
+you can tell a small answer from a full one. `comfyui_related_tags` needs the
+node's co-occurrence data and says so plainly when it is missing rather than
+returning an empty list that would read as "these tags have no relatives".
 
 ### Generation Tools
 
