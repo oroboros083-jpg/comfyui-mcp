@@ -8,9 +8,13 @@
   models happen to be installed. Run this suite anywhere.
 
   Answers were verified against src/tools/examples/data.ts and
-  src/resources/prompting-guide.ts at the time of writing. Adding or removing
-  an example workflow will invalidate the counting questions - re-derive them
-  rather than guessing.
+  src/resources/prompting/ at the time of writing. Adding or removing an
+  example workflow, or adding a prompting guide, will invalidate the counting
+  questions - re-derive them rather than guessing.
+
+  The guide counts are pinned by a unit test in
+  src/resources/prompting/prompting.test.ts, so `npm test` fails before this
+  file goes stale again.
 -->
 <evaluation>
   <qa_pair>
@@ -29,8 +33,8 @@
   </qa_pair>
 
   <qa_pair>
-    <question>Exactly two of the bundled prompting guides describe model families that support neither negative prompts nor prompt weights. Each of those two shares its name with an example-workflow category. How many example workflows are in the smaller of those two categories?</question>
-    <answer>3</answer>
+    <question>Some of the bundled prompting guides describe model families that support neither negative prompts nor prompt weights. Not every one of those guides shares its name with an example-workflow category. Taking only the ones that do, how many example workflows do those categories contain in total?</question>
+    <answer>15</answer>
   </qa_pair>
 
   <qa_pair>
@@ -50,7 +54,7 @@
 
   <qa_pair>
     <question>How many of the bundled model-specific prompting guides describe families that support prompt weights such as (keyword:1.2)?</question>
-    <answer>4</answer>
+    <answer>9</answer>
   </qa_pair>
 
   <qa_pair>
@@ -61,5 +65,29 @@
   <qa_pair>
     <question>The Wan 2.2 example workflow requires two different VAE files. Give the exact filename of the one whose name begins with "wan_2.1".</question>
     <answer>wan_2.1_vae.safetensors</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>The bundled prompting guide for the Anima model family defines a prompt structure as an ordered list of slots. Fetch only that structure section. How many slots does it define?</question>
+    <answer>6</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Some bundled prompting guides define an explicit ordered prompt structure - a numbered list of slots to fill in order - while the rest only give prose guidance. How many of them define that ordered structure?</question>
+    <answer>10</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Of all the bundled prompting guides, how many describe model families whose prompting style is booru tags rather than natural language, keywords or a hybrid of the two?</question>
+    <answer>5</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>With ComfyUI not running, the Danbooru tag search still answers from a smaller built-in vocabulary, and says which optional ComfyUI custom node would give it the full tag data. What is that node's repository name?</question>
+    <answer>ComfyUI-Autocomplete-Plus</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>The tag-vocabulary section of a booru-style prompting guide names two tools for going beyond its curated tag list: one looks a tag up by substring, the other returns tags that commonly co-occur with the ones already in your prompt. What is the exact name of the second tool?</question>
+    <answer>comfyui_related_tags</answer>
   </qa_pair>
 </evaluation>

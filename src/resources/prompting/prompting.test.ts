@@ -12,6 +12,7 @@ import {
 } from "./index.js";
 import { ARCHITECTURES, architectureFor } from "../../architectures/registry.js";
 import { CHARACTER_LIMIT } from "../../constants.js";
+import { EXAMPLE_WORKFLOWS } from "../../tools/examples/data.js";
 
 // --- coverage -------------------------------------------------------------
 
@@ -344,4 +345,62 @@ test("the index names the sections that actually exist", () => {
   for (const section of GUIDE_SECTIONS) {
     assert.ok(index.includes(section), `index does not mention section '${section}'`);
   }
+});
+
+// --- eval-suite counts ----------------------------------------------------
+
+/**
+ * The counting questions in `evals/library.xml` are derived from these
+ * numbers, and the eval suites are not run by `npm test`. That combination is
+ * how those answers went stale for three PRs without anything failing. These
+ * assertions are the tripwire: adding a guide changes a count here, and the
+ * message says which file to go and re-derive.
+ */
+test("guide counts used by evals/library.xml", () => {
+  const stale = (what: string) =>
+    `${what} changed - re-derive the counting questions in evals/library.xml`;
+
+  const keys = Object.keys(PROMPTING_GUIDES);
+  assert.equal(keys.length, 26, stale("guide count"));
+
+  const neither = keys.filter(
+    (k) =>
+      !PROMPTING_GUIDES[k]!.supportsNegativePrompt &&
+      !PROMPTING_GUIDES[k]!.supportsPromptWeights
+  );
+  assert.deepEqual(
+    neither.sort(),
+    ["flux", "omnigen", "qwen", "zimage"],
+    stale("the set of guides supporting neither negatives nor weights")
+  );
+
+  const weights = keys.filter((k) => PROMPTING_GUIDES[k]!.supportsPromptWeights);
+  assert.equal(weights.length, 9, stale("the number of guides supporting prompt weights"));
+
+  const structured = keys.filter((k) => PROMPTING_GUIDES[k]!.structure);
+  assert.equal(structured.length, 10, stale("the number of guides with a prompt structure"));
+
+  const booru = keys.filter((k) => PROMPTING_GUIDES[k]!.promptingStyle === "booru_tags");
+  assert.equal(booru.length, 5, stale("the number of booru-tag guides"));
+
+  assert.equal(
+    PROMPTING_GUIDES.anima!.structure!.slots.length,
+    6,
+    stale("the Anima prompt structure")
+  );
+
+  // One question crosses the two data sets: of the "neither" guides, only
+  // those whose name is also an example-workflow category count, and the
+  // answer is the total size of those categories.
+  const perCategory = new Map<string, number>();
+  for (const example of EXAMPLE_WORKFLOWS) {
+    perCategory.set(example.category, (perCategory.get(example.category) ?? 0) + 1);
+  }
+  const shared = neither.filter((k) => perCategory.has(k));
+  assert.deepEqual(shared.sort(), ["flux", "omnigen", "qwen"], stale("that overlap"));
+  assert.equal(
+    shared.reduce((n, k) => n + perCategory.get(k)!, 0),
+    15,
+    stale("the example counts in those categories")
+  );
 });
