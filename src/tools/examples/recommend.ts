@@ -6,7 +6,7 @@ import { BUILTIN_TEMPLATES } from "../../workflows/builder.js";
 import { architectureById, isUnetShape } from "../../architectures/registry.js";
 import { listTemplates as dbListTemplates } from "../../db/index.js";
 
-interface ModelPattern {
+export interface ModelPattern {
   pattern: RegExp;
   workflowName: string;
   /**
@@ -17,13 +17,24 @@ interface ModelPattern {
    * from the registry separately, so identity no longer has to carry it.
    */
   architecture: string;
+  /**
+   * Whether this model file is a *draft* tool or a finishing one.
+   *
+   * A property of the file, not of the architecture: `flux` covers both
+   * flux1-schnell (4 steps, distilled, for farming) and flux1-dev (20+ steps,
+   * for the render you keep). The registry cannot tell them apart, so the
+   * distinction lives here, where the filename patterns already do.
+   *
+   * Required rather than optional on purpose - a new row has to decide.
+   */
+  tier: "draft" | "standard";
   defaultSteps: number;
   defaultCfg: number;
   defaultResolution: { width: number; height: number };
   notes: string;
 }
 
-const MODEL_PATTERNS: ModelPattern[] = [
+export const MODEL_PATTERNS: ModelPattern[] = [
   // Flux 2. First because this list is first-match-wins in declaration order
   // and the Flux Dev row below matches "flux2-dev.safetensors" - the real BFL
   // filename - so every Flux 2 file was answered with Flux Dev's CFG of 1 and
@@ -35,6 +46,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /flux[\s._-]?2(?!\d)/i,
     workflowName: "Flux 2",
     architecture: "flux",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 3,
     defaultResolution: { width: 1024, height: 1024 },
@@ -45,6 +57,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /flux.*schnell.*\.(safetensors|ckpt)/i,
     workflowName: "Flux Schnell Checkpoint",
     architecture: "flux",
+    tier: "draft",
     defaultSteps: 4,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -55,6 +68,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /flux.*dev.*\.(safetensors|ckpt)/i,
     workflowName: "Flux Dev Checkpoint",
     architecture: "flux",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -65,6 +79,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /flux.*kontext/i,
     workflowName: "Flux Kontext",
     architecture: "flux",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -75,6 +90,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /flux.*fill/i,
     workflowName: "Flux Fill (Inpaint/Outpaint)",
     architecture: "flux",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -85,6 +101,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /sd3\.?5.*turbo/i,
     workflowName: "SD3.5 Large Turbo",
     architecture: "sd3",
+    tier: "draft",
     defaultSteps: 4,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -95,6 +112,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /sd3\.?5/i,
     workflowName: "SD3.5 Checkpoint",
     architecture: "sd3",
+    tier: "standard",
     defaultSteps: 28,
     defaultCfg: 4.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -105,16 +123,25 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /sd3[^5]/i,
     workflowName: "SD3.5 Checkpoint",
     architecture: "sd3",
+    tier: "standard",
     defaultSteps: 28,
     defaultCfg: 4.5,
     defaultResolution: { width: 1024, height: 1024 },
     notes: "SD3 uses similar settings to SD3.5.",
   },
-  // SDXL Turbo
+  // SDXL Turbo.
+  //
+  // The separator is optional because Stability's own filename is
+  // `sd_xl_turbo_1.0_fp16.safetensors`. Requiring a literal "sdxl" made this
+  // row unreachable for the real file, which then fell through to the plain
+  // SDXL row below and was answered with 25 steps at CFG 7 - the settings
+  // that make a Turbo model look burnt out. Same failure mode as the Flux 2
+  // row above.
   {
-    pattern: /sdxl.*turbo/i,
+    pattern: /sd[\s._-]?xl.*turbo/i,
     workflowName: "SDXL Turbo",
     architecture: "sdxl",
+    tier: "draft",
     defaultSteps: 1,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -125,6 +152,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /sdxl|sd_xl/i,
     workflowName: "SDXL",
     architecture: "sdxl",
+    tier: "standard",
     defaultSteps: 25,
     defaultCfg: 7,
     defaultResolution: { width: 1024, height: 1024 },
@@ -135,6 +163,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /hidream.*dev/i,
     workflowName: "HiDream Dev",
     architecture: "hidream",
+    tier: "standard",
     defaultSteps: 28,
     defaultCfg: 5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -144,6 +173,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /hidream.*full/i,
     workflowName: "HiDream Full",
     architecture: "hidream",
+    tier: "standard",
     defaultSteps: 50,
     defaultCfg: 5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -153,6 +183,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /hidream.*e1/i,
     workflowName: "HiDream Edit (E1.1)",
     architecture: "hidream",
+    tier: "standard",
     defaultSteps: 28,
     defaultCfg: 5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -163,6 +194,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /stable.*cascade/i,
     workflowName: "Stable Cascade",
     architecture: "cascade",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -172,7 +204,8 @@ const MODEL_PATTERNS: ModelPattern[] = [
   {
     pattern: /qwen.*image(?!.*edit|.*layered)/i,
     workflowName: "Qwen Image",
-    architecture: "qwen", // Uses similar workflow structure to Flux
+    architecture: "qwen",
+    tier: "standard", // Uses similar workflow structure to Flux
     defaultSteps: 20,
     defaultCfg: 2.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -183,6 +216,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /qwen.*image.*edit/i,
     workflowName: "Qwen Image Edit (v2509)",
     architecture: "qwen",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 2.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -193,6 +227,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /qwen.*image.*layered/i,
     workflowName: "Qwen Image",
     architecture: "qwen",
+    tier: "standard",
     defaultSteps: 50,
     defaultCfg: 4,
     defaultResolution: { width: 640, height: 640 },
@@ -203,6 +238,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /wan.*2\.\d/i,
     workflowName: "Wan 2.1",
     architecture: "wan",
+    tier: "standard",
     defaultSteps: 30,
     defaultCfg: 5,
     defaultResolution: { width: 832, height: 480 },
@@ -213,6 +249,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /hunyuan.*dit/i,
     workflowName: "Hunyuan DiT 1.2",
     architecture: "hunyuan",
+    tier: "standard",
     defaultSteps: 30,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -223,6 +260,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /hunyuan.*image/i,
     workflowName: "Hunyuan Image 2.1",
     architecture: "hunyuan",
+    tier: "standard",
     defaultSteps: 30,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -233,6 +271,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /hunyuan.*video/i,
     workflowName: "Hunyuan Video",
     architecture: "hunyuan",
+    tier: "standard",
     defaultSteps: 30,
     defaultCfg: 5,
     defaultResolution: { width: 1280, height: 720 },
@@ -243,6 +282,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /lumina/i,
     workflowName: "Lumina Image 2.0",
     architecture: "lumina",
+    tier: "standard",
     defaultSteps: 30,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -253,6 +293,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /chroma/i,
     workflowName: "Chroma",
     architecture: "chroma",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -263,6 +304,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /aura.*flow/i,
     workflowName: "AuraFlow",
     architecture: "auraflow",
+    tier: "standard",
     defaultSteps: 30,
     defaultCfg: 4,
     defaultResolution: { width: 1024, height: 1024 },
@@ -273,6 +315,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /z.*image.*turbo/i,
     workflowName: "Z Image Turbo",
     architecture: "zimage",
+    tier: "draft",
     defaultSteps: 4,
     defaultCfg: 1,
     defaultResolution: { width: 1024, height: 1024 },
@@ -283,6 +326,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /mochi/i,
     workflowName: "Mochi Video",
     architecture: "mochi",
+    tier: "standard",
     defaultSteps: 50,
     defaultCfg: 4.5,
     defaultResolution: { width: 848, height: 480 },
@@ -293,6 +337,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /ltx.*video/i,
     workflowName: "LTX-Video",
     architecture: "ltxvideo",
+    tier: "standard",
     defaultSteps: 30,
     defaultCfg: 3,
     defaultResolution: { width: 768, height: 512 },
@@ -303,6 +348,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /cosmos/i,
     workflowName: "Nvidia Cosmos",
     architecture: "cosmos",
+    tier: "standard",
     defaultSteps: 35,
     defaultCfg: 7,
     defaultResolution: { width: 1280, height: 704 },
@@ -313,6 +359,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /omnigen/i,
     workflowName: "Omnigen 2",
     architecture: "omnigen",
+    tier: "standard",
     defaultSteps: 50,
     defaultCfg: 2.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -323,6 +370,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /ace.*step|stable.*audio/i,
     workflowName: "Audio Generation (ACE Step / Stable Audio)",
     architecture: "aceaudio",
+    tier: "standard",
     defaultSteps: 100,
     defaultCfg: 7,
     defaultResolution: { width: 0, height: 0 },
@@ -333,6 +381,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /svd|stable.*video.*diffusion/i,
     workflowName: "Stable Video Diffusion (Image-to-Video)",
     architecture: "sdxl",
+    tier: "standard",
     defaultSteps: 25,
     defaultCfg: 2.5,
     defaultResolution: { width: 1024, height: 576 },
@@ -343,6 +392,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /cosxl.*edit/i,
     workflowName: "SDXL Edit (CosXL Edit)",
     architecture: "sdxl",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 7,
     defaultResolution: { width: 1024, height: 1024 },
@@ -353,6 +403,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /zero123|stable.*zero/i,
     workflowName: "Stable Zero123 (3D)",
     architecture: "sdxl",
+    tier: "standard",
     defaultSteps: 50,
     defaultCfg: 4,
     defaultResolution: { width: 256, height: 256 },
@@ -363,6 +414,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /unclip/i,
     workflowName: "unCLIP (Single Image)",
     architecture: "sdxl",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 7,
     defaultResolution: { width: 768, height: 768 },
@@ -373,6 +425,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /lcm/i,
     workflowName: "LCM (Latent Consistency Models)",
     architecture: "sdxl",
+    tier: "draft",
     defaultSteps: 4,
     defaultCfg: 1.5,
     defaultResolution: { width: 1024, height: 1024 },
@@ -383,6 +436,7 @@ const MODEL_PATTERNS: ModelPattern[] = [
     pattern: /\.(safetensors|ckpt)$/i,
     workflowName: "Basic txt2img",
     architecture: "sd15",
+    tier: "standard",
     defaultSteps: 20,
     defaultCfg: 7,
     defaultResolution: { width: 512, height: 512 },
@@ -432,6 +486,13 @@ export interface WorkflowRecommendation {
   exampleWorkflow?: Record<string, unknown>;
   /** Source of the example workflow */
   exampleSource?: string;
+  /**
+   * Whether this model file is a draft tool or a finishing one, and where to
+   * get the two-stage plan. Named here because this is the moment the caller
+   * is deciding what to run, and a tool nobody is pointed at is a tool nobody
+   * calls.
+   */
+  iteration: string;
   /** Matching templates from builtin and saved templates */
   matchingTemplates?: Array<{
     source: "builtin" | "example" | "custom";
@@ -509,6 +570,14 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
       ? `Call comfyui_get_prompting_guide('${spec.guide}') for detailed prompting advice.`
       : `No dedicated prompting guide for ${spec?.displayName ?? match.architecture} yet; comfyui_get_prompting_guide('flux') is the closest fit for this workflow shape.`,
     notes: match.notes,
+    iteration:
+      match.tier === "draft"
+        ? `This is a distilled draft model - fast, but not what you finish on. ` +
+          `comfyui_plan_iteration(model: "<your final model>") pairs it with a final render and ` +
+          `says what carries over between the two.`
+        : `This is a full-quality model, so every iteration costs ${match.defaultSteps} steps. ` +
+          `Call comfyui_plan_iteration(model: "${input.modelName}") for a cheap draft stage to ` +
+          `farm prompts and seeds on first.`,
   };
 
   // Add sampler/scheduler recommendations
@@ -657,6 +726,9 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
 
   output += `## Notes\n`;
   output += `${rec.notes}\n`;
+
+  output += `\n## Iterating\n`;
+  output += `${rec.iteration}\n`;
 
   if (rec.alternativeWorkflows && rec.alternativeWorkflows.length > 0) {
     output += `\n## Alternative Workflows\n`;
