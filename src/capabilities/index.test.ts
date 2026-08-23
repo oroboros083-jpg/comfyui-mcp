@@ -8,6 +8,8 @@ import {
   promptingAdviceFor,
 } from "./index.js";
 import type { ObjectInfo } from "../client/comfyui.js";
+import { ARCHITECTURES } from "../architectures/registry.js";
+import { PROMPTING_GUIDES } from "../resources/prompting-guide.js";
 
 /** An object_info that publishes exactly the given node names. */
 function withNodes(...names: string[]): ObjectInfo {
@@ -92,8 +94,12 @@ test("nothing detected is reported as nothing, not as SD 1.5", () => {
 });
 
 test("a detected architecture is named by its guide key, not its id", () => {
-  // Most registry rows have no guide of their own, so naming the id sent the
-  // agent to a get_prompting_guide call that errors.
+  // This used to assert the opposite for wan: that it had NO guide, so the
+  // advice must not name one. Every architecture now ships a guide, so the
+  // case it guarded against cannot arise from wan any more - but the
+  // invariant it existed to protect still can, the moment someone adds a row
+  // with a typo'd or missing `guide`. It is asserted over the whole table
+  // below rather than through one row that happens to demonstrate it.
   const objectInfo = {
     CheckpointLoaderSimple: {
       input: { required: { ckpt_name: ["COMBO", { options: ["wan2.1_t2v.safetensors"] }] } },
@@ -104,10 +110,18 @@ test("a detected architecture is named by its guide key, not its id", () => {
   const primary = primaryArchitectureOf(caps);
 
   assert.equal(primary?.id, "wan");
-  assert.equal(primary?.guide, undefined, "wan has no guide of its own");
-  assert.equal(
-    /get_prompting_guide\('wan'\)/.test(promptingAdviceFor(caps)),
-    false,
-    "so nothing may tell the agent to call one"
-  );
+  assert.equal(primary?.guide, "wan");
+  assert.match(promptingAdviceFor(caps), /get_prompting_guide\('wan'\)/);
+});
+
+test("prompting advice never names a guide that does not exist", () => {
+  // The failure this prevents is silent and lands at the worst moment: the
+  // agent is told to call get_prompting_guide('x'), does, and gets an error.
+  for (const spec of ARCHITECTURES) {
+    if (!spec.guide) continue;
+    assert.ok(
+      PROMPTING_GUIDES[spec.guide],
+      `${spec.id} would send the agent to get_prompting_guide('${spec.guide}'), which does not exist`
+    );
+  }
 });

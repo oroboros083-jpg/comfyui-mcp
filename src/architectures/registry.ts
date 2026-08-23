@@ -85,11 +85,61 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     detect: { checkpoints: /sdxl|xl/i },
     workflow: "standard",
     guide: "sdxl",
-    aliases: ["sd_xl", "illustrious", "pony", "noobai"],
+    // `illustrious`, `pony` and `noobai` used to be aliases here. They are
+    // SDXL by graph shape only: they want booru tags, quality tokens and a
+    // tag order, none of which the SDXL guide teaches. Aliasing them here
+    // meant every one of their users was handed advice close to the inverse
+    // of what their model wanted, so they are now rows of their own below.
+    aliases: ["sd_xl"],
     advice:
       "Natural language or keywords. Prompt weights supported (0.8-1.4).",
     priority: 20,
   },
+  // Booru-tag anime finetunes. All SDXL-shaped, none SDXL-prompted, so they
+  // sit above SDXL's priority - a WAI-Illustrious checkpoint matches both the
+  // bare `xl` pattern and `illustrious`, and the specific one has to win.
+  {
+    id: "illustrious",
+    displayName: "Illustrious XL",
+    detect: { checkpoints: /illustrious/i },
+    workflow: "standard",
+    guide: "illustrious",
+    advice:
+      "Booru tags, not prose. Lead with quality tags; native 1536x1536.",
+    priority: 25,
+  },
+  {
+    id: "noobai",
+    displayName: "NoobAI-XL",
+    detect: { checkpoints: /noob.?ai/i },
+    workflow: "standard",
+    guide: "noobai",
+    aliases: ["noob ai"],
+    advice:
+      "Booru tags from Danbooru and e621. Recency tags (newest/old) drive the art style.",
+    priority: 26,
+  },
+  {
+    id: "pony",
+    displayName: "Pony Diffusion",
+    detect: { checkpoints: /pony/i },
+    workflow: "standard",
+    guide: "pony",
+    advice:
+      "Open with the score chain (score_9, score_8_up, score_7_up) and a source_ tag.",
+    priority: 25,
+  },
+  {
+    id: "animagine",
+    displayName: "Animagine XL",
+    detect: { checkpoints: /animagine/i },
+    workflow: "standard",
+    guide: "animagine",
+    advice:
+      "Booru tags in a fixed order: count, character, series, rating, general, then quality LAST.",
+    priority: 27,
+  },
+
   {
     id: "sd3",
     displayName: "SD3",
@@ -134,6 +184,23 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     advice:
       "Natural language prompts, strong at rendered text. No negative prompts.",
     priority: 60,
+  },
+  {
+    id: "anima",
+    displayName: "Anima",
+    // `\banima` with a letter excluded after it, so this does not swallow
+    // "animagine" (its own row above) or "animatediff" (not an architecture).
+    detect: { checkpoints: /\banima(?![a-z])/i, unets: /\banima(?![a-z])/i },
+    // Anima actually loads UNETLoader + a SINGLE CLIPLoader (qwen_3_06b_base)
+    // + VAELoader. "flux" is the closest shape this builder has and is what
+    // `qwen` already uses for the same reason; the graph builder emits a
+    // DualCLIPLoader where Anima wants one encoder. Detection, guidance and
+    // recommendations are unaffected - only builder.ts output is approximate.
+    workflow: "flux",
+    guide: "anima",
+    advice:
+      "Booru tags, natural language, or both. Lead with quality/score/safety tags. Turbo variant runs at CFG 1.",
+    priority: 52,
   },
   {
     id: "hunyuan",
@@ -189,8 +256,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     displayName: "HiDream",
     detect: { checkpoints: /hidream/i, unets: /hidream/i },
     workflow: "flux",
+    guide: "hidream",
     advice:
-      "Natural language prompts. No dedicated guide yet; the Flux guide is the closest fit.",
+      "Natural language prompts. Match CFG to the variant: ~5 for Full, 1 for Dev/Fast.",
     priority: 58,
   },
   {
@@ -198,8 +266,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     displayName: "Wan Video",
     detect: { checkpoints: /^wan[\d._]/i, unets: /^wan[\d._]/i },
     workflow: "flux",
+    guide: "wan",
     advice:
-      "Video model. Describe motion as well as subject. No dedicated guide yet.",
+      "Video model. State subject motion AND camera motion separately.",
     priority: 57,
   },
   {
@@ -207,7 +276,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     displayName: "Lumina",
     detect: { checkpoints: /lumina/i, unets: /lumina/i },
     workflow: "flux",
-    advice: "Natural language prompts. No dedicated guide yet.",
+    guide: "lumina",
+    advice:
+      "Natural language prompts, detailed. Negative prompts supported.",
     priority: 50,
   },
   {
@@ -215,7 +286,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     displayName: "Chroma",
     detect: { checkpoints: /chroma/i, unets: /chroma/i },
     workflow: "flux",
-    advice: "Flux-derived. Natural language prompts, no negative prompts.",
+    guide: "chroma",
+    advice:
+      "Flux-derived but DOES take a negative prompt, and wants CFG 4-5 rather than 1.",
     priority: 50,
   },
   {
@@ -224,7 +297,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     detect: { checkpoints: /z.?image/i, unets: /z.?image/i },
     workflow: "flux",
     aliases: ["z image", "z-image"],
-    advice: "Turbo model, few steps. Natural language prompts.",
+    guide: "zimage",
+    advice:
+      "Distilled turbo: CFG 1 and single-digit steps. Short, concrete prompts.",
     priority: 50,
   },
   {
@@ -232,7 +307,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     displayName: "Mochi",
     detect: { checkpoints: /mochi/i, unets: /mochi/i },
     workflow: "flux",
-    advice: "Video model. Describe motion. No dedicated guide yet.",
+    guide: "mochi",
+    advice:
+      "Video model. Strong on fluids and cloth; name the camera move.",
     priority: 45,
   },
   {
@@ -241,7 +318,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     detect: { checkpoints: /ltx/i, unets: /ltx/i },
     workflow: "flux",
     aliases: ["ltx-video", "ltx video"],
-    advice: "Video model. Describe motion. No dedicated guide yet.",
+    guide: "ltxvideo",
+    advice:
+      "Video model. Wants unusually LONG prompts - short ones underperform.",
     priority: 45,
   },
   {
@@ -249,7 +328,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     displayName: "Nvidia Cosmos",
     detect: { checkpoints: /cosmos/i, unets: /cosmos/i },
     workflow: "flux",
-    advice: "Video model. Describe motion. No dedicated guide yet.",
+    guide: "cosmos",
+    advice:
+      "Video world model. Physically literal descriptions; state the viewpoint.",
     priority: 45,
   },
   {
@@ -258,8 +339,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     detect: { checkpoints: /ace.?step|stable.?audio/i, unets: /ace.?step/i },
     workflow: "flux",
     aliases: ["ace step", "ace-step", "stable audio"],
+    guide: "aceaudio",
     advice:
-      "Audio model. Describe genre, instrumentation and mood rather than visual detail.",
+      "Audio model. Genre, instrumentation, tempo, production - no visual language.",
     priority: 48,
   },
   {
@@ -267,7 +349,9 @@ export const ARCHITECTURES: ArchitectureSpec[] = [
     displayName: "OmniGen",
     detect: { checkpoints: /omnigen/i, unets: /omnigen/i },
     workflow: "flux",
-    advice: "Instruction-following image editing. Describe the change wanted.",
+    guide: "omnigen",
+    advice:
+      "Instruction-following editing. Write the CHANGE wanted, not a scene description.",
     priority: 45,
   },
 ];

@@ -70,7 +70,12 @@ src/
 │   ├── resources.ts        # MCP resource handlers
 │   └── prompts.ts          # MCP prompt handlers
 ├── resources/
-│   └── prompting-guide.ts  # Model-specific prompting guides
+│   ├── prompting-guide.ts  # Public entry point; re-exports prompting/
+│   └── prompting/          # One guide per architecture, split by family
+│       ├── types.ts        # Guide shape: structure, specialTags, starters, models
+│       ├── render.ts       # Section rendering (progressive disclosure)
+│       ├── index.ts        # Aggregation, lookup, the index table
+│       └── guides/         # stable-diffusion, flux, anime, dit, video, audio
 ├── analysis/
 │   ├── outputs.ts          # User output history analysis
 │   └── hash.ts             # Workflow hashing
@@ -274,11 +279,18 @@ One row in `src/architectures/registry.ts`:
   displayName: "My Architecture",
   detect: { checkpoints: /myarch/i, unets: /myarch/i },
   workflow: "flux",          // which graph shape builder.ts produces
-  guide: "myarch",           // omit if no prompting guide exists yet
+  guide: "myarch",           // key into PROMPTING_GUIDES - see below
   advice: "One line of prompting steer.",
   priority: 50,              // higher = more specific; beats the generic bases
 }
 ```
+
+**Every row must carry a `guide`, and it must resolve.** Two tests enforce
+this in both directions: no architecture may point at a missing guide, and no
+guide may be unreachable from any architecture. So adding a row means adding a
+guide to `src/resources/prompting/guides/` in the same change. A row without
+one used to be allowed, and the result was `get_capabilities` telling the
+agent "no dedicated prompting guide yet" for half the table.
 
 Everything else follows: `capabilities/` detects it, both status tools advise
 on it, `get_prompting_guide` resolves it (by id, alias or raw filename), and
@@ -286,6 +298,14 @@ on it, `get_prompting_guide` resolves it (by id, alias or raw filename), and
 `tools/examples/recommend.ts` if it needs specific steps/CFG/resolution, and a
 builder function in `workflows/builder.ts` only if it needs a graph shape that
 does not exist yet.
+
+**Prompting style is not graph shape either.** The booru-tag anime models
+(`illustrious`, `noobai`, `pony`, `animagine`, `anima`) are SDXL-shaped and
+were once *aliases* of `sdxl`, which handed every one of their users the
+natural-language SDXL guide — close to the inverse of what they want. If a new
+architecture wants a fixed tag vocabulary, a tag order, or quality/rating
+tokens, it needs its own row and its own guide, however familiar its graph
+looks. Fill in `structure` and `specialTags` on the guide when so.
 
 **Keep `id` and `workflow` distinct.** `id` is identity ("this is a Qwen
 model"); `workflow` is graph shape ("loads through UNETLoader +
