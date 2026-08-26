@@ -1,0 +1,6 @@
+- add model descriptions to non-text to image models
+- allow for additional model sources (like civitai/civitai.red). prefer hf model card
+- add support for fetching from civitai/civitaired with metadata preservation
+- add support for checking pickletensors for known hacks
+- run /doctor
+- 
