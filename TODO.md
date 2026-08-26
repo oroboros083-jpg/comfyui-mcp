@@ -3,4 +3,5 @@
 - add support for fetching from civitai/civitaired with metadata preservation
 - add support for checking pickletensors for known hacks
 - run /doctor
-- 
+- compare functionality with Artokun's mcp
+- compare functionality with Comfy's mcp server (feel like on dead branch) 
