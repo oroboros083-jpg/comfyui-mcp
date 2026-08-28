@@ -10,6 +10,8 @@ import {
   renderQueue,
   renderHistory,
   getHistorySchema,
+  cancelJob,
+  interrupt,
 } from "./queue.js";
 import { ResponseFormat, paginatedOutputSchema } from "../utils/response.js";
 
@@ -21,11 +23,32 @@ import { ResponseFormat, paginatedOutputSchema } from "../utils/response.js";
 function stubClient(over: {
   queue?: QueueStatus;
   history?: Record<string, HistoryEntry>;
+  clientId?: string;
+  onCancel?: (promptId?: string) => void;
+  onInterrupt?: () => void;
 }): ComfyUIClient {
   return {
     getQueue: async () => over.queue ?? { queue_running: [], queue_pending: [] },
     getHistory: async () => over.history ?? {},
+    getClientId: () => over.clientId ?? "me",
+    cancelQueue: async (promptId?: string) => over.onCancel?.(promptId),
+    interrupt: async () => over.onInterrupt?.(),
   } as unknown as ComfyUIClient;
+}
+
+/** A queue tuple carrying an explicit submitter. */
+function ownedTuple(
+  i: number,
+  tag: string,
+  clientId?: string
+): QueueStatus["queue_running"][number] {
+  return [
+    i,
+    `${tag}-${i}`,
+    null,
+    clientId === undefined ? null : { client_id: clientId },
+    null,
+  ];
 }
 
 function entry(status: string, outputs: Record<string, never> | { n: never }): HistoryEntry {
@@ -288,4 +311,130 @@ test("getHistory defaults to newest without being asked", async () => {
 
   assert.ok(!isHistoryDetail(result));
   assert.equal(result.entries[0].promptId, "p4");
+});
+
+// ---------------------------------------------------------------------------
+// Ownership - which jobs are this agent's, on a ComfyUI others are also using
+// ---------------------------------------------------------------------------
+
+test("getQueue marks its own jobs and other clients' jobs apart", async () => {
+  const client = stubClient({
+    clientId: "agent-a",
+    queue: {
+      queue_running: [ownedTuple(0, "run", "agent-a")],
+      queue_pending: [ownedTuple(1, "pend", "agent-b"), ownedTuple(2, "pend", "agent-a")],
+    },
+  });
+  const result = await getQueue(client, { limit: 50, offset: 0, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.mine, 2);
+  assert.equal(result.foreign, 1);
+  assert.deepEqual(
+    result.jobs.map((j) => [j.promptId, j.mine]),
+    [["run-0", true], ["pend-1", false], ["pend-2", true]]
+  );
+});
+
+test("a job submitted without a client_id is not claimed as ours", async () => {
+  const client = stubClient({
+    clientId: "agent-a",
+    queue: { queue_running: [], queue_pending: [ownedTuple(0, "pend")] },
+  });
+  const result = await getQueue(client, { limit: 50, offset: 0, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.jobs[0].mine, false, "unknown owner is not us");
+  assert.equal(result.jobs[0].clientId, undefined);
+  assert.equal(result.foreign, 1);
+});
+
+test("a bulk cancel leaves other clients' jobs alone by default", async () => {
+  const cancelled: (string | undefined)[] = [];
+  const client = stubClient({
+    clientId: "agent-a",
+    onCancel: (id) => cancelled.push(id),
+    queue: {
+      queue_running: [],
+      queue_pending: [
+        ownedTuple(0, "pend", "agent-a"),
+        ownedTuple(1, "pend", "agent-b"),
+        ownedTuple(2, "pend", "agent-a"),
+      ],
+    },
+  });
+
+  const result = await cancelJob(client, { scope: "mine" });
+
+  assert.deepEqual(cancelled, ["pend-0", "pend-2"], "only our own ids");
+  assert.equal(result.cancelled, 2);
+  assert.equal(result.left_alone, 1);
+});
+
+test("scope 'all' clears the whole queue in one call", async () => {
+  const cancelled: (string | undefined)[] = [];
+  const client = stubClient({
+    clientId: "agent-a",
+    onCancel: (id) => cancelled.push(id),
+    queue: { queue_running: [], queue_pending: [ownedTuple(0, "pend", "agent-b")] },
+  });
+
+  const result = await cancelJob(client, { scope: "all" });
+
+  assert.deepEqual(cancelled, [undefined], "one unscoped clear, not a per-id sweep");
+  assert.equal(result.cancelled, "all");
+});
+
+test("cancelling one job by id does not consult ownership", async () => {
+  const cancelled: (string | undefined)[] = [];
+  const client = stubClient({
+    clientId: "agent-a",
+    onCancel: (id) => cancelled.push(id),
+    queue: { queue_running: [], queue_pending: [ownedTuple(0, "pend", "agent-b")] },
+  });
+
+  await cancelJob(client, { promptId: "pend-0", scope: "mine" });
+  assert.deepEqual(cancelled, ["pend-0"]);
+});
+
+test("interrupt refuses to kill another client's running job", async () => {
+  let interrupted = false;
+  const client = stubClient({
+    clientId: "agent-a",
+    onInterrupt: () => (interrupted = true),
+    queue: { queue_running: [ownedTuple(0, "run", "agent-b")], queue_pending: [] },
+  });
+
+  await assert.rejects(() => interrupt(client), /submitted by agent-b/);
+  assert.equal(interrupted, false, "nothing was interrupted");
+});
+
+test("interrupt proceeds on another client's job once confirmed", async () => {
+  let interrupted = false;
+  const client = stubClient({
+    clientId: "agent-a",
+    onInterrupt: () => (interrupted = true),
+    queue: { queue_running: [ownedTuple(0, "run", "agent-b")], queue_pending: [] },
+  });
+
+  const result = await interrupt(client, { confirm_foreign: true });
+  assert.equal(interrupted, true);
+  assert.equal(result.interrupted, "foreign");
+});
+
+test("interrupt does not gate our own running job", async () => {
+  let interrupted = false;
+  const client = stubClient({
+    clientId: "agent-a",
+    onInterrupt: () => (interrupted = true),
+    queue: { queue_running: [ownedTuple(0, "run", "agent-a")], queue_pending: [] },
+  });
+
+  const result = await interrupt(client);
+  assert.equal(interrupted, true);
+  assert.equal(result.interrupted, "mine");
+});
+
+test("interrupt does not gate an idle queue", async () => {
+  const client = stubClient({ clientId: "agent-a", onInterrupt: () => {} });
+  const result = await interrupt(client);
+  assert.equal(result.interrupted, "unknown");
 });

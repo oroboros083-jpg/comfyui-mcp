@@ -9,7 +9,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { defineTool, noArgs } from "../register.js";
+import { defineTool } from "../register.js";
 import { ensureConnected } from "../connection.js";
 import {
   dataResult,
@@ -28,6 +28,7 @@ import {
   cancelJobSchema,
   cancelJob,
   interrupt,
+  interruptSchema,
   getHistorySchema,
   getHistory,
   renderHistory,
@@ -98,8 +99,11 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     name: "interrupt",
     description:
       "Interrupt the job ComfyUI is currently running. Stops generation in progress and discards its " +
-      "output. For jobs that are queued but not yet started, use comfyui_cancel_job instead.",
-    schema: noArgs,
+      "output. For jobs that are queued but not yet started, use comfyui_cancel_job instead.\n\n" +
+      "ComfyUI has one interrupt and it stops whatever is running, which on a shared instance may not " +
+      "be yours. This refuses when the running job belongs to another client and reports who owns it; " +
+      "confirm_foreign: true proceeds, and should follow the user actually agreeing.",
+    schema: interruptSchema,
     requiresConnection: true,
     annotations: {
       title: "Interrupt Running Job",
@@ -108,9 +112,9 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       idempotentHint: true,
       openWorldHint: true,
     },
-    handler: async () => {
+    handler: async (input) => {
       const { client } = await ensureConnected();
-      return dataResult((await interrupt(client)));
+      return dataResult(await interrupt(client, input));
     },
   });
 
@@ -359,7 +363,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       }
 
       try {
-        await cancelJob(client, { promptId: job.promptId });
+        await cancelJob(client, { promptId: job.promptId, scope: "mine" });
       } catch {
         // Already finished or gone in ComfyUI; stop tracking it either way.
       }

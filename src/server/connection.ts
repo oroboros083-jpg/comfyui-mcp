@@ -84,7 +84,7 @@ export async function initializeComfyUI(): Promise<boolean> {
   info(`Found running ComfyUI at ${discovered.url} (${discovered.source})`, undefined, "init");
 
   // Create client
-  ctx.client = new ComfyUIClient(discovered.url, ctx.config.comfyui.apiKey);
+  ctx.client = new ComfyUIClient(discovered.url, ctx.config.comfyui.apiKey, ctx.config.agentId);
   debug("Created ComfyUI client", undefined, "init");
 
   // Get capabilities. This always re-fetches: reaching here means we either

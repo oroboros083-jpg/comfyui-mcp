@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-import { ComfyUIClient } from "../client/comfyui.js";
+import { ComfyUIClient, QueueStatus } from "../client/comfyui.js";
 import {
   PageEnvelope,
   paginate,
@@ -24,6 +24,22 @@ export interface QueuedJob {
   position: number;
   promptId: string;
   state: "running" | "pending";
+  /**
+   * Who submitted it, as ComfyUI recorded it. Undefined for a job whose
+   * submitter sent no client_id - the ComfyUI web UI does, but a bare curl
+   * against /prompt need not.
+   */
+  clientId?: string;
+  /**
+   * Did this agent submit it?
+   *
+   * False covers three different strangers - another instance of this server,
+   * the official Comfy MCP (whose jobs arrive under comfy-cli's own id), and
+   * a human in a browser tab. They are not distinguished here because the
+   * only decision that depends on it is the same for all three: do not cancel
+   * it without being told to.
+   */
+  mine: boolean;
 }
 
 /** One history row. Identifies a prompt; `promptId` fetches its detail. */
@@ -52,6 +68,9 @@ export type GetQueueInput = z.infer<typeof getQueueSchema>;
 export type QueueResult = PageEnvelope & {
   running: number;
   pending: number;
+  /** Counted over the whole queue, not the page, so they answer "is anyone else using this ComfyUI". */
+  mine: number;
+  foreign: number;
   jobs: QueuedJob[];
 };
 
@@ -60,20 +79,28 @@ export async function getQueue(
   input: GetQueueInput
 ): Promise<QueueResult> {
   const queue = await client.getQueue();
+  const me = client.getClientId();
+
+  const flatten = (
+    rows: QueueStatus["queue_running"],
+    state: "running" | "pending"
+  ): QueuedJob[] =>
+    rows.map(([position, promptId, , extra]) => {
+      const clientId = extra?.client_id;
+      return {
+        position,
+        promptId,
+        state,
+        ...(clientId === undefined ? {} : { clientId }),
+        mine: clientId === me,
+      };
+    });
 
   // Running first: it is what the caller almost always wants, and putting it
   // on page one means the common case never needs a second call.
   const jobs: QueuedJob[] = [
-    ...queue.queue_running.map(([position, promptId]) => ({
-      position,
-      promptId,
-      state: "running" as const,
-    })),
-    ...queue.queue_pending.map(([position, promptId]) => ({
-      position,
-      promptId,
-      state: "pending" as const,
-    })),
+    ...flatten(queue.queue_running, "running"),
+    ...flatten(queue.queue_pending, "pending"),
   ];
 
   const { items, ...envelope } = paginate(jobs, input.limit, input.offset);
@@ -82,6 +109,8 @@ export async function getQueue(
     ...envelope,
     running: queue.queue_running.length,
     pending: queue.queue_pending.length,
+    mine: jobs.filter((j) => j.mine).length,
+    foreign: jobs.filter((j) => !j.mine).length,
     jobs: items,
   };
 }
@@ -89,9 +118,16 @@ export async function getQueue(
 export function renderQueue(result: QueueResult): string {
   return renderListing({
     title: "ComfyUI Queue",
-    facets: { running: result.running, pending: result.pending },
+    facets: {
+      running: result.running,
+      pending: result.pending,
+      mine: result.mine,
+      foreign: result.foreign,
+    },
     rows: result.jobs.map(
-      (job) => `- **${job.state}** #${job.position} - \`${job.promptId}\``
+      (job) =>
+        `- **${job.state}** #${job.position} - \`${job.promptId}\`` +
+        (job.mine ? "" : ` (${job.clientId ?? "another client"})`)
     ),
     page: result,
     empty: "Queue is empty. Nothing running, nothing pending.",
@@ -107,7 +143,18 @@ export const cancelJobSchema = z
       .min(1, "promptId must not be empty")
       .optional()
       .describe(
-        "Prompt ID of the queued job to cancel. Omit to clear the entire queue."
+        "Prompt ID of the queued job to cancel. Omit to cancel in bulk, which " +
+          "`scope` then controls."
+      ),
+    scope: z
+      .enum(["mine", "all"])
+      .optional()
+      .default("mine")
+      .describe(
+        "Which jobs a bulk cancel removes. 'mine' (the default) cancels only " +
+          "jobs this agent submitted. 'all' clears the whole queue INCLUDING " +
+          "work submitted by other agents and by anyone using the ComfyUI web " +
+          "UI - ask before using it. Ignored when promptId is given."
       ),
   })
   .strict();
@@ -116,41 +163,126 @@ export type CancelJobInput = z.infer<typeof cancelJobSchema>;
 
 export interface CancelJobResult {
   success: true;
-  cancelled: string | "all";
+  cancelled: string | number;
+  /** Foreign jobs a "mine" bulk cancel deliberately left alone. */
+  left_alone?: number;
   message: string;
 }
+
+const RUNNING_NOTE =
+  "A job already running is unaffected - use comfyui_interrupt for that.";
 
 export async function cancelJob(
   client: ComfyUIClient,
   input: CancelJobInput
 ): Promise<CancelJobResult> {
-  await client.cancelQueue(input.promptId);
+  if (input.promptId) {
+    await client.cancelQueue(input.promptId);
+    return {
+      success: true,
+      cancelled: input.promptId,
+      message: `Removed ${input.promptId} from the queue. ${RUNNING_NOTE}`,
+    };
+  }
 
-  return input.promptId
-    ? {
-        success: true,
-        cancelled: input.promptId,
-        message: `Removed ${input.promptId} from the queue. A job already running is unaffected - use comfyui_interrupt for that.`,
-      }
-    : {
-        success: true,
-        cancelled: "all",
-        message:
-          "Cleared every pending job from the queue. A job already running is unaffected - use comfyui_interrupt for that.",
-      };
+  // A bare "clear the queue" used to wipe everything, which on a shared
+  // ComfyUI destroys work this agent never submitted and cannot give back.
+  // The default now names its own jobs one at a time; clearing outright is a
+  // separate thing the caller has to ask for.
+  if (input.scope === "all") {
+    await client.cancelQueue();
+    return {
+      success: true,
+      cancelled: "all",
+      message: `Cleared every pending job, including jobs submitted by others. ${RUNNING_NOTE}`,
+    };
+  }
+
+  const queue = await client.getQueue();
+  const me = client.getClientId();
+  const pending = queue.queue_pending.map(([, promptId, , extra]) => ({
+    promptId,
+    mine: extra?.client_id === me,
+  }));
+  const mine = pending.filter((j) => j.mine);
+
+  for (const job of mine) await client.cancelQueue(job.promptId);
+
+  const foreign = pending.length - mine.length;
+  return {
+    success: true,
+    cancelled: mine.length,
+    ...(foreign ? { left_alone: foreign } : {}),
+    message:
+      `Cancelled ${mine.length} pending job(s) submitted by this agent` +
+      (foreign
+        ? `, and left ${foreign} belonging to another client alone. Pass scope: "all" to clear those too.`
+        : ".") +
+      ` ${RUNNING_NOTE}`,
+  };
 }
 
 // === interrupt ===
 
+export const interruptSchema = z
+  .object({
+    confirm_foreign: z
+      .boolean()
+      .optional()
+      .describe(
+        "Interrupt even when the running job was submitted by someone else. " +
+          "Their render is discarded and cannot be recovered, so pass this " +
+          "only once the user has actually agreed."
+      ),
+  })
+  .strict();
+
+export type InterruptInput = z.infer<typeof interruptSchema>;
+
 export interface InterruptResult {
   success: true;
+  interrupted: "mine" | "foreign" | "unknown";
   message: string;
 }
 
-export async function interrupt(client: ComfyUIClient): Promise<InterruptResult> {
+/**
+ * ComfyUI has exactly one /interrupt and it stops whatever is running, so
+ * there is no way to scope this at the API. The scoping has to be a check
+ * before the call: read who owns the running job, and refuse if it is not
+ * ours unless the caller says otherwise.
+ *
+ * Deliberately shaped like the official Comfy MCP's confirm_kill_untracked
+ * gate, which solves the same problem - do not destroy a process you did not
+ * start without asking - and has already been through real use.
+ */
+export async function interrupt(
+  client: ComfyUIClient,
+  input: InterruptInput = {}
+): Promise<InterruptResult> {
+  const queue = await client.getQueue();
+  const running = queue.queue_running[0];
+  const owner = running?.[3]?.client_id;
+  const me = client.getClientId();
+  const ownership: InterruptResult["interrupted"] =
+    running === undefined || owner === undefined
+      ? "unknown"
+      : owner === me
+        ? "mine"
+        : "foreign";
+
+  if (ownership === "foreign" && !input.confirm_foreign) {
+    throw new ToolError(
+      `The job currently running (${running?.[1]}) was submitted by ${owner}, not by this agent. ` +
+        "Interrupting it would discard their render.",
+      "Ask the user before interrupting someone else's job, then call again with " +
+        "confirm_foreign: true. comfyui_get_queue shows who owns what."
+    );
+  }
+
   await client.interrupt();
   return {
     success: true,
+    interrupted: ownership,
     message:
       "Interrupted the running job; its output is discarded. Pending jobs are untouched - use comfyui_cancel_job to clear those.",
   };
