@@ -1,4 +1,4 @@
-import { homedir } from "os";
+import { homedir, hostname } from "os";
 import { join } from "path";
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
@@ -25,6 +25,30 @@ export interface Config {
    * agent can grant itself is not a permission -- it is edited here, by hand.
    */
   workflowWriteDirs: string[];
+  /**
+   * Who this instance is, when several agents drive one ComfyUI.
+   *
+   * Travels two ways. It is the `client_id` on every /prompt submission, which
+   * ComfyUI echoes back in /queue -- so a queue listing can say which jobs are
+   * this agent's and which belong to someone else. And it is stamped on the
+   * workflow base state, so a refused write can name who last wrote the file.
+   *
+   * Stable across reconnects on purpose. ComfyUIClient used to mint a fresh
+   * randomUUID() per construction, which meant a reconnect silently disowned
+   * every job the previous connection had submitted.
+   */
+  agentId: string;
+}
+
+/**
+ * A readable default identity: the host and pid, e.g. "gpu-box/48211".
+ *
+ * Readable rather than a uuid because it is shown to a human in queue
+ * listings and write conflicts, where "which of my agents is that" has to be
+ * answerable at a glance. Set COMFYUI_MCP_AGENT_ID to name them yourself.
+ */
+function defaultAgentId(): string {
+  return `${hostname()}/${process.pid}`;
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -36,6 +60,7 @@ const DEFAULT_CONFIG: Config = {
   workflowsDir: "./workflows",
   outputSizeThreshold: 1024 * 1024, // 1MB
   workflowWriteDirs: [],
+  agentId: defaultAgentId(),
 };
 
 function getConfigDir(): string {
@@ -91,6 +116,9 @@ export async function loadConfig(): Promise<Config> {
   }
   if (envApiKey) {
     config.comfyui.apiKey = envApiKey;
+  }
+  if (process.env.COMFYUI_MCP_AGENT_ID) {
+    config.agentId = process.env.COMFYUI_MCP_AGENT_ID;
   }
 
   return config;

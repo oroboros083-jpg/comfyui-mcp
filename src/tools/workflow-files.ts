@@ -104,6 +104,26 @@ export const writeWorkflowSchema = z.object({
         "the tab keeps showing the old graph and may autosave it back over " +
         "what you just wrote."
     ),
+  expected_version: z
+    .string()
+    .optional()
+    .describe(
+      "The `version` comfyui_read_workflow returned for this path. The write " +
+        "is refused if the file no longer matches it, which is how an edit " +
+        "made by a human or another agent since your read is caught instead " +
+        "of overwritten. Usually unnecessary: the version from your last read " +
+        "of this path is remembered and used automatically. Pass it to be " +
+        "explicit, or when the read happened in a different process."
+    ),
+  force: z
+    .boolean()
+    .optional()
+    .describe(
+      "Write even though the file changed since you read it, or even though " +
+        "you never read it. This DESTROYS whatever the other writer did, so " +
+        "use it only after reading the reported conflict and deciding their " +
+        "change should not survive."
+    ),
 }).strict();
 
 export type ListOpenWorkflowsInput = z.infer<typeof listOpenWorkflowsSchema>;

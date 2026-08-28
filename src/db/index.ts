@@ -106,6 +106,28 @@ function initializeSchema(database: Database.Database): void {
       VALUES (NEW.id, NEW.topic, NEW.content, NEW.tags);
     END;
   `);
+
+  // What each workflow file looked like the last time this agent read it.
+  //
+  // This is the `base` of write_workflow's three-way check, and it lives in
+  // SQLite rather than in a process-local Map so it survives a restart: an
+  // agent that read a workflow, restarted, and wrote would otherwise have no
+  // base and be refused for no reason. It is deliberately NOT a sidecar file
+  // next to the workflow - these directories are the human's, and we add
+  // nothing to them.
+  //
+  // Keyed by path alone. The row is this instance's own view, and the db is
+  // per-instance (COMFYUI_MCP_DB_PATH), so two agents keep two bases for the
+  // same file - which is what lost-update detection wants: each asks only
+  // "did it change since *I* read it".
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_bases (
+      path TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      read_at TEXT NOT NULL,
+      agent_id TEXT
+    );
+  `);
 }
 
 // ============================================================================
@@ -781,3 +803,69 @@ export function deleteTemplate(id: string): boolean {
   return result.changes > 0;
 }
 
+
+// ============================================================================
+// Workflow Base State
+// ============================================================================
+
+/** What a workflow file looked like when this agent last read it. */
+export interface WorkflowBase {
+  path: string;
+  version: string;
+  readAt: string;
+  agentId: string | null;
+}
+
+/**
+ * Record the version a read observed, as the base for a later write.
+ *
+ * Upserts: the newest read wins, because that is the state the agent is now
+ * reasoning about. An older base would refuse a write the agent has every
+ * right to make.
+ */
+export function recordWorkflowBase(
+  path: string,
+  version: string,
+  agentId?: string
+): void {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    INSERT INTO workflow_bases (path, version, read_at, agent_id)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(path) DO UPDATE SET
+      version = excluded.version,
+      read_at = excluded.read_at,
+      agent_id = excluded.agent_id
+  `);
+  stmt.run(path, version, new Date().toISOString(), agentId ?? null);
+}
+
+/** The recorded base for a path, or null if this agent has never read it. */
+export function getWorkflowBase(path: string): WorkflowBase | null {
+  const database = getDatabase();
+  const row = database
+    .prepare("SELECT path, version, read_at, agent_id FROM workflow_bases WHERE path = ?")
+    .get(path) as
+    | { path: string; version: string; read_at: string; agent_id: string | null }
+    | undefined;
+  if (!row) return null;
+  return {
+    path: row.path,
+    version: row.version,
+    readAt: row.read_at,
+    agentId: row.agent_id,
+  };
+}
+
+/**
+ * Drop a recorded base, so the next write to this path is treated as unbased.
+ *
+ * NOT what a successful write calls. A write RE-BASES - it records the version
+ * it just produced - because clearing here would leave the agent's own next
+ * write with no base and refuse it. This exists for the deliberate reset:
+ * tests, and forgetting a path whose file has been deleted out from under us.
+ */
+export function clearWorkflowBase(path: string): void {
+  const database = getDatabase();
+  database.prepare("DELETE FROM workflow_bases WHERE path = ?").run(path);
+}
