@@ -56,9 +56,14 @@ function deepClone<T>(obj: T): T {
 }
 
 /**
- * Sort object keys recursively for consistent hashing
+ * Sort object keys recursively for consistent hashing.
+ *
+ * Exported because `tools/workflow-version.ts` needs the same canonical key
+ * order for its EXACT content hash. Only the ordering is shared - that module
+ * deliberately does not use `normalizeWorkflow` below, which strips the very
+ * prompt and seed edits it exists to detect.
  */
-function sortObjectKeys(obj: unknown): unknown {
+export function sortObjectKeys(obj: unknown): unknown {
   if (obj === null || typeof obj !== "object") {
     return obj;
   }

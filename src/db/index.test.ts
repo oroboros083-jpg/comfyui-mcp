@@ -113,3 +113,45 @@ test("search pages in SQL too", () => {
   assert.equal(second.notes.length, 1);
   assert.notEqual(second.notes[0].id, page.notes[0].id);
 });
+
+// ---------------------------------------------------------------------------
+// Workflow base state - the `base` of write_workflow's three-way check
+// ---------------------------------------------------------------------------
+
+test("a base round-trips", () => {
+  db.recordWorkflowBase("workflows/a.json", "v1", "agent-1");
+  const base = db.getWorkflowBase("workflows/a.json");
+  assert.equal(base?.version, "v1");
+  assert.equal(base?.agentId, "agent-1");
+  assert.ok(base?.readAt, "readAt is stamped");
+});
+
+test("an unread path has no base", () => {
+  assert.equal(db.getWorkflowBase("workflows/never-read.json"), null);
+});
+
+test("re-recording a path replaces the base rather than duplicating it", () => {
+  db.recordWorkflowBase("workflows/b.json", "v1", "agent-1");
+  db.recordWorkflowBase("workflows/b.json", "v2", "agent-2");
+  const base = db.getWorkflowBase("workflows/b.json");
+  assert.equal(base?.version, "v2", "the newest read wins");
+  assert.equal(base?.agentId, "agent-2");
+});
+
+test("bases are per path, not global", () => {
+  db.recordWorkflowBase("workflows/c.json", "vc");
+  db.recordWorkflowBase("workflows/d.json", "vd");
+  assert.equal(db.getWorkflowBase("workflows/c.json")?.version, "vc");
+  assert.equal(db.getWorkflowBase("workflows/d.json")?.version, "vd");
+});
+
+test("agentId is optional", () => {
+  db.recordWorkflowBase("workflows/e.json", "ve");
+  assert.equal(db.getWorkflowBase("workflows/e.json")?.agentId, null);
+});
+
+test("clearing a base makes the path unbased again", () => {
+  db.recordWorkflowBase("workflows/f.json", "vf");
+  db.clearWorkflowBase("workflows/f.json");
+  assert.equal(db.getWorkflowBase("workflows/f.json"), null);
+});

@@ -7,9 +7,23 @@ export interface QueuePromptResponse {
   node_errors: Record<string, unknown>;
 }
 
+/**
+ * The `extra_data` ComfyUI carries alongside a queued prompt.
+ *
+ * Only `client_id` is named: it is the field that says who submitted the job,
+ * and it was already arriving in slot 3 of every queue tuple while the type
+ * said `unknown` and getQueue() threw it away. The rest of extra_data is
+ * free-form (`extra_pnginfo` and whatever a custom node added), so it stays
+ * open rather than being modelled speculatively.
+ */
+export interface QueueExtraData {
+  client_id?: string;
+  [key: string]: unknown;
+}
+
 export interface QueueStatus {
-  queue_running: Array<[number, string, unknown, unknown, unknown]>;
-  queue_pending: Array<[number, string, unknown, unknown, unknown]>;
+  queue_running: Array<[number, string, unknown, QueueExtraData | null | undefined, unknown]>;
+  queue_pending: Array<[number, string, unknown, QueueExtraData | null | undefined, unknown]>;
 }
 
 export interface HistoryEntry {
@@ -175,9 +189,21 @@ export class ComfyUIClient {
   private objectInfoEpoch = 0;
   private apiKey?: string;
 
-  constructor(baseUrl: string, apiKey?: string) {
+  /**
+   * `clientId` is this agent's identity to ComfyUI, not a per-connection
+   * nonce. ComfyUI echoes it back in /queue, which is the only way a queue
+   * listing can say which jobs are ours and which belong to another agent,
+   * the official Comfy MCP, or a human in a browser tab.
+   *
+   * It defaults to randomUUID() only so a caller that supplies nothing still
+   * gets a distinct id. A fresh uuid per construction was the previous
+   * behaviour for every caller, and it meant a reconnect silently disowned
+   * every job the previous connection had submitted - the ids no longer
+   * matched anything ComfyUI still held.
+   */
+  constructor(baseUrl: string, apiKey?: string, clientId?: string) {
     this.baseUrl = baseUrl.replace(/\/$/, ""); // Remove trailing slash
-    this.clientId = randomUUID();
+    this.clientId = clientId ?? randomUUID();
     this.apiKey = apiKey;
   }
 

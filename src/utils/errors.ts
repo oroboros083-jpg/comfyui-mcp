@@ -45,3 +45,15 @@ export function describeError(error: unknown): string {
   const hint = hintFor(error);
   return hint ? `${message}\n\nHint: ${hint}` : message;
 }
+
+/**
+ * A write refused because the file is not what the caller thinks it is.
+ *
+ * Its own class because two different situations share the remedy shape but
+ * not the remedy itself - the file changed under you, or you never read it -
+ * and because `defineTool` must surface this as a FAILURE. Returning a
+ * success carrying `written: false` would let a caller that does not inspect
+ * the payload carry on believing its graph is on disk, which is the exact
+ * silent data loss this check exists to stop.
+ */
+export class WorkflowConflictError extends ToolError {}

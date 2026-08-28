@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "comfyui-mcp": "dist/index.js"
+    "comfyui-mcp": "dist/index.js",
+    "comfyui-mcp-companion": "dist/companion.js"
   },
   "scripts": {
     "build": "tsc",

@@ -3,5 +3,5 @@
 - add support for fetching from civitai/civitaired with metadata preservation
 - add support for checking pickletensors for known hacks
 - run /doctor
-- compare functionality with Artokun's mcp
-- compare functionality with Comfy's mcp server (feel like on dead branch) 
+- [x] compare functionality with Artokun's mcp - superset on ops, nothing on prompting/tags/describe; ~190 tools, single maintainer
+- [x] compare functionality with Comfy's mcp server - active, not dead. A comfy-cli wrapper with no workflow versioning; see CLAUDE.md "Coexisting With the Official Comfy MCP" 

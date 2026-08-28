@@ -8,13 +8,17 @@ This is a TypeScript MCP (Model Context Protocol) server that enables AI assista
 
 ```
 src/
-├── index.ts                 # Entry point: wiring and main() only
+├── index.ts                 # Entry point (standalone): start("standalone")
+├── companion.ts             # Entry point beside the official Comfy MCP
 ├── config.ts                # Configuration management
 ├── constants.ts             # Shared limits (CHARACTER_LIMIT, page sizes)
 ├── context.ts               # Server context (shared state)
 ├── server/
+│   ├── bootstrap.ts        # start(profile): the wiring both entries share
+│   ├── instructions.ts     # Handshake text: canonical flows, the Comfy seam
+│   ├── profile.ts          # standalone vs companion; what companion omits
 │   ├── connection.ts       # Discovery, health cache, restart watches
-│   ├── register.ts         # defineTool: prefix, annotations, conn gate
+│   ├── register.ts         # defineTool: prefix, annotations, conn gate, profile
 │   └── tools/              # Tool registration, one file per domain
 │       ├── setup.ts        # status, reconnect, start, restart, guides
 │       ├── discovery.ts    # capabilities, models, nodes, validation
@@ -32,6 +36,7 @@ src/
 ├── workflows/
 │   └── builder.ts          # Dynamic workflow generation
 ├── tools/
+│   ├── workflow-version.ts # Content hash + the write-conflict policy
 │   ├── generate.ts         # Workflow/image schemas, get_image
 │   ├── generate-async.ts   # Submit a workflow and track it to completion
 │   ├── outputs.ts          # Collect a finished prompt's images, and its text by node id
@@ -287,6 +292,78 @@ Only declare `outputSchema` where the response shape is genuinely fixed. The
 SDK validates every response against it and fails the whole call on a
 mismatch, including on branches you did not think about (empty results, the
 final page, error paths).
+
+### Coexisting With the Official Comfy MCP
+
+`Comfy-Org/comfy-mcp` is commonly mounted alongside this server. Two entry
+points over one `start(profile)` body (`server/bootstrap.ts`) handle that:
+`comfyui-mcp` registers everything, `comfyui-mcp-companion` omits the tools
+that server does better. The omit list and its reasoning live in
+`server/profile.ts`; the gate is one early return in `defineTool`, because a
+tool that is merely *refused* still costs its schema on every `tools/list`.
+
+**The queue tools are deliberately not on that list.** Their
+`job(action="queue")` is `comfy jobs ls` - comfy-cli's record of its own
+submissions. `comfyui_get_queue` reads ComfyUI's real `/queue` and sees every
+job whoever sent it, which makes it the only cross-server view of what is
+actually running. A test pins this so it cannot be "tidied up" later.
+
+Two things about that server are worth knowing before designing against it:
+
+- **It has no workflow versioning.** No hash, etag, mtime check, or
+  lost-update protection anywhere. `set_workflow_slot(stdout=False)` writes in
+  place unconditionally, so it is a third unprotected writer into the same
+  directories - alongside a human's browser tab and our own writes. Its
+  architecture rule ("every tool is a passthrough to the `comfy` binary")
+  means it cannot grow one before comfy-cli does.
+- **`project/1` and `envelope/1` are schema versions, not content versions.**
+  The first is comfy-cli project anchoring, the second its result envelope.
+  Neither tracks a workflow.
+
+### Writing a Workflow File Safely
+
+`write_workflow` used to flush, diff, and write regardless - then report that
+the human's edits "were just overwritten". The diff could not gate anything:
+disk and the candidate always differ on a real edit, because differing is the
+point of writing.
+
+Detecting a *foreign* change takes three states, not two:
+
+    base    the file as it was when this agent read it
+    theirs  the file as it is on disk right now
+    yours   the graph about to be written
+
+and a foreign change is `theirs !== base`. `read_workflow` mints `base` with
+`workflowVersion()` and records it in SQLite (`workflow_bases`); a write
+resolves it from `expected_version`, else that record, else nothing, and
+refuses on `changed` or on `exists but never read`. Creating a new file needs
+no read. `force: true` is the only way past either refusal.
+
+Three rules to keep:
+
+- **A successful write re-bases** to what it just wrote. Clearing the record
+  instead would leave the agent's own next write unbased and refuse it.
+- **Do not use `hashWorkflowStructure` here.** It runs `normalizeWorkflow`
+  first, which replaces prompts and seeds with placeholders - so a human
+  retyping the prompt, the likeliest edit worth saving, hashes as no change.
+  A test pins the difference in both directions.
+- **The base state is per instance**, keyed by path in that instance's own
+  db. Two agents keep two bases for one file, which is what lost-update
+  detection wants: each asks only "did it change since *I* read it".
+
+### Sharing One ComfyUI
+
+ComfyUI already answers "whose job is this": `/prompt` takes a `client_id` and
+`/queue` echoes it back in the tuple's `extra_data`. That is `config.agentId`
+(`COMFYUI_MCP_AGENT_ID`, default `host/pid`) - stable across reconnects,
+because a fresh uuid per connection silently disowned every job the previous
+one submitted.
+
+Destructive queue tools scope to that identity by default: `cancel_job`
+without a `promptId` cancels only this agent's pending jobs (`scope: "all"` is
+the explicit opt-in), and `interrupt` refuses when the running job belongs to
+someone else unless `confirm_foreign` is set. ComfyUI has one global
+`/interrupt`, so that scoping cannot live at the API - only in front of it.
 
 ### Collecting Text From a Workflow
 

@@ -24,6 +24,9 @@ import {
   renderDescription,
 } from "../../tools/describe.js";
 import { runWorkflowAsync } from "../../tools/generate-async.js";
+import { workflowVersion, decideWrite } from "../../tools/workflow-version.js";
+import { recordWorkflowBase, getWorkflowBase } from "../../db/index.js";
+import { WorkflowConflictError } from "../../utils/errors.js";
 import {
   listOpenWorkflowsSchema,
   flushWorkflowSchema,
@@ -377,7 +380,11 @@ export function registerGenerationTools(
     name: "read_workflow",
     description:
       "Read a workflow file as JSON. Reads through ComfyUI so it always sees the current file rather " +
-      "than a cached copy. Returns { found: false, path } when the file does not exist.",
+      "than a cached copy. Returns { found, path, version, workflow }, or { found: false, path } when " +
+      "the file does not exist.\n\n" +
+      "`version` identifies exactly this content. comfyui_write_workflow needs it to tell your own " +
+      "changes apart from someone else's, and remembers it for you - so read a workflow once before " +
+      "editing it, and that write and its follow-ups are protected.",
     schema: readWorkflowSchema,
     requiresConnection: true,
     annotations: {
@@ -394,8 +401,16 @@ export function registerGenerationTools(
         c.config.workflowWriteDirs ?? []
       );
       if (wf === null) return dataResult({ found: false, path: input.path });
+
+      // Recording the version here is what lets comfyui_write_workflow refuse
+      // a write over someone else's edit without the caller having to carry a
+      // token by hand. The write re-bases on success, so a read is needed once
+      // per file, not once per write.
+      const version = workflowVersion(wf);
+      recordWorkflowBase(input.path, version, c.config.agentId);
+
       return textResult(
-        JSON.stringify(wf),
+        JSON.stringify({ found: true, path: input.path, version, workflow: wf }),
         "This workflow is very large; read it in ComfyUI directly."
       );
     },
@@ -404,11 +419,14 @@ export function registerGenerationTools(
   defineTool(server, {
     name: "write_workflow",
     description:
-      "Write a workflow file SAFELY: flushes any open tab so unsaved human edits reach disk, diffs the " +
-      "existing file against what you are about to write, writes, then tells the tab to reload. ALWAYS " +
-      "use this instead of writing workflow JSON with a file tool.\n\n" +
-      "If the returned diff is non-empty the human had edited that workflow - read it and fold their " +
-      "intent into what you generate, rather than regenerating it away.\n\n" +
+      "Write a workflow file SAFELY: flushes any open tab so unsaved human edits reach disk, checks the " +
+      "file has not changed since you read it, writes, then tells the tab to reload. ALWAYS use this " +
+      "instead of writing workflow JSON with a file tool.\n\n" +
+      "REFUSES rather than overwriting when the file changed after your comfyui_read_workflow (a human " +
+      "or another agent got there first), and when an existing file has not been read at all. Both " +
+      "refusals name what to do; force: true is the only way past either. Creating a new file needs no " +
+      "read.\n\n" +
+      "Returns the new `version`, so a follow-up write to the same path needs no fresh read.\n\n" +
       "Writes go through ComfyUI's user directory by default; other locations must be granted in " +
       "workflowWriteDirs in the MCP config file, which is edited by hand and has no tool.",
     schema: writeWorkflowSchema,
@@ -430,13 +448,44 @@ export function registerGenerationTools(
       let flushed = null;
       if (!input.skip_flush) flushed = await flushWorkflow(base, input.path, 4);
 
-      // 2. Diff what is there against what we are about to write.
+      // 2. Read back what is on disk NOW (post-flush, so a tab's unsaved
+      //    edits are part of it) and decide whether this write is safe.
       let diff = null;
+      let existing: unknown = null;
       try {
-        const existing = await readWorkflowFile(base, input.path, granted);
+        existing = await readWorkflowFile(base, input.path, granted);
         if (existing) diff = diffWorkflows(existing, input.workflow);
       } catch {
-        // Unreadable or absent: nothing to compare, carry on and write.
+        // Unreadable: treated as absent below, which routes to the unbased
+        // refusal rather than to a silent overwrite.
+      }
+
+      const theirs = existing === null ? null : workflowVersion(existing);
+      const recorded = getWorkflowBase(input.path);
+      const expected = input.expected_version ?? recorded?.version ?? null;
+      const verdict = decideWrite({
+        exists: existing !== null,
+        base: expected,
+        theirs,
+        force: input.force,
+      });
+
+      if (!verdict.allowed) {
+        throw new WorkflowConflictError(
+          verdict.reason === "changed"
+            ? `"${input.path}" changed since you read it, so this write was refused ` +
+              `rather than overwriting that change.` +
+              (diff?.any ? `\n\nWhat changed on disk:\n${diff.summary}` : "") +
+              (recorded?.agentId ? `\n\nLast written via this server by: ${recorded.agentId}` : "")
+            : `"${input.path}" already exists and has not been read in this session, ` +
+              `so there is no known state to compare against and this write was refused.`,
+          verdict.reason === "changed"
+            ? "Call comfyui_read_workflow to get the current graph and its version, fold " +
+              "their change into yours, then write again. Pass force: true only if you " +
+              "have decided their change should not survive."
+            : "Call comfyui_read_workflow on this path first - it returns the version this " +
+              "write needs. Pass force: true only to overwrite it unread."
+        );
       }
 
       // 3. Write.
@@ -457,17 +506,35 @@ export function registerGenerationTools(
       let reloaded = false;
       if (!input.skip_reload) reloaded = await reloadWorkflow(base, input.path, true);
 
+      // 5. Re-base. The file this agent now knows about is the one it just
+      //    wrote, so the next write compares against that rather than against
+      //    the pre-write state - which would be stale and refuse its own
+      //    follow-up edit.
+      const newVersion = workflowVersion(input.workflow);
+      recordWorkflowBase(input.path, newVersion, c.config.agentId);
+
+      // `human_edits_detected` reports a diff that SURVIVED the safety check,
+      // which now means one of two things: the write was forced over a
+      // conflict, or the diff is simply this write's own intended change. It
+      // is no longer evidence that someone's edits were destroyed - the
+      // refusal above is what handles that - so it no longer claims they were.
       return dataResult({
         written: true,
         path: written,
+        version: newVersion,
         flushed,
         reloaded,
+        write_reason: verdict.reason,
         human_edits_detected: diff?.any ?? false,
         ...(diff?.any
           ? {
               their_changes: diff.summary,
-              action_required:
-                "The human had edited this workflow. Those edits were just overwritten. Read the diff, work out what they were doing, and fold it into the generator so it survives the next regeneration.",
+              ...(verdict.reason === "forced"
+                ? {
+                    action_required:
+                      "You forced this write over a change someone else had made, and it is now gone. Read the diff, work out what they were doing, and fold it back in.",
+                  }
+                : {}),
             }
           : {}),
       });
