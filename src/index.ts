@@ -32,6 +32,7 @@ import {
   reconcileAfterConnect,
   ensureConnected,
 } from "./server/connection.js";
+import { INSTRUCTIONS } from "./server/instructions.js";
 import { registerSetupTools } from "./server/tools/setup.js";
 import { registerDiscoveryTools } from "./server/tools/discovery.js";
 import { registerGenerationTools } from "./server/tools/generation.js";
@@ -72,6 +73,7 @@ const server = new McpServer(
       prompts: {},
       logging: {},
     },
+    instructions: INSTRUCTIONS,
   }
 );
 
