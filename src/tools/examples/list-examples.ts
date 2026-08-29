@@ -244,7 +244,7 @@ export const listExamplesSchema = z.object({
     .default("summary")
     .describe(
       "How much to return per example: 'names' (name + category), 'summary' (adds description and doc link), " +
-        "'full' (adds required models, nodes, and notes). Use comfyui_get_example_workflow for the actual workflow JSON."
+        "'full' (adds required models, nodes, and notes). Use comfyui_recommend_workflow for the actual workflow JSON."
     ),
   ...paginationFields,
   response_format: responseFormatField,
@@ -337,7 +337,7 @@ export function listExamples(input: ListExamplesInput): ListExamplesResult {
     ...envelope,
     categories: categoryCounts,
     examples: items.map(project),
-    hint: "Call comfyui_get_example_workflow with an example's name to fetch its runnable workflow JSON.",
+    hint: "Call comfyui_recommend_workflow with an example's name to fetch its runnable workflow JSON.",
   };
 }
 
@@ -362,7 +362,7 @@ export function renderExamples(
     }),
     page: result,
     empty: filters.length
-      ? `No example workflows for ${filters.join(" and ")}. Call comfyui_list_examples with no filter to see the catalogue.`
+      ? `No example workflows for ${filters.join(" and ")}. Call comfyui_recommend_workflow with no filter to see the catalogue.`
       : "No example workflows are bundled with this build.",
     next: result.hint,
   });
@@ -390,7 +390,7 @@ export async function getExampleWorkflow(
   );
 
   if (!example) {
-    return `Example "${input.name}" not found. Use comfyui_list_examples to see available examples.`;
+    return `Example "${input.name}" not found. Use comfyui_recommend_workflow to see available examples.`;
   }
 
   // Determine if we have PNG images or JSON files

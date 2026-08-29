@@ -120,7 +120,7 @@ function requireModel(
 
   throw new ToolError(
     `No ${what} is installed on this ComfyUI, so this template cannot be built.`,
-    `comfyui_list_models shows what is installed, and comfyui_get_download_url gives the download for a ${what} this template can use.`
+    `The official Comfy MCP's \`search_models\` shows what is installed and \`download_model\` fetches a ${what} this template can use.`
   );
 }
 
@@ -236,7 +236,7 @@ export function buildFluxWorkflow(
     if (clipModels.length === 0) {
       throw new ToolError(
         "No CLIP model is installed, so a Flux workflow cannot be built.",
-        "Flux needs both a T5 and a CLIP-L encoder. comfyui_get_download_url has the files, and comfyui_list_models shows what is already installed."
+        "Flux needs both a T5 and a CLIP-L encoder. The official Comfy MCP's `search_models` shows what is installed and `download_model` fetches the missing one."
       );
     }
     const t5Model = clipModels.find((m) => m.toLowerCase().includes("t5")) || clipModels[0];

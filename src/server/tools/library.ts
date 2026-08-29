@@ -1,7 +1,16 @@
 /**
- * The workflow library: documentation examples, saved templates, model
- * download URLs, and the prompting guides. All available without a live
- * ComfyUI except comfyui_get_template, which validates against installed nodes.
+ * The knowledge layer: prompting guides, Danbooru tag vocabulary, the user's
+ * own saved snippets, model-to-workflow recommendations, and PNG workflow
+ * extraction. None of it has an equivalent in the official Comfy MCP.
+ *
+ * All available without a live ComfyUI except comfyui_get_user_snippet, which
+ * validates against installed nodes.
+ *
+ * The documentation-example browsing tools and the model download URLs used to
+ * live here. Both are gone: the Comfy template gallery (official's
+ * `search_templates`) covers browsing starter workflows, and `download_model`
+ * covers fetching a model. The EXAMPLE_WORKFLOWS data stays as the corpus
+ * behind comfyui_recommend_workflow.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -36,11 +45,6 @@ import {
   getTagIndex,
 } from "../../tools/tags.js";
 import {
-  listExamplesSchema,
-  listExamples,
-  renderExamples,
-  getExampleWorkflowSchema,
-  getExampleWorkflow,
   extractWorkflowFromPng,
   recommendWorkflowSchema,
   recommendWorkflow,
@@ -54,8 +58,6 @@ import {
   saveCustomTemplate,
   deleteTemplateSchema,
   deleteCustomTemplate,
-  getDownloadUrlSchema,
-  getDownloadUrl,
 } from "../../tools/examples/index.js";
 import {
   getPromptingGuide,
@@ -91,55 +93,6 @@ export function registerLibraryTools(
   server: McpServer,
   ctx: () => ServerContext
 ): void {
-  defineTool(server, {
-    name: "list_examples",
-    description:
-      "List official ComfyUI example workflows from the documentation. Check here before building a " +
-      "workflow from scratch - these are tested templates for txt2img, img2img, ControlNet, LoRA, " +
-      "video, audio and more. Paginated; use 'search'/'category' to narrow and detail:'names' to " +
-      "survey cheaply, then comfyui_get_example_workflow to fetch one.\n\n" +
-      "Returns: { total, count, offset, categories, examples, has_more, next_offset }",
-    schema: listExamplesSchema,
-    requiresConnection: false,
-    annotations: {
-      title: "List Example Workflows",
-      readOnlyHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    outputSchema: paginatedOutputSchema("examples"),
-    handler: (input) => {
-      const result = listExamples(input);
-      return formattedResult(
-        input.response_format,
-        result,
-        () => renderExamples(result, input),
-        "Narrow with 'search'/'category', lower 'detail', or page with 'offset'."
-      );
-    },
-  });
-
-  defineTool(server, {
-    name: "get_example_workflow",
-    description:
-      "Fetch one example workflow, extracting the embedded JSON from the documentation image. Returns " +
-      "runnable API-format JSON that can go straight to comfyui_run_workflow, plus the models it needs. " +
-      "Use as a starting point and edit prompts, models and parameters rather than building from zero.",
-    schema: getExampleWorkflowSchema,
-    requiresConnection: false,
-    annotations: {
-      title: "Get Example Workflow",
-      readOnlyHint: true,
-      idempotentHint: true,
-      openWorldHint: true,
-    },
-    handler: async (input) =>
-      textResult(
-        await getExampleWorkflow(input),
-        "This workflow is unusually large; fetch it from the documentation URL instead."
-      ),
-  });
-
   defineTool(server, {
     name: "extract_workflow",
     description:
@@ -265,17 +218,19 @@ export function registerLibraryTools(
   });
 
   defineTool(server, {
-    name: "search_templates",
+    name: "search_user_snippets",
     description:
-      "Search workflow templates by model type, task type, category or free text, across built-in " +
-      "workflows, documentation examples, and templates this user saved. Paginated. Results carry only " +
-      "what is needed to choose one - call comfyui_get_template with an id for parameters, settings " +
-      "and runnable JSON.\n\n" +
+      "Search THIS USER'S OWN saved workflow snippets, plus the built-in starter workflows - by model " +
+      "type, task type, category or free text. Paginated. Results carry only what is needed to choose " +
+      "one; call comfyui_get_user_snippet with an id for parameters and runnable JSON.\n\n" +
+      "NOT the Comfy template gallery. For the official first-party gallery (hundreds of curated " +
+      "templates, kept current by Comfy Org), use the official Comfy MCP's `search_templates` / " +
+      "`get_template` instead. This tool only ever returns workflows saved on this machine.\n\n" +
       "Returns: { query, total, count, offset, results, has_more, next_offset }",
     schema: searchTemplatesSchema,
     requiresConnection: false,
     annotations: {
-      title: "Search Workflow Templates",
+      title: "Search User's Saved Snippets",
       readOnlyHint: true,
       idempotentHint: true,
       openWorldHint: false,
@@ -293,15 +248,17 @@ export function registerLibraryTools(
   });
 
   defineTool(server, {
-    name: "get_template",
+    name: "get_user_snippet",
     description:
-      "Generate runnable workflow JSON from a template, filling in the parameters given. Returns a " +
-      "complete workflow for comfyui_run_workflow. Works with built-in and custom templates, and " +
-      "validates against the nodes actually installed.",
+      "Generate runnable workflow JSON from one of this user's saved snippets (or a built-in starter), " +
+      "filling in the parameters given, and validated against the nodes actually installed. Returns a " +
+      "complete workflow for comfyui_run_workflow.\n\n" +
+      "For the official Comfy template gallery use the official Comfy MCP's `get_template`; ids from " +
+      "that gallery are not resolvable here.",
     schema: getTemplateSchema,
     requiresConnection: true,
     annotations: {
-      title: "Get Workflow from Template",
+      title: "Get Workflow from User Snippet",
       readOnlyHint: true,
       idempotentHint: true,
       openWorldHint: true,
@@ -313,20 +270,23 @@ export function registerLibraryTools(
       // field, which the caller could not distinguish from a real result.
       return dataResult(
         await getTemplate(client, input),
-        "This workflow is very large; comfyui_search_templates has smaller ones."
+        "This workflow is very large; comfyui_search_user_snippets has smaller ones."
       );
     },
   });
 
   defineTool(server, {
-    name: "save_template",
+    name: "save_user_snippet",
     description:
-      "Save a workflow as a reusable template, stored persistently and searchable later. Name it for " +
-      "its purpose ('portrait_lighting_studio', 'product_photo_white_bg'), not its ordering.",
+      "Save a workflow to this user's own snippet library - stored on this machine and searchable " +
+      "later with comfyui_search_user_snippets. Name it for its purpose " +
+      "('portrait_lighting_studio', 'product_photo_white_bg'), not its ordering.\n\n" +
+      "This is a personal library. Nothing here is published, and it is unrelated to the official " +
+      "Comfy template gallery.",
     schema: saveTemplateSchema,
     requiresConnection: false,
     annotations: {
-      title: "Save Custom Template",
+      title: "Save Workflow to User Snippets",
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -336,14 +296,14 @@ export function registerLibraryTools(
   });
 
   defineTool(server, {
-    name: "delete_template",
+    name: "delete_user_snippet",
     description:
-      "Delete a custom saved template by id. Built-in templates and documentation examples cannot be " +
-      "deleted and will report so.",
+      "Delete one of this user's saved snippets by id. Built-in starter workflows cannot be deleted " +
+      "and will report so.",
     schema: deleteTemplateSchema,
     requiresConnection: false,
     annotations: {
-      title: "Delete Custom Template",
+      title: "Delete User Snippet",
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: true,
@@ -364,7 +324,7 @@ export function registerLibraryTools(
       "separate distilled checkpoint (flux1-schnell against flux1-dev) gives 'prompt-only': different " +
       "weights, so the same seed renders a DIFFERENT image and only prompt wording transfers. 'none' " +
       "means nothing fast is installed, and the response names distill LoRAs to fetch through " +
-      "comfyui_get_download_url.\n\n" +
+      "the official Comfy MCP's download_model.\n\n" +
       "Returns: { draft?, final, seedCarryOver, note, suggestedDownloads? }.",
     schema: planIterationSchema,
     requiresConnection: false,
@@ -387,22 +347,6 @@ export function registerLibraryTools(
         "Pass availableLoras/availableCheckpoints to plan against a specific set."
       );
     },
-  });
-
-  defineTool(server, {
-    name: "get_download_url",
-    description:
-      "Get the download URL for a model by name, with its destination folder and a ready-to-run wget " +
-      "command. Use when comfyui_list_models shows a model is missing.",
-    schema: getDownloadUrlSchema,
-    requiresConnection: false,
-    annotations: {
-      title: "Get Model Download URL",
-      readOnlyHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    handler: (input) => dataResult(getDownloadUrl(input)),
   });
 
   // === Tag discovery ===

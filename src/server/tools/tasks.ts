@@ -244,7 +244,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       if (job.status === "failed") {
         return errorResult(
           `Task failed: ${job.error}`,
-          "Run comfyui_validate_workflow on the workflow to find structural problems, then " +
+          "Validate the workflow first - write it with comfyui_write_workflow, then run the official Comfy MCP's validate_workflow on that path - then " +
             "comfyui_run_workflow to try again."
         );
       }
@@ -257,7 +257,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       if (!job.result) {
         return errorResult(
           "Task completed but no result was recorded.",
-          "The workflow may have no output node - comfyui_validate_workflow warns about that. " +
+          "The workflow may have no output node. " +
             "comfyui_get_history has what ComfyUI itself recorded for this prompt."
         );
       }
@@ -481,7 +481,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
 
         return errorResult(
           `Generation "${input.name}" failed: ${job.error}`,
-          "Run comfyui_validate_workflow on the workflow to find structural problems, then " +
+          "Validate the workflow first - write it with comfyui_write_workflow, then run the official Comfy MCP's validate_workflow on that path - then " +
             "comfyui_run_workflow to try again."
         );
       }
@@ -495,7 +495,7 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       if (!job.result) {
         return errorResult(
           `Generation "${input.name}" completed but no result was recorded.`,
-          "The workflow may have no output node - comfyui_validate_workflow warns about that."
+          "The workflow may have no output node."
         );
       }
 

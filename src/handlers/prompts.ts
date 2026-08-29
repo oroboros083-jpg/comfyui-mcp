@@ -9,7 +9,6 @@ import {
   getPromptingGuide,
   PROMPTING_GUIDES,
 } from "../resources/prompting-guide.js";
-import { EXAMPLE_WORKFLOWS } from "../tools/examples/index.js";
 
 /**
  * MCP Prompt definition
@@ -66,38 +65,12 @@ export function listPrompts(): Prompt[] {
         },
       ],
     },
-    {
-      name: "setup-comfyui",
-      title: "Setup ComfyUI",
-      description:
-        "Get step-by-step instructions for setting up ComfyUI with models",
-      arguments: [
-        {
-          name: "platform",
-          description: "Your operating system: macos, windows, or linux",
-          required: false,
-        },
-        {
-          name: "model_type",
-          description:
-            "What type of models to set up: flux, sdxl, sd15, or all",
-          required: false,
-        },
-      ],
-    },
-    {
-      name: "run-example",
-      title: "Run Example Workflow",
-      description:
-        "Get an example workflow ready to run with guidance on required models",
-      arguments: [
-        {
-          name: "example_name",
-          description: "Name of the example (use comfyui_list_examples to see options)",
-          required: true,
-        },
-      ],
-    },
+    // `setup-comfyui` and `run-example` used to live here. Both were flows
+    // through tools this server no longer has: installing ComfyUI and
+    // downloading models are the official Comfy MCP's job, and browsing
+    // documentation examples is covered by its template gallery. A prompt that
+    // walks an agent through calling tools that do not exist is worse than no
+    // prompt at all.
     {
       name: "learn-prompting",
       title: "Learn Prompting",
@@ -145,7 +118,7 @@ export async function getPrompt(
           systemContext += `- ${tip}\n`;
         });
       } else {
-        systemContext += `Model will be auto-detected. Call comfyui_get_capabilities first to determine the best prompting approach.\n`;
+        systemContext += `Model will be auto-detected. Call comfyui_get_status first - it reports the detected architecture and which guide it calls for.\n`;
       }
 
       return {
@@ -155,55 +128,7 @@ export async function getPrompt(
             role: "user",
             content: {
               type: "text",
-              text: `${systemContext}\n\nGenerate an image of: ${prompt}\n\nAspect ratio preference: ${aspectRatio}\n\nPlease:\n1. First call comfyui_get_capabilities to understand the available models\n2. Then call comfyui_get_prompting_guide with the detected model type\n3. Finally, use comfyui_run_workflow with an optimized prompt based on the guide`,
-            },
-          },
-        ],
-      };
-    }
-
-    case "setup-comfyui": {
-      const platform = args.platform || "auto";
-      const modelType = args.model_type || "flux";
-
-      return {
-        description: "Setup instructions for ComfyUI",
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `Help me set up ComfyUI for ${modelType} image generation on ${platform}.\n\nPlease:\n1. First call comfyui_get_status to check if ComfyUI is already installed/running\n2. If not installed, call comfyui_get_install_guide for platform: ${platform}\n3. Then call comfyui_get_model_guide for model type: ${modelType}\n4. List the specific models I need to download with comfyui_get_download_url\n5. Provide step-by-step instructions for a complete working setup`,
-            },
-          },
-        ],
-      };
-    }
-
-    case "run-example": {
-      const exampleName = args.example_name || "Basic txt2img";
-
-      // Find the example to provide context
-      const example = EXAMPLE_WORKFLOWS.find(
-        (e) => e.name.toLowerCase() === exampleName.toLowerCase()
-      );
-
-      let contextInfo = "";
-      if (example) {
-        contextInfo = `\n\nExample info:\n- Category: ${example.category}\n- Description: ${example.description}`;
-        if (example.requiredModels && example.requiredModels.length > 0) {
-          contextInfo += `\n- Required models: ${example.requiredModels.map((m) => `${m.type}: ${m.name}`).join(", ")}`;
-        }
-      }
-
-      return {
-        description: `Run the ${exampleName} example workflow`,
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `I want to run the "${exampleName}" example workflow.${contextInfo}\n\nPlease:\n1. Call comfyui_get_example_workflow with name: "${exampleName}"\n2. Check what models are required and compare against installed models with comfyui_list_models\n3. If any required models are missing, show how to download them with comfyui_get_download_url\n4. Once ready, help me run the workflow with comfyui_run_workflow\n5. Explain what this workflow does and how I can customize it`,
+              text: `${systemContext}\n\nGenerate an image of: ${prompt}\n\nAspect ratio preference: ${aspectRatio}\n\nPlease:\n1. First call comfyui_get_status to see the detected architecture\n2. Then call comfyui_get_prompting_guide for it, and comfyui_search_tags if it wants a fixed tag vocabulary\n3. Finally, use comfyui_run_workflow with a prompt written to that guide`,
             },
           },
         ],

@@ -51,7 +51,7 @@ test("an unknown template id is a failure, not a success carrying an error", asy
     () => getTemplate(client(), { templateId: "no_such_template" }),
     (err: unknown) =>
       err instanceof TemplateNotFoundError &&
-      /comfyui_search_templates/.test(err.hint ?? "")
+      /comfyui_search_user_snippets/.test(err.hint ?? "")
   );
 });
 
@@ -65,7 +65,7 @@ test("an example workflow id says which tool actually serves it", async () => {
     () => getTemplate(client(), { templateId: slug }),
     (err: unknown) =>
       err instanceof TemplateIsExampleError &&
-      /comfyui_get_example_workflow/.test(err.hint ?? "")
+      /comfyui_recommend_workflow/.test(err.hint ?? "")
   );
 });
 
@@ -75,6 +75,6 @@ test("a template needing a model that is not installed names the remedy", async 
   await assert.rejects(
     () => getTemplate(bare, { templateId: "standard_txt2img" }),
     (err: unknown) =>
-      err instanceof ToolError && /comfyui_get_download_url/.test(err.hint ?? "")
+      err instanceof ToolError && /download_model/.test(err.hint ?? "")
   );
 });

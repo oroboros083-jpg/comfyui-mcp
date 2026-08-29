@@ -99,7 +99,7 @@ test("buildStandardTxt2Img names the remedy when no checkpoint is installed", ()
         {} as ObjectInfo
       ),
     (err: unknown) =>
-      err instanceof ToolError && /comfyui_get_download_url/.test(err.hint ?? "")
+      err instanceof ToolError && /download_model/.test(err.hint ?? "")
   );
 });
 

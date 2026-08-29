@@ -286,7 +286,7 @@ export async function planIteration(
       `Nothing fast is installed for '${input.model}', so every iteration costs a full ` +
       `${final.steps}-step render. A distill LoRA over this same model is the cheapest fix ` +
       `and the only draft path that previews composition at the same seed. Call ` +
-      `comfyui_get_download_url for one of the suggestions below.`,
+      `the official Comfy MCP's \`download_model\` for one of the suggestions below.`,
     suggestedDownloads: suggestedDistillLoras(finalPattern?.architecture),
   };
 }
@@ -295,7 +295,7 @@ export async function planIteration(
  * What to fetch when nothing fast is installed.
  *
  * Named by search term rather than by URL: filenames and repo layouts move,
- * and comfyui_get_download_url is the tool that resolves them.
+ * and the official Comfy MCP's download_model is what resolves them.
  */
 export function suggestedDistillLoras(architecture?: string): string[] {
   switch (architecture) {
@@ -357,7 +357,7 @@ export function renderIterationPlan(plan: IterationPlan): string {
   if (plan.suggestedDownloads?.length) {
     lines.push("", "## Worth downloading", "");
     for (const item of plan.suggestedDownloads) lines.push(`- ${item}`);
-    lines.push("", "Resolve any of these with `comfyui_get_download_url`.");
+    lines.push("", "Resolve any of these with `the official Comfy MCP's download_model`.");
   }
 
   return lines.join("\n");

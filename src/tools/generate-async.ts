@@ -58,7 +58,7 @@ async function submitWorkflow(
   if (Object.keys(queueResponse.node_errors).length > 0) {
     throw new ToolError(
       `Workflow errors: ${JSON.stringify(queueResponse.node_errors)}`,
-      "Run comfyui_validate_workflow on this workflow - it names the offending nodes and inputs before submission."
+      "Run the official Comfy MCP's validate_workflow on this workflow - it names the offending nodes and inputs before submission."
     );
   }
 

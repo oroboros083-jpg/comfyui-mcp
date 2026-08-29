@@ -96,8 +96,8 @@ export function registerGenerationTools(
       "until it finishes.\n\n" +
       "Pass 'name' with something descriptive ('sunset_portrait_v2') so the result can be found later " +
       "with comfyui_get_generation_by_name.\n\n" +
-      "Start from comfyui_get_example_workflow or comfyui_get_template rather than assembling a workflow " +
-      "by hand, and run comfyui_validate_workflow first if you did assemble one.",
+      "Start from comfyui_recommend_workflow (which matches a model to a graph shape) or from a saved " +
+      "snippet via comfyui_get_user_snippet, rather than assembling a workflow by hand.",
     schema: runWorkflowSchema,
     requiresConnection: true,
     annotations: {
@@ -138,7 +138,7 @@ export function registerGenerationTools(
       if (!job || job.status === "failed") {
         return errorResult(
           `Workflow failed: ${job?.error ?? "no result was recorded"}`,
-          "Run comfyui_validate_workflow on this workflow to find structural problems."
+          "Write it with comfyui_write_workflow and validate that path with the official Comfy MCP's validate_workflow."
         );
       }
       if (job.status === "cancelled") {

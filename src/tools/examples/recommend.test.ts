@@ -114,7 +114,7 @@ test("an uncatalogued model is a failure that names where to look", async () => 
     () => getDownloadUrl({ modelName: "definitely-not-a-real-model" }),
     (err: unknown) =>
       err instanceof ModelDownloadNotFoundError &&
-      /comfyui_get_model_guide/.test(err.hint ?? "")
+      /search_models/.test(err.hint ?? "")
   );
 });
 

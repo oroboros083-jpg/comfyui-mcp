@@ -130,7 +130,7 @@ test("deleting a template that does not exist is a failure, not a success", asyn
   assert.throws(
     () => deleteCustomTemplate({ id: "no_such_template" }),
     (err: unknown) =>
-      err instanceof TemplateNotFoundError && /comfyui_search_templates/.test(err.hint ?? "")
+      err instanceof TemplateNotFoundError && /comfyui_search_user_snippets/.test(err.hint ?? "")
   );
 });
 
@@ -141,7 +141,7 @@ test("deleting a built-in names the tool that shows which are custom", async () 
   assert.throws(
     () => deleteCustomTemplate({ id: BUILTIN_TEMPLATES[0].id }),
     (err: unknown) =>
-      err instanceof BuiltinTemplateError && /comfyui_search_templates/.test(err.hint ?? "")
+      err instanceof BuiltinTemplateError && /comfyui_search_user_snippets/.test(err.hint ?? "")
   );
 });
 
@@ -179,5 +179,5 @@ test("save_template returns a structured template, not a JSON string", async () 
 
   assert.equal(typeof result, "object");
   assert.equal(result.template.id, "structured_probe");
-  assert.match(result.usage, /comfyui_get_template/);
+  assert.match(result.usage, /comfyui_get_user_snippet/);
 });

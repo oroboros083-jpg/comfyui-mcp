@@ -236,7 +236,7 @@ export function promptingAdviceFor(capabilities: Capabilities): string {
   const primary = primaryArchitecture(detected);
 
   if (!primary) {
-    return "No model architecture detected. Call comfyui_list_models to see what is installed.";
+    return "No model architecture detected. The official Comfy MCP's `search_models` lists what is installed.";
   }
 
   const guide = primary.guide

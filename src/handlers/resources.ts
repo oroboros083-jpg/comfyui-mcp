@@ -195,14 +195,14 @@ export async function readResource(
     if (!example) {
       throw new ToolError(
         `Example not found: ${slug}`,
-        "Call comfyui_list_examples to see the available examples and their exact names."
+        "comfyui_recommend_workflow matches a model to a starter graph; the official Comfy MCP's `search_templates` browses the Comfy gallery."
       );
     }
 
     if (example.imageUrls.length === 0) {
       throw new ToolError(
         `No workflow images available for: ${example.name}`,
-        "This example is documentation-only. comfyui_search_templates may have a runnable equivalent."
+        "This example is documentation-only. comfyui_search_user_snippets may have a runnable equivalent."
       );
     }
 
@@ -211,7 +211,7 @@ export async function readResource(
     if (!result.success || !result.prompt) {
       throw new ToolError(
         `Failed to extract workflow: ${result.error}`,
-        "The documentation image may have moved or been re-encoded. comfyui_get_example_workflow reports the same failure with more detail."
+        "The documentation image may have moved or been re-encoded. comfyui_extract_workflow reports the same failure with more detail for a PNG you have locally."
       );
     }
 
@@ -226,7 +226,7 @@ export async function readResource(
         requiredModels: example.requiredModels,
         workflow: result.prompt,
       },
-      "Call comfyui_get_example_workflow for this example instead."
+      "Read this example through its resource URI instead."
     );
   }
 
@@ -245,7 +245,7 @@ export async function readResource(
       return jsonResource(
         uri,
         models,
-        "Call comfyui_list_models, which filters by type and pages."
+        "The official Comfy MCP's `search_models` filters by folder and pages."
       );
     }
 
@@ -265,13 +265,13 @@ export async function readResource(
       return jsonResource(
         uri,
         { [modelKey]: models[modelKey as keyof typeof models] },
-        `Call comfyui_list_models with type:'${modelKey}' and a 'search' filter.`
+        `The official Comfy MCP's \`search_models\` takes folder:'${modelKey}' and a text query.`
       );
     }
 
     throw new ToolError(
       `Unknown model type: ${modelType}`,
-      "Valid types: checkpoints, loras, vae, controlnet, embeddings, clip, unet, or 'all'. comfyui_list_models filters and pages them."
+      "Valid types: checkpoints, loras, vae, controlnet, embeddings, clip, unet, or 'all'. The official Comfy MCP's `search_models` filters and pages them."
     );
   }
 
@@ -301,7 +301,7 @@ export async function readResource(
             }
           : {}),
       },
-      "Call comfyui_get_capabilities instead."
+      "Call comfyui_get_status instead - it reports the detected architectures."
     );
   }
 
