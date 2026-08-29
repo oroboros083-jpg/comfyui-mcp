@@ -1,19 +1,14 @@
 /**
- * ComfyUI MCP server - the wiring both entry points share.
+ * ComfyUI MCP server - the wiring behind the one entry point.
  *
- * Exposes ComfyUI - image, video and audio generation - as MCP tools. The
- * server is self-configuring: it discovers a running ComfyUI, detects what
- * that instance can do, and adapts its workflows to the models installed.
+ * A COMPANION to the official Comfy MCP (`Comfy-Org/comfy-mcp`), not a
+ * replacement for it. It carries only what that server does worse or cannot do
+ * at all: prompting knowledge, tag vocabulary, versioned workflow-file editing
+ * against a live browser tab, the real ComfyUI queue, and a run path that
+ * takes a graph object rather than a file path.
  *
- * It starts and stays useful whether or not ComfyUI is running; the setup and
- * library tools exist precisely for the case where it is not.
- *
- * There are two entry points over this one body - `index.ts` (standalone) and
- * `companion.ts` (alongside the official Comfy MCP). They differ only in the
- * profile they pass to `start()`, which the registration gate in register.ts
- * reads. Everything else - the resource and prompt handlers, the connection
- * lifecycle, the transport - is identical, and lives here once rather than
- * being copied into each bin.
+ * There was briefly a standalone/companion profile split here. It is gone:
+ * companion is the only sane way to run this, so it is the only way it runs.
  *
  * This file is wiring only. Tools live in server/tools/, the connection
  * lifecycle in server/connection.ts.
@@ -39,7 +34,6 @@ import {
   ensureConnected,
 } from "./connection.js";
 import { INSTRUCTIONS } from "./instructions.js";
-import { Profile, setProfile } from "./profile.js";
 import { registerSetupTools } from "./tools/setup.js";
 import { registerDiscoveryTools } from "./tools/discovery.js";
 import { registerGenerationTools } from "./tools/generation.js";
@@ -68,15 +62,8 @@ let ctx: ServerContext;
 const context = (): ServerContext => ctx;
 
 
-/**
- * Build and serve one MCP server.
- *
- * `profile` is applied before any registration, because the companion
- * profile works by NOT registering certain tools - a decision that cannot be
- * revisited once registerTool has run.
- */
-export async function start(profile: Profile): Promise<void> {
-  setProfile(profile);
+/** Build and serve the MCP server over stdio. */
+export async function start(): Promise<void> {
   const server = new McpServer(
     {
       name: "comfyui-mcp-server",
