@@ -46,8 +46,29 @@ ComfyUI".
 
 ## Repo housekeeping
 
-- [ ] **GitHub Actions has never run in this repo.** `publish.yml` is
-      registered and `state: active`, but workflow runs total zero repo-wide,
-      including every push to `main`. So there is no CI on any branch and the
-      GHCR image has never been published. Needs enabling in the repo/account
-      Actions settings - not fixable from a session.
+- [x] **GitHub Actions has never run in this repo.** Now enabled, and
+      `.github/workflows/ci.yml` builds and tests on Node 18/20/22 for every
+      push and PR.
+
+## Scope and context efficiency
+
+- [ ] **Remove Docker support.** `Dockerfile`, the Docker install path in
+      `README.md`, and `publish.yml` (which builds and pushes the GHCR image
+      that has never successfully published). Also the Docker branch in the
+      output handling - `outputMode` saves or inlines differently "unless
+      Docker says otherwise", and that is the only reason the output path has
+      two modes. Not part of this user's workflow.
+- [ ] **Context-efficient node management.** The node tools are gone in favour
+      of the official Comfy MCP's `nodes`, so this is only worth revisiting if
+      that proves insufficient. Start from artokun's implementation
+      (github.com/artokun/comfyui-mcp): `src/tools/catalog.ts` captures
+      registrations into a searchable catalog, and `buildManifest` in
+      `src/tools/compact.ts` is the search over it. Read its issue-#1525
+      history first - the interesting part is how the search stopped being
+      misleading (underscore folding, term-based matching, a name-match tier,
+      and disclosing how many results that tier suppressed).
+- [ ] **Subagent opportunities.** Look for places the coordinating agent could
+      delegate rather than pull a large payload into its own context. Obvious
+      candidates: surveying nodes or models to answer one question, reading a
+      large workflow to check one thing about it, and batches of
+      `describe_image`.
