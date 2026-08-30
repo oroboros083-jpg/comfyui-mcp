@@ -4,6 +4,7 @@
 - add support for checking pickletensors for known hacks
 - run /doctor
 - run /code-review ultracode
+- update readme
 
 ## Verify the coexistence work against a live ComfyUI (PR #9)
 
