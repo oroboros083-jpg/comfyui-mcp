@@ -117,10 +117,10 @@ export class NoDescribeBackendError extends ToolError {
       requested?.length
         ? `None of the requested backends (${requested.join(", ")}) are installed in this ComfyUI.`
         : "No image tagger or captioner is installed in this ComfyUI.",
-      `Install one of these custom nodes and call comfyui_restart_comfyui:\n${rows}\n\n` +
+      `Install one of these custom nodes and call the official Comfy MCP's restart_comfyui:\n${rows}\n\n` +
         "Florence-2 and JoyCaption also need a text preview node to return their caption - " +
         "ComfyUI's built-in PreviewAny is enough. Check what is present with " +
-        "comfyui_list_nodes({ search: 'tagger' })."
+        "the official Comfy MCP's nodes({ search: 'tagger' })."
     );
   }
 }
@@ -271,7 +271,7 @@ function hintFor(descriptions: BackendDescription[]): string {
     );
   }
   return (
-    "No backend returned any text. Check the backend node is present with comfyui_list_nodes, " +
+    "No backend returned any text. Check the backend node is present with the official Comfy MCP's nodes tool, " +
     "and that a text preview node (PreviewAny) exists for the captioner backends."
   );
 }

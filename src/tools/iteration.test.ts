@@ -91,7 +91,7 @@ test("with nothing fast installed the gap is named, with the download tool", asy
   assert.equal(plan.seedCarryOver, "none");
   assert.equal(plan.draft, undefined);
   // CLAUDE.md: a failure that names no tool makes that tool undiscoverable.
-  assert.match(plan.note, /comfyui_get_download_url/);
+  assert.match(plan.note, /download_model/);
   assert.ok(plan.suggestedDownloads?.length);
   assert.ok(
     plan.suggestedDownloads!.some((s) => /lightning|hyper|dmd2/i.test(s)),

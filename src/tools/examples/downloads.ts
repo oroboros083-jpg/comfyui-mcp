@@ -119,7 +119,7 @@ export class ModelDownloadNotFoundError extends ToolError {
     super(
       `No download is catalogued for '${query}'`,
       `Known names include: ${Object.keys(MODEL_DOWNLOADS).slice(0, 10).join(", ")}. ` +
-        "comfyui_get_model_guide covers what each architecture needs, and comfyui_list_examples names the models its workflows use."
+        "the official Comfy MCP's search_models covers what each architecture needs, and comfyui_recommend_workflow names the models its workflows use."
     );
   }
 }

@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 /**
- * The standalone entry point: every tool this server has.
+ * Entry point.
  *
- * Use this when it is the only ComfyUI-facing MCP server mounted. If the
- * official Comfy MCP (`Comfy-Org/comfy-mcp`) is mounted too, `companion.ts`
- * (`comfyui-mcp-companion`) drops the handful of tools it does better, so the
- * agent is not choosing between two answers to the same question.
+ * This server is a COMPANION to the official Comfy MCP
+ * (`Comfy-Org/comfy-mcp`) and expects to be mounted alongside it. It carries
+ * only the tools that server does worse or cannot do at all; installing
+ * ComfyUI, managing models and custom nodes, and server lifecycle are all
+ * deliberately absent, because that server does them better.
  */
 
 import { start } from "./server/bootstrap.js";
 import { error as logError } from "./utils/logging.js";
 
-start("standalone").catch((err) => {
+start().catch((err) => {
   logError(`Fatal error: ${err}`);
   process.exit(1);
 });

@@ -9,7 +9,7 @@
  * Clients that validate the declared dialect reject that outright. Claude Code
  * does, with:
  *
- *   Tool 'comfyui_list_models' has an invalid outputSchema: JSON Schema
+ *   Tool 'comfyui_get_queue' has an invalid outputSchema: JSON Schema
  *   declares an unsupported dialect ("$schema": ".../draft-07/schema#").
  *   The default validator supports JSON Schema 2020-12 only
  *

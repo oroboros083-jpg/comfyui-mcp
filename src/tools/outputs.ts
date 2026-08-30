@@ -281,8 +281,8 @@ export async function collectOutputImages(
  * So collection is scoped to node ids the caller names. A tool that builds
  * its own graph (comfyui_describe_image) knows the tagger is node "2" and
  * asks for that node only; a caller passing someone else's workflow has to
- * name the nodes it wants, which it can resolve with comfyui_get_node_info
- * or comfyui_validate_workflow. Nothing is guessed and nothing else is
+ * name the nodes it wants, which it can resolve with the official Comfy MCP's nodes tool
+ * or the official Comfy MCP's validate_workflow. Nothing is guessed and nothing else is
  * admitted.
  */
 

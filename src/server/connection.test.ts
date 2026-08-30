@@ -7,7 +7,7 @@ import { ServerContext } from "../context.js";
 /**
  * The guidance an agent sees when ComfyUI is down.
  *
- * This text is the server's main disclosure point for comfyui_start_comfyui:
+ * This text is the server's main disclosure point for a dead connection:
  * it is what every connection-gated tool returns, and usually the first thing
  * read when nothing is running. It used to say "Start ComfyUI and call
  * comfyui_reconnect", naming the two tools that cannot resolve the situation
@@ -22,7 +22,7 @@ test("guidance for a local ComfyUI names the tool that starts it", () => {
   bind("http://127.0.0.1:8188");
   const guidance = nextStepWhenDown();
 
-  assert.match(guidance, /comfyui_start_comfyui/);
+  assert.match(guidance, /launch_comfyui/);
 });
 
 test("guidance does not stop at reconnect, which cannot help while nothing listens", () => {
@@ -31,7 +31,7 @@ test("guidance does not stop at reconnect, which cannot help while nothing liste
 
   // reconnect may still be mentioned as the follow-up to starting it by hand,
   // but it must not be the only tool offered.
-  const startsAt = guidance.indexOf("comfyui_start_comfyui");
+  const startsAt = guidance.indexOf("launch_comfyui");
   const reconnectAt = guidance.indexOf("comfyui_reconnect");
   assert.ok(startsAt >= 0, "the start tool is named");
   assert.ok(
@@ -46,7 +46,7 @@ test("the unreachable error carries both where it looked and what to do", () => 
 
   assert.match(message, /not reachable/i);
   assert.match(message, /127\.0\.0\.1/, "names the URLs that were tried");
-  assert.match(message, /comfyui_start_comfyui/, "names the next step");
+  assert.match(message, /launch_comfyui/, "names the next step");
 });
 
 test("a remote ComfyUI is not told to launch one locally", () => {
@@ -55,7 +55,7 @@ test("a remote ComfyUI is not told to launch one locally", () => {
   bind("http://192.168.1.50:8188");
   const guidance = nextStepWhenDown();
 
-  assert.doesNotMatch(guidance, /comfyui_start_comfyui/);
+  assert.doesNotMatch(guidance, /launch_comfyui/);
   assert.match(guidance, /not this machine/i);
 });
 

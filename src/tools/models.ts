@@ -96,7 +96,7 @@ export function renderModels(result: ListModelsResult, input: ListModelsInput): 
     page: result,
     empty: input.search
       ? `No models matching '${input.search}'. Try a shorter search term, or type:'all'.`
-      : "No models installed. Use comfyui_get_model_guide for what to download and where to put it.",
+      : "No models installed. Use the official Comfy MCP's search_models for what to download and where to put it.",
   });
 }
 
@@ -112,7 +112,7 @@ export const listNodesSchema = z.object({
     .default("summary")
     .describe(
       "How much to return per node: 'names' (node name only), 'summary' (name, display name, category), " +
-        "'full' (adds the description). Use 'names' to survey what exists, then comfyui_get_node_info for specifics."
+        "'full' (adds the description). Use 'names' to survey what exists, then the official Comfy MCP's nodes tool for specifics."
     ),
   ...paginationFields,
   response_format: responseFormatField,
@@ -231,7 +231,7 @@ export function renderNodes(result: ListNodesResult, input: ListNodesInput): str
     empty: filters.length
       ? `No nodes matching ${filters.join(" and ")}. Try a shorter search term.`
       : "ComfyUI reported no node types, which usually means it is still starting up.",
-    next: "Call comfyui_get_node_info with a node name for its inputs and outputs.",
+    next: "Call the official Comfy MCP's nodes tool with a node name for its inputs and outputs.",
   });
 }
 
@@ -552,7 +552,7 @@ export class NodeNotFoundError extends ToolError {
   constructor(public readonly node: string) {
     super(
       `Node type '${node}' is not installed on this ComfyUI`,
-      `Search for it with comfyui_list_nodes({ search: '${node.slice(0, 20)}' }). ` +
+      `Search for it with the official Comfy MCP's nodes({ search: '${node.slice(0, 20)}' }). ` +
         "If nothing matches, the node comes from a custom node pack that is not installed."
     );
   }
@@ -683,7 +683,7 @@ export function renderFoundNodes(result: FindNodesResult): string {
       return `- \`${n.name}\` _(${n.category})_${io ? ` - ${io}` : ""}`;
     }),
     page: result,
-    empty: `No node ${criteria.replace(/\*\*/g, "'")}. Check the type name with comfyui_get_node_info on a node you know uses it.`,
+    empty: `No node ${criteria.replace(/\*\*/g, "'")}. Check the type name with the official Comfy MCP's nodes tool on a node you know uses it.`,
     next: "Call comfyui_build_node to generate JSON for one of these.",
   });
 }
@@ -758,7 +758,7 @@ export async function buildNode(
   if (unknownInputs.length > 0) {
     throw new ToolError(
       `${input.nodeType} has no input named ${unknownInputs.map((n) => `'${n}'`).join(", ")}.`,
-      `Its inputs are: ${[...knownInputs].join(", ")}. comfyui_get_node_info has each one's type, default and range.`
+      `Its inputs are: ${[...knownInputs].join(", ")}. the official Comfy MCP's nodes tool has each one's type, default and range.`
     );
   }
 

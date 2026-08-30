@@ -270,6 +270,6 @@ export async function uploadImage(
     sizeBytes: bytes.length,
     hint:
       `Set a LoadImage node's "image" input to "${reference}". ` +
-      `comfyui_list_examples({ category: "controlnet" }) has graphs that start from one.`,
+      `comfyui_recommend_workflow({ category: "controlnet" }) has graphs that start from one.`,
   };
 }

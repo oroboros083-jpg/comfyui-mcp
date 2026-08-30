@@ -2,26 +2,38 @@
 
 ## Project Overview
 
-This is a TypeScript MCP (Model Context Protocol) server that enables AI assistants to interact with ComfyUI for generating images, audio, and video. The server is designed to be self-configuring, automatically discovering ComfyUI instances and their capabilities.
+This is a TypeScript MCP (Model Context Protocol) server that enables AI
+assistants to interact with ComfyUI for generating images, audio, and video. The
+server is self-configuring, automatically discovering ComfyUI instances and
+their capabilities.
+
+**It is a COMPANION to the official Comfy MCP (`Comfy-Org/comfy-mcp`), not a
+replacement.** It is meant to be mounted alongside that server and carries only
+what that server does worse or cannot do at all. Installing ComfyUI, managing
+models and custom nodes, node introspection, and server lifecycle are all
+deliberately absent - it wraps comfy-cli for those and tracks ComfyUI's own
+releases, which this server would be reimplementing by hand.
+
+Before adding a tool, ask what the official server already does with it. If the
+answer is "the same thing or better", it does not belong here. See "Coexisting
+With the Official Comfy MCP" below.
 
 ## Architecture
 
 ```
 src/
-├── index.ts                 # Entry point (standalone): start("standalone")
-├── companion.ts             # Entry point beside the official Comfy MCP
+├── index.ts                 # Entry point: start()
 ├── config.ts                # Configuration management
 ├── constants.ts             # Shared limits (CHARACTER_LIMIT, page sizes)
 ├── context.ts               # Server context (shared state)
 ├── server/
 │   ├── bootstrap.ts        # start(profile): the wiring both entries share
 │   ├── instructions.ts     # Handshake text: canonical flows, the Comfy seam
-│   ├── profile.ts          # standalone vs companion; what companion omits
 │   ├── connection.ts       # Discovery, health cache, restart watches
-│   ├── register.ts         # defineTool: prefix, annotations, conn gate, profile
+│   ├── register.ts         # defineTool: prefix, annotations, conn gate
 │   └── tools/              # Tool registration, one file per domain
-│       ├── setup.ts        # status, reconnect, start, restart, guides
-│       ├── discovery.ts    # capabilities, models, nodes, validation
+│       ├── setup.ts        # status (incl. architectures), reconnect
+│       ├── discovery.ts    # build_node
 │       ├── generation.ts   # run workflows, images, workflow files
 │       ├── tasks.ts        # queue and task tracking
 │       ├── library.ts      # examples, templates, prompting guides
@@ -49,7 +61,6 @@ src/
 │   ├── queue.ts            # Queue management tools
 │   ├── install.ts          # Installation assistance
 │   ├── launch.ts           # Launcher detection and detached process start
-│   ├── validation.ts       # Workflow validation
 │   ├── tags.ts             # Danbooru tag search + co-occurrence lookup
 │   ├── svg.ts              # SVG rendering to PNG
 │   ├── fonts.ts            # Font download and management
@@ -209,8 +220,19 @@ dependency. Tests live beside the code as `*.test.ts` and run from `dist/`
 after compilation, so `npm test` builds first.
 
 Note `node --test dist/` (a bare directory) would execute `dist/index.js` as
-a test and hang forever on stdio. The script globs `dist/**/*.test.js`
-instead; keep it that way.
+a test and hang forever on stdio, so the runner must always pass explicit
+files. `scripts/run-tests.mjs` walks `dist/` for `*.test.js` and hands those
+over.
+
+That script exists because the obvious spelling is version-dependent:
+`node --test "dist/**/*.test.js"` relies on the runner expanding the glob,
+which only Node 21+ does. On the 18 and 20 that `engines` claims to support,
+the pattern is taken as a literal path and the whole suite dies with "Could
+not find". Letting the shell expand it instead is no better - `**` needs bash
+with globstar, npm often runs scripts through `sh`, and Windows is a supported
+dev platform here. Doing the walk in JS is the only spelling that works
+everywhere. It also exits non-zero on a missing or empty `dist/`, so a broken
+build cannot report a green suite.
 
 Cover pure logic in unit tests: pagination boundaries, response shaping,
 parsing, and any bug being fixed. Anything needing a live ComfyUI is not a
@@ -295,21 +317,34 @@ final page, error paths).
 
 ### Coexisting With the Official Comfy MCP
 
-`Comfy-Org/comfy-mcp` is commonly mounted alongside this server. Two entry
-points over one `start(profile)` body (`server/bootstrap.ts`) handle that:
-`comfyui-mcp` registers everything, `comfyui-mcp-companion` omits the tools
-that server does better. The omit list and its reasoning live in
-`server/profile.ts`; the gate is one early return in `defineTool`, because a
-tool that is merely *refused* still costs its schema on every `tools/list`.
+`Comfy-Org/comfy-mcp` is expected to be mounted alongside this server. There is
+one entry point and one mode: companion. The standalone/companion profile split
+that briefly existed is gone.
 
-**The queue tools are deliberately not on that list.** Their
-`job(action="queue")` is `comfy jobs ls` - comfy-cli's record of its own
-submissions. `comfyui_get_queue` reads ComfyUI's real `/queue` and sees every
-job whoever sent it, which makes it the only cross-server view of what is
-actually running. A test pins this so it cannot be "tidied up" later.
+**What was removed, and what covers it now.** `start_comfyui`/`restart_comfyui`
+-> `launch_comfyui`/`restart_comfyui`; `get_install_guide` -> `install_comfyui`;
+`get_model_guide`/`get_download_url` -> `search_models` + `download_model`;
+`list_nodes`/`get_node_info`/`find_nodes_by_type` -> `nodes` (one tool that
+searches, inspects, filters AND graph-walks between types); `list_models` ->
+`search_models`; `validate_workflow` -> theirs; `list_examples`/
+`get_example_workflow` -> the Comfy template gallery.
 
-Two things about that server are worth knowing before designing against it:
+**Steering: name the failure, not the preference.** MCP gives no way to
+deprioritise another server's tools, so which one an agent reaches for is
+decided by descriptions. "Prefer ours" is a claim about taste. What actually
+changes the choice is a checkable fact about what theirs will do - see the
+overlapping tools' descriptions, and `server/instructions.ts` for the same
+thing said once at handshake.
 
+Four facts about that server worth knowing before designing against it:
+
+- **It cannot see runs this server submits.** `fetch_outputs` says so:
+  "the run that submitted the job wrote a state file on THIS machine... Only a
+  `prompt_id` this machine never submitted has no such state file
+  (`download_job_not_found`)", and `jobs ls` merges those same files. So the
+  two servers **cannot** split submit-from-track: whoever submits must also
+  track and collect. That is why the whole run subsystem stays here, and why
+  `get_image` is not a duplicate of `fetch_outputs`.
 - **It has no workflow versioning.** No hash, etag, mtime check, or
   lost-update protection anywhere. `set_workflow_slot(stdout=False)` writes in
   place unconditionally, so it is a third unprotected writer into the same
@@ -318,7 +353,22 @@ Two things about that server are worth knowing before designing against it:
   means it cannot grow one before comfy-cli does.
 - **`project/1` and `envelope/1` are schema versions, not content versions.**
   The first is comfy-cli project anchoring, the second its result envelope.
-  Neither tracks a workflow.
+- **`upload_file` takes local paths only**, so it cannot reach ComfyUI's own
+  output directory - which is what `upload_image`'s `from_output` copies from,
+  server-side.
+
+**The queue tools are deliberately kept.** Their `job(action="queue")` is
+`comfy jobs ls`, comfy-cli's record of its own submissions. `comfyui_get_queue`
+reads ComfyUI's real `/queue` and sees every job whoever sent it, which makes
+it the only cross-server view of what is actually running.
+
+**Nothing may name a tool that does not exist.**
+`server/tool-references.test.ts` fails on any `comfyui_` name in any source
+file that is not a registered tool. This exists because pruning twelve tools
+left ~40 dangling references in error hints - invisible to the compiler and to
+every other test, because they are ordinary strings. A hint naming a deleted
+tool is worse than one naming nothing: it spends the agent's next call at the
+exact moment the hint exists to be acted on.
 
 ### Writing a Workflow File Safely
 
@@ -338,6 +388,19 @@ and a foreign change is `theirs !== base`. `read_workflow` mints `base` with
 resolves it from `expected_version`, else that record, else nothing, and
 refuses on `changed` or on `exists but never read`. Creating a new file needs
 no read. `force: true` is the only way past either refusal.
+
+**Flush and reload are implicit and non-optional.** `read_workflow` flushes
+open tabs BEFORE reading, so the version it records as the base includes the
+human's unsaved work - a base taken without it would later call their edit "no
+change" and let a write walk over it. `write_workflow` flushes again (they can
+edit between the two), checks, writes, and reloads. The `skip_flush`,
+`skip_reload` and `save_first` arguments are gone; each only turned the safety
+off, and each already said to leave it alone. There are no standalone
+`flush_workflow`/`reload_workflow` tools.
+
+Known gap: when the official server writes a workflow in place, the human's tab
+is stale and nothing here covers telling it to reload without a read+write
+cycle.
 
 Three rules to keep:
 
@@ -364,6 +427,26 @@ without a `promptId` cancels only this agent's pending jobs (`scope: "all"` is
 the explicit opt-in), and `interrupt` refuses when the running job belongs to
 someone else unless `confirm_foreign` is set. ComfyUI has one global
 `/interrupt`, so that scoping cannot live at the API - only in front of it.
+
+### Naming a Generation
+
+Every run through the `run_workflow` TOOL gets a name, and `get_task` /
+`get_task_result` both accept a name in place of a task id. That is what
+replaced the separate `name_generation` and `get_generation_by_name` tools.
+
+`autoRunName()` (`tools/generate.ts`) supplies `run-<date>-<6 hex>` when the
+caller names nothing. Three constraints, all load-bearing:
+
+- **The `run-` prefix is a namespace a human would not type.** `jobs.name` is
+  UNIQUE, but `setJobName` resolves a collision by STEALING the name -
+  `UPDATE jobs SET name = NULL WHERE name = ? AND task_id != ?` - so a
+  generated name landing on a human's label silently strips it off their job.
+- **The random suffix is why the name is not derived from the clock alone.**
+  Two runs in the same second would otherwise collide, and the second would
+  steal the first's name.
+- **It is assigned at the tool boundary, not inside `runWorkflowAsync`.** That
+  function is also `describe_image`'s run path, and nobody recalls a captioning
+  pass by name.
 
 ### Collecting Text From a Workflow
 

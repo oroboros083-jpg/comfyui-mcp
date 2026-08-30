@@ -166,7 +166,7 @@ test("renderNodes says where the rest of the results are", async () => {
   const markdown = renderNodes(await listNodes(clientReturning(many), input), input);
 
   assert.match(markdown, /offset: 10/, "the next page is reachable from the text");
-  assert.match(markdown, /comfyui_get_node_info/, "points at the detail tool");
+  assert.match(markdown, /nodes/, "points at the detail tool");
 });
 
 test("renderNodes explains an empty result instead of printing a bare heading", async () => {

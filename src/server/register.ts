@@ -12,7 +12,6 @@ import { z } from "zod";
 import { ensureConnected } from "./connection.js";
 import { errorResult, ToolResult } from "../utils/response.js";
 import { hintFor } from "../utils/errors.js";
-import { isOmitted } from "./profile.js";
 
 /**
  * Tool names carry the service prefix so this server can sit alongside others
@@ -74,12 +73,6 @@ export function defineTool<S extends z.ZodTypeAny>(
   server: McpServer,
   spec: ToolSpec<S>
 ): void {
-  // The companion profile leaves some tools to the official Comfy MCP. Not
-  // registering is the whole mechanism: a tool that refuses at call time
-  // still costs its schema on every tools/list, which is most of what
-  // dropping it was meant to save.
-  if (isOmitted(spec.name)) return;
-
   server.registerTool(
     `${TOOL_PREFIX}${spec.name}`,
     {

@@ -14,7 +14,7 @@ import {
   formattedResult,
   ToolResult,
 } from "../../utils/response.js";
-import { runWorkflowSchema, getImageSchema, getImage } from "../../tools/generate.js";
+import { runWorkflowSchema, getImageSchema, getImage, autoRunName } from "../../tools/generate.js";
 import { uploadImageSchema, uploadImage } from "../../tools/upload.js";
 import {
   describeImageSchema,
@@ -29,8 +29,6 @@ import { recordWorkflowBase, getWorkflowBase } from "../../db/index.js";
 import { WorkflowConflictError } from "../../utils/errors.js";
 import {
   listOpenWorkflowsSchema,
-  flushWorkflowSchema,
-  reloadWorkflowSchema,
   readWorkflowSchema,
   writeWorkflowSchema,
   getTabState,
@@ -91,13 +89,18 @@ export function registerGenerationTools(
   defineTool(server, {
     name: "run_workflow",
     description:
-      "Run a ComfyUI workflow in API-format JSON. Async by default: returns a task ID immediately, then " +
-      "use comfyui_get_task for progress and comfyui_get_task_result for output. Set sync:true to block " +
-      "until it finishes.\n\n" +
-      "Pass 'name' with something descriptive ('sunset_portrait_v2') so the result can be found later " +
-      "with comfyui_get_generation_by_name.\n\n" +
-      "Start from comfyui_get_example_workflow or comfyui_get_template rather than assembling a workflow " +
-      "by hand, and run comfyui_validate_workflow first if you did assemble one.",
+      "Run a ComfyUI workflow given as a JSON OBJECT (API format). Async by default: returns a task ID " +
+      "immediately, then use comfyui_get_task for progress and comfyui_get_task_result for output. Set " +
+      "sync:true to block until it finishes.\n\n" +
+      "Pass 'name' with something descriptive ('sunset_portrait_v2'): both of those tools accept it in " +
+      "place of the task id, so it is how you retrieve this run later without keeping the id.\n\n" +
+      "Use this rather than the official Comfy MCP's `run_workflow` when the graph is in hand rather " +
+      "than in a file - theirs takes a path only. It also takes 'collectText' with node ids, which is " +
+      "the only way to read a node's TEXT output (a captioner, a text encoder); their `fetch_outputs` " +
+      "returns files. Runs submitted here are NOT visible to their `job(...)` or `fetch_outputs`, " +
+      "which read comfy-cli's own state files - track them with comfyui_get_task.\n\n" +
+      "Start from comfyui_recommend_workflow (which matches a model to a graph shape) or from a saved " +
+      "snippet via comfyui_get_user_snippet, rather than assembling a workflow by hand.",
     schema: runWorkflowSchema,
     requiresConnection: true,
     annotations: {
@@ -120,7 +123,7 @@ export function registerGenerationTools(
         c.jobManager,
         client,
         ws,
-        input,
+        { ...input, name: input.name ?? autoRunName() },
         c.config.outputDir,
         c.config.outputSizeThreshold
       );
@@ -138,7 +141,7 @@ export function registerGenerationTools(
       if (!job || job.status === "failed") {
         return errorResult(
           `Workflow failed: ${job?.error ?? "no result was recorded"}`,
-          "Run comfyui_validate_workflow on this workflow to find structural problems."
+          "Write it with comfyui_write_workflow and validate that path with the official Comfy MCP's validate_workflow."
         );
       }
       if (job.status === "cancelled") {
@@ -234,8 +237,11 @@ export function registerGenerationTools(
   defineTool(server, {
     name: "get_image",
     description:
-      "Retrieve a generated image from ComfyUI's output directory as an image content block. Use when " +
-      "you know the filename; comfyui_get_task_result returns images for a task without needing one.",
+      "Retrieve an image from ComfyUI's output directory as an image content block, BY FILENAME. Use " +
+      "when you know the filename; comfyui_get_task_result returns images for a task without one.\n\n" +
+      "Being keyed by filename rather than by prompt id is the point: this can show you an image a " +
+      "HUMAN just made in the browser, which the official Comfy MCP's `fetch_outputs` cannot - that " +
+      "is keyed by a comfy-cli prompt id, and a browser generation has none.",
     schema: getImageSchema,
     requiresConnection: true,
     annotations: {
@@ -276,6 +282,11 @@ export function registerGenerationTools(
       "generation is reachable until it is uploaded.\n\n" +
       "Give 'path' for a local file, or 'from_output' to feed a generated image back in (upscaling, " +
       "refinement, animating a still). Exactly one of the two.\n\n" +
+      "'from_output' is the mode the official Comfy MCP has no equivalent for: its `upload_file` " +
+      "takes paths on THIS machine, so an output that lives in ComfyUI's own directory - or on a " +
+      "remote ComfyUI - is out of its reach. That copy happens server-side here, so the bytes never " +
+      "travel through this conversation or the local disk. Use `upload_file` for a plain local file " +
+      "if you prefer; use this for the refine loop.\n\n" +
       "Returns: { filename, subfolder, type, reference, width, height, format, sizeBytes }. Use " +
       "'reference' verbatim - with overwrite false, ComfyUI stores a colliding name as 'photo (1).png' " +
       "and the workflow must name the file that actually exists. 'width'/'height' are the uploaded " +
@@ -324,64 +335,12 @@ export function registerGenerationTools(
   });
 
   defineTool(server, {
-    name: "flush_workflow",
-    description:
-      "Ask any open tab to SAVE a workflow now, and wait for it to settle. Use before overwriting a " +
-      "workflow so the human's unsaved edits reach disk, where they can be read and taken into account " +
-      "instead of being destroyed by your write. comfyui_write_workflow does this for you.",
-    schema: flushWorkflowSchema,
-    requiresConnection: true,
-    annotations: {
-      title: "Flush Workflow Tab",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
-    },
-    handler: async (input) => {
-      const result = await flushWorkflow(
-        workflowTarget(ctx()),
-        input.path,
-        input.wait_seconds ?? 4
-      );
-      return dataResult({
-        ...result,
-        hint: result.requested ? undefined : BRIDGE_MISSING_HINT,
-      });
-    },
-  });
-
-  defineTool(server, {
-    name: "reload_workflow",
-    description:
-      "Tell open tabs to re-read a workflow from disk after it was rewritten. Necessary because ComfyUI " +
-      "restores a workflow from cached session state rather than re-reading the file, so a tab can sit " +
-      "on a stale graph indefinitely and autosave it back. comfyui_write_workflow does this for you.",
-    schema: reloadWorkflowSchema,
-    requiresConnection: true,
-    annotations: {
-      title: "Reload Workflow Tab",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
-    },
-    handler: async (input) => {
-      const ok = await reloadWorkflow(
-        workflowTarget(ctx()),
-        input.path,
-        input.save_first !== false
-      );
-      return dataResult({ requested: ok, hint: ok ? undefined : BRIDGE_MISSING_HINT });
-    },
-  });
-
-  defineTool(server, {
     name: "read_workflow",
     description:
-      "Read a workflow file as JSON. Reads through ComfyUI so it always sees the current file rather " +
-      "than a cached copy. Returns { found, path, version, workflow }, or { found: false, path } when " +
-      "the file does not exist.\n\n" +
+      "Read a workflow file as JSON. FLUSHES any open ComfyUI tab first, so what you get includes the " +
+      "human's unsaved edits rather than the last thing that happened to reach disk. Reads through " +
+      "ComfyUI, so never a cached copy. Returns { found, path, version, workflow, flushed }, or " +
+      "{ found: false, path } when the file does not exist.\n\n" +
       "`version` identifies exactly this content. comfyui_write_workflow needs it to tell your own " +
       "changes apart from someone else's, and remembers it for you - so read a workflow once before " +
       "editing it, and that write and its follow-ups are protected.",
@@ -395,8 +354,17 @@ export function registerGenerationTools(
     },
     handler: async (input) => {
       const c = ctx();
+      const base = workflowTarget(c);
+
+      // Flush FIRST, unconditionally. The version recorded below becomes the
+      // base that comfyui_write_workflow compares against, and a base that
+      // omits the human's unsaved tab edits is a base that will later call
+      // their work "no change" and let a write walk over it. On a clean tab
+      // this returns immediately; only a dirty one costs the wait.
+      const flushed = await flushWorkflow(base, input.path, 4);
+
       const wf = await readWorkflowFile(
-        workflowTarget(c),
+        base,
         input.path,
         c.config.workflowWriteDirs ?? []
       );
@@ -410,7 +378,7 @@ export function registerGenerationTools(
       recordWorkflowBase(input.path, version, c.config.agentId);
 
       return textResult(
-        JSON.stringify({ found: true, path: input.path, version, workflow: wf }),
+        JSON.stringify({ found: true, path: input.path, version, flushed, workflow: wf }),
         "This workflow is very large; read it in ComfyUI directly."
       );
     },
@@ -420,8 +388,10 @@ export function registerGenerationTools(
     name: "write_workflow",
     description:
       "Write a workflow file SAFELY: flushes any open tab so unsaved human edits reach disk, checks the " +
-      "file has not changed since you read it, writes, then tells the tab to reload. ALWAYS use this " +
-      "instead of writing workflow JSON with a file tool.\n\n" +
+      "file has not changed since you read it, writes, then tells the tab to re-read it. Every step is " +
+      "automatic and cannot be skipped. ALWAYS use this instead of writing workflow JSON with a file " +
+      "tool - and note the official Comfy MCP's `set_workflow_slot(stdout=false)` writes in place with " +
+      "no version check at all, so it cannot detect a concurrent edit.\n\n" +
       "REFUSES rather than overwriting when the file changed after your comfyui_read_workflow (a human " +
       "or another agent got there first), and when an existing file has not been read at all. Both " +
       "refusals name what to do; force: true is the only way past either. Creating a new file needs no " +
@@ -445,8 +415,9 @@ export function registerGenerationTools(
 
       // 1. Flush, so unsaved hand edits land on disk and show up in the
       //    diff below instead of being destroyed by this write.
-      let flushed = null;
-      if (!input.skip_flush) flushed = await flushWorkflow(base, input.path, 4);
+      // Always. See read_workflow: the human can edit between our read and
+      // this write, so the flush at read time does not cover this window.
+      const flushed = await flushWorkflow(base, input.path, 4);
 
       // 2. Read back what is on disk NOW (post-flush, so a tab's unsaved
       //    edits are part of it) and decide whether this write is safe.
@@ -503,8 +474,10 @@ export function registerGenerationTools(
       }
 
       // 4. Reload, so the tab is not left on the old graph.
-      let reloaded = false;
-      if (!input.skip_reload) reloaded = await reloadWorkflow(base, input.path, true);
+      // Always. ComfyUI restores a workflow from cached session state rather
+      // than re-reading the file, so a tab left unreloaded sits on the old
+      // graph and can autosave it back over what was just written.
+      const reloaded = await reloadWorkflow(base, input.path, true);
 
       // 5. Re-base. The file this agent now knows about is the one it just
       //    wrote, so the next write compares against that rather than against

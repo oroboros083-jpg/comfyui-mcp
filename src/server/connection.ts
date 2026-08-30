@@ -215,7 +215,7 @@ export async function probeCurrentClient(): Promise<boolean> {
 /**
  * What to actually do about a ComfyUI that is down.
  *
- * This is the server's main disclosure point for comfyui_start_comfyui:
+ * This is the server's main disclosure point for a dead connection:
  * every connection-gated tool reaches it through unreachableError(), and it
  * is usually the first thing an agent sees when ComfyUI is not running. It
  * used to say "Start ComfyUI and call comfyui_reconnect", which reads as an
@@ -234,10 +234,10 @@ export function nextStepWhenDown(): string {
   if (blocked) return blocked;
 
   return (
-    "Call comfyui_start_comfyui to launch it on this machine - it auto-detects " +
+    "Launch it with the official Comfy MCP's launch_comfyui - this server does not manage the " +
     "the desktop app, a portable launcher or a source checkout, waits for it, " +
     "and connects. If you would rather start it yourself, call comfyui_reconnect " +
-    "afterwards. comfyui_get_install_guide covers installing it in the first place."
+    "ComfyUI process. Its `install_comfyui` covers installing one in the first place."
   );
 }
 

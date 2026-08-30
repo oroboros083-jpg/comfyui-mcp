@@ -178,7 +178,7 @@ test("ComfyUI's own validation errors are still preserved on submit", async () =
       await assert.rejects(client.queuePrompt({}), (err: unknown) => {
         assert.ok(err instanceof ToolError);
         assert.match(err.message, /KSampler\.seed is required/);
-        assert.match(err.hint ?? "", /comfyui_validate_workflow/);
+        assert.match(err.hint ?? "", /validate_workflow/);
         return true;
       });
     }

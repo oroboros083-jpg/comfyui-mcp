@@ -273,7 +273,7 @@ export function searchTemplates(input: SearchTemplatesInput): SearchTemplatesRes
           category: example.category,
           requiredNodes: example.requiredNodes,
           requiredModels: example.requiredModels,
-          fetchCommand: `comfyui_get_example_workflow({ name: "${example.name}" })`,
+          fetchCommand: `comfyui_recommend_workflow({ name: "${example.name}" })`,
         });
       }
     }
@@ -306,7 +306,7 @@ export function searchTemplates(input: SearchTemplatesInput): SearchTemplatesRes
     query: input,
     ...envelope,
     results: slim,
-    hint: "Call comfyui_get_template with a result's id for its parameters, default settings and runnable workflow JSON.",
+    hint: "Call comfyui_get_user_snippet with a result's id for its parameters, default settings and runnable workflow JSON.",
   };
 }
 
@@ -327,7 +327,7 @@ export function renderTemplateSearch(result: SearchTemplatesResult): string {
     }),
     page: result,
     empty:
-      "No templates match. Widen the filters, or call comfyui_list_examples to browse the documented workflows.",
+      "No templates match. Widen the filters, or call comfyui_recommend_workflow to browse the documented workflows.",
     next: result.hint,
   });
 }
@@ -337,7 +337,7 @@ export function renderTemplateSearch(result: SearchTemplatesResult): string {
 export const getTemplateSchema = z.object({
   templateId: z
     .string()
-    .describe("The template ID (from comfyui_search_templates results)"),
+    .describe("The template ID (from comfyui_search_user_snippets results)"),
   parameters: z
     .record(z.unknown())
     .optional()
@@ -369,7 +369,7 @@ export class TemplateIsExampleError extends ToolError {
   constructor(templateId: string, exampleName: string) {
     super(
       `'${templateId}' is an example workflow, not a template`,
-      `Call comfyui_get_example_workflow({ name: "${exampleName}" }) instead.`
+      `Call comfyui_recommend_workflow({ name: "${exampleName}" }) instead.`
     );
   }
 }
@@ -379,7 +379,7 @@ export class TemplateNotFoundError extends ToolError {
   constructor(templateId: string) {
     super(
       `Template '${templateId}' not found`,
-      `Call comfyui_search_templates to find one. The built-in ids are: ${BUILTIN_TEMPLATES.map(
+      `Call comfyui_search_user_snippets to find one. The built-in ids are: ${BUILTIN_TEMPLATES.map(
         (t) => t.id
       ).join(", ")}.`
     );
@@ -407,7 +407,7 @@ export async function getTemplate(
       // tell the two apart.
       throw new ToolError(
         `Template '${input.templateId}' is listed but cannot be built.`,
-        "This is a gap in the server, not in your request. comfyui_search_templates lists the others, and comfyui_list_examples has documented workflows that need no builder."
+        "This is a gap in the server, not in your request. comfyui_search_user_snippets lists the others, and comfyui_recommend_workflow has documented workflows that need no builder."
       );
     }
 
@@ -551,7 +551,7 @@ export class TemplateSaveError extends ToolError {
   constructor(cause: unknown) {
     super(
       `Failed to save template: ${cause instanceof Error ? cause.message : String(cause)}`,
-      "Check the id is a plain identifier and the workflow is a JSON object. comfyui_search_templates lists what is already stored."
+      "Check the id is a plain identifier and the workflow is a JSON object. comfyui_search_user_snippets lists what is already stored."
     );
   }
 }
@@ -563,7 +563,7 @@ export class TemplateDeleteError extends ToolError {
       `Failed to delete template '${templateId}': ${
         cause instanceof Error ? cause.message : String(cause)
       }`,
-      "The store may be locked by another process. comfyui_search_templates shows whether it is still there."
+      "The store may be locked by another process. comfyui_search_user_snippets shows whether it is still there."
     );
   }
 }
@@ -573,7 +573,7 @@ export class BuiltinTemplateError extends ToolError {
   constructor(templateId: string) {
     super(
       `'${templateId}' is a built-in template and cannot be deleted`,
-      "Only templates saved with comfyui_save_template can be deleted. comfyui_search_templates shows which are custom."
+      "Only templates saved with comfyui_save_user_snippet can be deleted. comfyui_search_user_snippets shows which are custom."
     );
   }
 }
@@ -627,7 +627,7 @@ export function saveCustomTemplate(input: SaveTemplateInput): SaveTemplateResult
       createdAt: saved.createdAt,
       updatedAt: saved.updatedAt,
     },
-    usage: `Use comfyui_get_template({ templateId: "${saved.id}" }) to retrieve this workflow`,
+    usage: `Use comfyui_get_user_snippet({ templateId: "${saved.id}" }) to retrieve this workflow`,
   };
 }
 

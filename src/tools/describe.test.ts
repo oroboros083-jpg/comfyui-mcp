@@ -312,5 +312,5 @@ test("no text at all says what to check rather than staying silent", async () =>
   const result = await describeImage("refs/photo.png", chosen, runnerReturning({}));
 
   assert.deepEqual(result.descriptions[0]!.values, []);
-  assert.match(result.hint, /comfyui_list_nodes/);
+  assert.match(result.hint, /nodes/);
 });

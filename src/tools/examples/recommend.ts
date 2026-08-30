@@ -451,16 +451,25 @@ export const recommendWorkflowSchema = z.object({
   availableCheckpoints: z
     .array(z.string())
     .optional()
-    .describe("List of available checkpoint files (from comfyui_list_models)"),
+    .describe("List of available checkpoint files (from the official Comfy MCP's search_models)"),
   availableUnets: z
     .array(z.string())
     .optional()
-    .describe("List of available UNET files (from comfyui_list_models)"),
+    .describe("List of available UNET files (from the official Comfy MCP's search_models)"),
   taskType: z
     .enum(["txt2img", "img2img", "inpaint", "edit", "video"])
     .optional()
     .default("txt2img")
     .describe("What type of generation task"),
+  include_workflow: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Also fetch and return the full example workflow JSON. Off by default: the graph is large, " +
+        "and fetching it costs a network round trip to the documentation image that most calls do " +
+        "not need. Ask for it once you have decided this is the workflow you want."
+    ),
 }).strict();
 
 export type RecommendWorkflowInput = z.infer<typeof recommendWorkflowSchema>;
@@ -484,6 +493,8 @@ export interface WorkflowRecommendation {
   alternativeWorkflows?: string[];
   /** The actual workflow JSON from examples, ready to use with run_workflow */
   exampleWorkflow?: Record<string, unknown>;
+  /** An example exists but was not fetched; pass include_workflow to get it. */
+  exampleAvailable?: boolean;
   /** Source of the example workflow */
   exampleSource?: string;
   /**
@@ -617,9 +628,18 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
     }
   }
 
-  // Try to fetch the actual example workflow
+  // Try to fetch the actual example workflow.
+  //
+  // Gated, and off by default. This is a network round trip to a docs image
+  // plus a full graph in the response, on a tool whose usual question is
+  // "which workflow and what settings" - answerable without either. When it is
+  // skipped the caller still learns an example EXISTS, and can ask again with
+  // include_workflow to get it.
   const example = findExampleByName(workflowName);
-  if (example && example.imageUrls.length > 0) {
+  if (example && example.imageUrls.length > 0 && !input.include_workflow) {
+    recommendation.exampleAvailable = true;
+    recommendation.exampleSource = example.imageUrls[0];
+  } else if (example && example.imageUrls.length > 0) {
     try {
       const workflowResult = await fetchExampleWorkflow(example.imageUrls[0]);
       // The docs PNGs embed both graphs: "prompt" is the API format /prompt
@@ -742,11 +762,16 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
     output += `\n## Matching Templates\n`;
     for (const template of rec.matchingTemplates) {
       output += `- **${template.name}** (${template.source}): ${template.description}\n`;
-      output += `  - Use: \`comfyui_get_template("${template.id}")\`\n`;
+      output += `  - Use: \`comfyui_get_user_snippet("${template.id}")\`\n`;
     }
   }
 
   // Show if example workflow was loaded
+  if (rec.exampleAvailable && !rec.exampleWorkflow) {
+    output += `\n## Example Workflow\n`;
+    output += `An example exists (${rec.exampleSource}). Call again with include_workflow: true to fetch its JSON.\n`;
+  }
+
   if (rec.exampleWorkflow) {
     output += `\n## Example Workflow\n`;
     output += `**Loaded from**: ${rec.exampleSource || "embedded example"}\n`;
@@ -754,7 +779,7 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
     output += `Modify the prompt and settings as needed before running.\n`;
   } else {
     output += `\n## Next Steps\n`;
-    output += `1. Call \`comfyui_get_example_workflow("${rec.matchedWorkflow}")\` to get the workflow JSON\n`;
+    output += `1. Call \`comfyui_recommend_workflow("${rec.matchedWorkflow}")\` to get the workflow JSON\n`;
     // Points back at the Prompting section rather than naming a guide after
     // modelType. That was a four-value union when this line was written and
     // is now any registry id, most of which have no guide - so it told wan,

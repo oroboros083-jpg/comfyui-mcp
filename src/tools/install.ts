@@ -306,7 +306,7 @@ export function getModelGuide(input: GetModelGuideInput): string {
   }
 
   guide += `## Tips\n`;
-  guide += `- Use \`comfyui_list_models\` tool to see what models ComfyUI has detected\n`;
+  guide += `- Use \`the official Comfy MCP's search_models\` tool to see what models ComfyUI has detected\n`;
   guide += `- Restart ComfyUI after adding new models, or use the "Refresh" button\n`;
   guide += `- Check file sizes: checkpoints are usually 2-7GB, LoRAs are 10-200MB\n`;
 

@@ -177,7 +177,7 @@ export function requestFailureHint(status: number): string {
   if (status >= 500) {
     return "ComfyUI failed internally. Its console log has the traceback; comfyui_get_queue shows whether it is still processing.";
   }
-  return "Check the arguments against comfyui_get_node_info, or comfyui_get_status if ComfyUI itself may be unhealthy.";
+  return "Check the arguments against the official Comfy MCP's nodes tool, or comfyui_get_status if ComfyUI itself may be unhealthy.";
 }
 
 export class ComfyUIClient {
@@ -222,7 +222,7 @@ export class ComfyUIClient {
    * says what to do about it.
    *
    * Ten methods repeated this block, each throwing a bare Error whose message
-   * reached the agent as "comfyui_x failed: Not Found" with nothing to act
+   * reached the agent as "<tool> failed: Not Found" with nothing to act
    * on. Status is mapped here once: an auth failure and a missing endpoint
    * need different responses, and neither is "try again".
    */
@@ -248,7 +248,7 @@ export class ComfyUIClient {
     } catch (cause) {
       throw new ToolError(
         `Could not reach ComfyUI at ${this.baseUrl} while trying to ${label}`,
-        "ComfyUI may have stopped or moved. Call comfyui_get_status to check, then comfyui_start_comfyui or comfyui_reconnect.",
+        "ComfyUI may have stopped or moved. Call comfyui_get_status to check, then the official Comfy MCP's launch_comfyui or comfyui_reconnect.",
         { cause }
       );
     }
@@ -289,7 +289,7 @@ export class ComfyUIClient {
    *
    * This is by far the largest document ComfyUI serves - ~440KB on a modded
    * install - and nothing here used to cache it, so every gated tool refetched
-   * and re-parsed the whole thing. Paging comfyui_list_nodes 50 at a time
+   * and re-parsed the whole thing. Paging the official Comfy MCP's nodes tool 50 at a time
    * through 2000 node types transferred and parsed it once per page.
    *
    * The window is short deliberately: long enough that a burst of calls (page,
@@ -354,7 +354,7 @@ export class ComfyUIClient {
       const error = await response.text();
       throw new ToolError(
         `ComfyUI rejected the workflow: ${response.status} ${response.statusText} - ${error}`,
-        "Run comfyui_validate_workflow on this workflow - it reports missing nodes, bad connections and type mismatches before submission."
+        "Run the official Comfy MCP's validate_workflow on this workflow - it reports missing nodes, bad connections and type mismatches before submission."
       );
     }
     return response.json() as Promise<QueuePromptResponse>;

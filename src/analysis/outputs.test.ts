@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { crc32 } from "node:zlib";
 import sharp from "sharp";
 
 import { analyzeUserOutputs } from "./outputs.js";
@@ -17,6 +16,27 @@ before(() => {
 after(() => rmSync(dir, { recursive: true, force: true }));
 
 /** A PNG tEXt chunk: length, type, keyword\0text, crc over type+data. */
+/**
+ * CRC-32 over a PNG chunk.
+ *
+ * Implemented here rather than imported from `node:zlib`, whose `crc32` export
+ * only exists from Node 20.15. package.json declares `engines.node >= 18`, and
+ * an unavailable named export is a SyntaxError at module load - so importing it
+ * did not fail this one assertion on Node 18, it failed the whole FILE, taking
+ * its three tests with it. This is the standard PNG polynomial; nothing here
+ * needs zlib's speed for a handful of fixture bytes.
+ */
+function crc32(buf: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of buf) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 function textChunk(keyword: string, text: string): Buffer {
   const type = Buffer.from("tEXt", "latin1");
   const data = Buffer.concat([

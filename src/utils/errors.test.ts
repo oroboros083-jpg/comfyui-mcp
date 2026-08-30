@@ -54,7 +54,7 @@ test("HTTP failures get advice specific to the status", () => {
   assert.match(requestFailureHint(413), /smaller/);
   assert.match(requestFailureHint(500), /console log/);
   assert.match(requestFailureHint(503), /console log/);
-  assert.match(requestFailureHint(400), /comfyui_get_node_info|comfyui_get_status/);
+  assert.match(requestFailureHint(400), /nodes|comfyui_get_status/);
 });
 
 test("every status maps to a non-empty next step", () => {

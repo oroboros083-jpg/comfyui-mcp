@@ -1,0 +1,39 @@
+name: CI
+
+# Separate from publish.yml on purpose: that one builds and pushes a Docker
+# image, which is slow and only meaningful on main. This is the fast check
+# that should gate every change, so it runs on pull requests too.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # One red Node version should not hide the result on the others.
+      fail-fast: false
+      matrix:
+        # package.json declares engines.node >=18; 22 is what the Dockerfile
+        # runs. Testing the floor, the middle and the shipped version means a
+        # syntax or API change that only works on newer Node fails here rather
+        # than for a user on the declared minimum.
+        node: ["18", "20", "22"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it fails when package.json and
+      # package-lock.json disagree, which is exactly the drift that would
+      # otherwise reach main unnoticed.
+      - run: npm ci
+
+      # `npm test` builds first (tsc) and then runs node --test over dist/,
+      # so this covers typechecking as well as the suite.
+      - run: npm test

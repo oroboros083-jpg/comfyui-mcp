@@ -1,16 +1,34 @@
 # ComfyUI MCP Server
 
-> **Upgrading from 0.1.x?** Every tool is now prefixed with `comfyui_`
-> (`get_status` is now `comfyui_get_status`), so the server can run alongside
-> other MCP servers without generic names like `get_status` or `interrupt`
-> colliding. Nothing to do unless you referenced tool names by hand — in a
-> permission allowlist, a saved prompt, or a script — in which case add the
-> prefix. See [Tools Reference](#tools-reference) for the full list.
+> **This is a companion server. Mount it alongside the official
+> [Comfy MCP](https://github.com/Comfy-Org/comfy-mcp).** It carries only what
+> that server does worse or cannot do at all — prompting knowledge, tag
+> vocabulary, versioned workflow-file editing against a live browser tab, the
+> real ComfyUI queue, and a run path that takes a graph object rather than a
+> file path. Installing ComfyUI, managing models and custom nodes, node
+> introspection and server lifecycle are deliberately absent: `comfy-mcp` wraps
+> comfy-cli for all of it and tracks ComfyUI's releases.
 >
-> List tools are also paginated now: they take `limit`/`offset` and return
-> `has_more`/`next_offset` instead of the entire collection, and they accept
-> `response_format: "markdown"` when you want readable text instead of JSON.
-> See [Shared Parameters](#shared-parameters).
+> **Breaking, if you upgraded from an earlier version.** Seventeen tools were
+> removed or renamed. Nothing needs doing unless you referenced a tool name by
+> hand — in a permission allowlist, a saved prompt, or a script:
+>
+> | Removed | Use instead |
+> |---|---|
+> | `comfyui_start_comfyui`, `comfyui_restart_comfyui` | `launch_comfyui`, `restart_comfyui` (official) |
+> | `comfyui_get_install_guide` | `install_comfyui` (official) |
+> | `comfyui_get_model_guide`, `comfyui_get_download_url`, `comfyui_list_models` | `search_models`, `download_model` (official) |
+> | `comfyui_list_nodes`, `comfyui_get_node_info`, `comfyui_find_nodes_by_type` | `nodes` (official) — searches, inspects, filters and graph-walks |
+> | `comfyui_validate_workflow` | `validate_workflow` (official) — takes a path, so write the file first |
+> | `comfyui_list_examples`, `comfyui_get_example_workflow` | `search_templates`, `get_template` (official), or `comfyui_recommend_workflow` |
+> | `comfyui_get_capabilities` | `comfyui_get_status` — it reports the detected architectures |
+> | `comfyui_flush_workflow`, `comfyui_reload_workflow` | Automatic. `comfyui_read_workflow` flushes, `comfyui_write_workflow` flushes and reloads |
+> | `comfyui_name_generation` | Pass `name` to `comfyui_run_workflow` |
+> | `comfyui_get_generation_by_name` | `comfyui_get_task_result` accepts a name or an id |
+> | `comfyui_search_templates` and friends | Renamed `comfyui_search_user_snippets` etc. — they search YOUR saved workflows, not the Comfy gallery |
+>
+> `skip_flush`, `skip_reload` and `save_first` are gone too; each only turned a
+> safety off.
 
 - [ComfyUI MCP Server](#comfyui-mcp-server)
   - [Let Your AI Install This For You](#let-your-ai-install-this-for-you)
@@ -48,27 +66,19 @@
     - [Setup \& Status Tools](#setup--status-tools)
       - [`comfyui_get_status`](#comfyui_get_status)
       - [`comfyui_reconnect`](#comfyui_reconnect)
-      - [`comfyui_start_comfyui`](#comfyui_start_comfyui)
-      - [`comfyui_restart_comfyui`](#comfyui_restart_comfyui)
-      - [`comfyui_get_install_guide`](#comfyui_get_install_guide)
-      - [`comfyui_get_model_guide`](#comfyui_get_model_guide)
     - [Template \& Workflow Library Tools](#template--workflow-library-tools)
-      - [`comfyui_search_templates`](#comfyui_search_templates)
-      - [`comfyui_get_template`](#comfyui_get_template)
-      - [`comfyui_save_template`](#comfyui_save_template)
-      - [`comfyui_delete_template`](#comfyui_delete_template)
-      - [`comfyui_list_examples`](#comfyui_list_examples)
-      - [`comfyui_get_example_workflow`](#comfyui_get_example_workflow)
+      - [`comfyui_search_user_snippets`](#comfyui_search_user_snippets)
+      - [`comfyui_get_user_snippet`](#comfyui_get_user_snippet)
+      - [`comfyui_save_user_snippet`](#comfyui_save_user_snippet)
+      - [`comfyui_delete_user_snippet`](#comfyui_delete_user_snippet)
       - [`comfyui_extract_workflow`](#comfyui_extract_workflow)
       - [`comfyui_recommend_workflow`](#comfyui_recommend_workflow)
       - [`comfyui_plan_iteration`](#comfyui_plan_iteration)
-      - [`comfyui_get_download_url`](#comfyui_get_download_url)
       - [`comfyui_get_prompting_guide`](#comfyui_get_prompting_guide)
       - [`comfyui_search_tags`](#comfyui_search_tags)
       - [`comfyui_related_tags`](#comfyui_related_tags)
     - [Generation Tools](#generation-tools)
       - [`comfyui_run_workflow`](#comfyui_run_workflow)
-      - [`comfyui_validate_workflow`](#comfyui_validate_workflow)
       - [`comfyui_get_image`](#comfyui_get_image)
       - [`comfyui_upload_image`](#comfyui_upload_image)
       - [`comfyui_describe_image`](#comfyui_describe_image)
@@ -76,23 +86,14 @@
       - [`comfyui_list_open_workflows`](#comfyui_list_open_workflows)
       - [`comfyui_read_workflow`](#comfyui_read_workflow)
       - [`comfyui_write_workflow`](#comfyui_write_workflow)
-      - [`comfyui_flush_workflow`](#comfyui_flush_workflow)
-      - [`comfyui_reload_workflow`](#comfyui_reload_workflow)
     - [Workflow Composition Tools](#workflow-composition-tools-1)
       - [`comfyui_build_node`](#comfyui_build_node)
-      - [`comfyui_get_node_info`](#comfyui_get_node_info)
-      - [`comfyui_find_nodes_by_type`](#comfyui_find_nodes_by_type)
-      - [`comfyui_list_nodes`](#comfyui_list_nodes)
     - [Discovery Tools](#discovery-tools)
-      - [`comfyui_get_capabilities`](#comfyui_get_capabilities)
-      - [`comfyui_list_models`](#comfyui_list_models)
     - [Task \& Queue Management](#task--queue-management)
       - [`comfyui_get_task`](#comfyui_get_task)
       - [`comfyui_get_task_result`](#comfyui_get_task_result)
       - [`comfyui_list_tasks`](#comfyui_list_tasks)
       - [`comfyui_cancel_task`](#comfyui_cancel_task)
-      - [`comfyui_name_generation`](#comfyui_name_generation)
-      - [`comfyui_get_generation_by_name`](#comfyui_get_generation_by_name)
       - [`comfyui_get_queue`](#comfyui_get_queue)
       - [`comfyui_cancel_job`](#comfyui_cancel_job)
       - [`comfyui_interrupt`](#comfyui_interrupt)
@@ -159,17 +160,17 @@ I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP s
 
 2. Once configured, use comfyui_get_status to check if ComfyUI is running and connected.
 
-3. If ComfyUI isn't installed, use comfyui_get_install_guide to help me install it.
-   If it's installed but not running, use comfyui_start_comfyui.
+3. If ComfyUI isn't installed or isn't running, use the official Comfy MCP's
+   install_comfyui / launch_comfyui. This server does not manage the process.
 
-4. Use comfyui_list_models to see what models I have available.
+4. Use the official Comfy MCP's search_models to see what models I have.
 
 5. Use comfyui_recommend_workflow with one of those model filenames — it names the
    right workflow shape and the settings that model wants.
 
 6. Use comfyui_get_prompting_guide to learn the correct prompting style for my model.
 
-7. Use comfyui_get_template to build a workflow and comfyui_run_workflow to generate
+7. Use comfyui_get_user_snippet to build a workflow and comfyui_run_workflow to generate
    a test image.
 ```
 
@@ -187,8 +188,9 @@ assistants and ComfyUI, the powerful node-based interface for Stable Diffusion
 and other generative AI models. It allows Claude and other MCP-compatible AI
 assistants to:
 
-- **Run complex workflows** with full control over every node and parameter
-- **Compose custom workflows** using node discovery and building tools
+- **Run complex workflows** from a graph you hold in memory, with full control
+  over every node and parameter — and read a node's **text** output by id
+- **Compose custom workflows** by building nodes against the live catalog
 - **Create videos** using AnimateDiff, Stable Video Diffusion, Wan, LTX-Video, Mochi, Cosmos and Hunyuan Video
 - **Generate audio** using Stable Audio, ACE-Step and other audio models
 - **Edit workflow files** without clobbering what you have open in a browser tab
@@ -671,94 +673,15 @@ This does **not** start ComfyUI. If nothing is running, use
 Reconnect to ComfyUI.
 ```
 
-#### `comfyui_start_comfyui`
-Start ComfyUI on this machine if nothing is answering, then wait for it to come
-up and connect. This is the one tool that launches a process rather than
-talking to a running instance.
-
-It checks live first and returns `alreadyRunning` without launching anything if
-ComfyUI is reachable, so it is safe to call speculatively — it will never start
-a second instance alongside the first. To restart a running instance, use
-[`comfyui_restart_comfyui`](#comfyui_restart_comfyui).
-
-Launch targets are auto-detected, best first: the desktop app, a portable
-`run_nvidia_gpu.bat` / `run_cpu.bat`, then a source checkout (`main.py` run with
-the checkout's own venv or `python_embeded` if it has one). Anything else — a
-wrapper script, custom flags — goes in `COMFYUI_LAUNCH_COMMAND` (with optional
-`COMFYUI_LAUNCH_ARGS` and `COMFYUI_LAUNCH_CWD`), or in the `command` parameter
-for a one-off.
-
-ComfyUI is launched detached with its output discarded, so it keeps running if
-this server restarts, and its console output cannot corrupt the MCP stream. Run
-the reported `command` in a terminal yourself when you need to see that output.
-
-Refuses when `COMFYUI_URL` points at another machine, or when this server is
-running inside Docker — in both cases the process to start is not here.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `command` | `string?` | Executable, `.bat`, or script to launch instead of the auto-detected one |
-| `args` | `string[]?` | Arguments for the command, e.g. `["--listen", "--port", "8189"]` |
-| `cwd` | `string?` | Working directory (defaults to the detected install directory) |
-| `timeoutSeconds` | `number?` | How long to wait for ComfyUI to answer, 10–600 (default `180`) |
-
-```
-Start ComfyUI if it isn't already running.
-```
-
-#### `comfyui_restart_comfyui`
-Ask ComfyUI to restart itself, then wait for it to come back and reconnect
-automatically. This is a clean in-app restart through ComfyUI's own API — no
-killing processes — useful for loading newly installed custom nodes or models,
-or for clearing a wedged instance.
-
-Requires **[ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager)**,
-which provides the reboot endpoint; core ComfyUI has none. If ComfyUI-Manager's
-`security_level` forbids remote reboots, the tool reports that specifically.
-
-Refuses while generations are running or queued unless `force` is set, since a
-restart drops them.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `force` | `boolean?` | Restart even if generations are running or queued (default `false`) |
-| `timeoutSeconds` | `number?` | How long to wait for ComfyUI to come back, 10–600 (default `180`) |
-
-```
-I just installed a custom node. Restart ComfyUI so it loads.
-```
-
-#### `comfyui_get_install_guide`
-Get platform-specific installation instructions. Recommends the desktop app for most users.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `platform` | `"auto" \| "macos" \| "windows" \| "linux"` | Target platform (default: `auto`) |
-
-```
-How do I install ComfyUI on my Mac?
-```
-
-#### `comfyui_get_model_guide`
-Get detailed guidance on downloading and installing models, including which folder each model type belongs in.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `modelType` | `"all" \| "checkpoint" \| "flux" \| "sdxl" \| "sd15" \| "lora" \| "controlnet" \| "vae"` | Type of model (default: `all`) |
-
-```
-How do I set up Flux models?
-```
-
 ### Template & Workflow Library Tools
 
 Everything in this section works with ComfyUI stopped, except
-`comfyui_get_template`, which validates against the nodes actually installed.
+`comfyui_get_user_snippet`, which validates against the nodes actually installed.
 
-#### `comfyui_search_templates`
+#### `comfyui_search_user_snippets`
 Search for workflow templates across built-in, example, and custom sources.
 Paginated. Results carry only enough to pick one — call
-[`comfyui_get_template`](#comfyui_get_template) with an id for parameters,
+[`comfyui_get_user_snippet`](#comfyui_get_user_snippet) with an id for parameters,
 settings and runnable JSON.
 
 | Parameter | Type | Description |
@@ -778,21 +701,21 @@ Returns `{ query, total, count, offset, results, has_more, next_offset }`.
 Find templates for Flux txt2img
 ```
 
-#### `comfyui_get_template`
+#### `comfyui_get_user_snippet`
 Build a workflow from a template with your parameters. Returns complete,
 runnable JSON for `comfyui_run_workflow`, validated against the nodes this
 ComfyUI actually has.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `templateId` | `string` | Template ID from `comfyui_search_templates` |
+| `templateId` | `string` | Template ID from `comfyui_search_user_snippets` |
 | `parameters` | `object?` | Parameters to apply (prompt, model, etc.) |
 
 ```
 Get the flux_schnell_txt2img template with prompt "a sunset over mountains"
 ```
 
-#### `comfyui_save_template`
+#### `comfyui_save_user_snippet`
 Save a workflow as a reusable custom template, stored persistently in the local
 database. Name it for its purpose, not its ordering.
 
@@ -810,44 +733,13 @@ database. Name it for its purpose, not its ordering.
 Save this workflow as "portrait_lighting_studio"
 ```
 
-#### `comfyui_delete_template`
+#### `comfyui_delete_user_snippet`
 Delete a custom saved template. Built-in templates and documentation examples
 cannot be deleted and will report so.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `id` | `string` | Template ID to delete |
-
-#### `comfyui_list_examples`
-List official ComfyUI example workflows — 77 of them, organized by model and
-use case. Paginated.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `category` | `string?` | Filter by category (`basics`, `sdxl`, `flux`, `video`, `audio`, …) |
-| `search` | `string?` | Free text search over names and descriptions |
-| `detail` | `"names" \| "summary" \| "full"` | How much per entry (default: `summary`) |
-| + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
-
-Returns `{ total, count, offset, categories, examples, has_more, next_offset }`.
-
-```
-Show me example workflows for Flux
-```
-
-#### `comfyui_get_example_workflow`
-Fetch an example workflow from the ComfyUI documentation, extracting the JSON
-embedded in the documentation image. Returns runnable API-format JSON plus the
-models it needs.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `name` | `string` | Example name (e.g., "Flux Schnell Checkpoint") |
-| `variant` | `number?` | Variant index if multiple (default: 0) |
-
-```
-Get the Flux Schnell Checkpoint workflow
-```
 
 #### `comfyui_extract_workflow`
 Extract workflow JSON from a ComfyUI-generated PNG image. Also returns any
@@ -920,18 +812,6 @@ previews composition. Works with ComfyUI stopped if you pass the model lists.
 
 ```
 Plan a cheap iteration loop for flux1-dev.safetensors
-```
-
-#### `comfyui_get_download_url`
-Get the download URL for a model by name, with its destination folder and a
-ready-to-run `wget` command.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `modelName` | `string` | Model name to look up |
-
-```
-Where can I download flux1-schnell?
 ```
 
 #### `comfyui_get_prompting_guide`
@@ -1071,27 +951,6 @@ own graph and so names its own nodes.
 
 ```
 Run this workflow: [paste JSON]
-```
-
-#### `comfyui_validate_workflow`
-Validate a workflow before running. Checks node types, connections, required
-inputs, and that each fixed-choice value — a model filename, a sampler, an
-input image — is one this ComfyUI actually has. A name that is not installed
-comes back with the closest installed one rather than the whole list.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `workflow` | `object` | The workflow to validate |
-| `response_format` | `"json" \| "markdown"?` | Output format (default: `json`) |
-
-Returns:
-- `valid`: Whether the workflow is valid
-- `errors`: Critical issues that will cause failures
-- `warnings`: Non-critical issues to be aware of
-- `info`: Helpful information about the workflow
-
-```
-Check if this workflow is valid before I run it
 ```
 
 #### `comfyui_get_image`
@@ -1245,27 +1104,6 @@ into what you generate, rather than regenerating it away.
 Rewrite workflows/Shared/pipeline.json with the updated graph
 ```
 
-#### `comfyui_flush_workflow`
-Ask any open tab to save a workflow now, and wait for it to settle.
-`comfyui_write_workflow` does this for you; call it directly when you want the
-human's unsaved edits on disk before reading them.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `path` | `string` | Workflow path relative to the user directory |
-| `wait_seconds` | `number?` | How long to wait for the save, 0–30 (default: 4) |
-
-#### `comfyui_reload_workflow`
-Tell open tabs to re-read a workflow from disk after it was rewritten.
-Necessary because ComfyUI restores a workflow from cached session state rather
-than re-reading the file, so a tab can sit on a stale graph indefinitely and
-autosave it back. `comfyui_write_workflow` does this for you.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `path` | `string` | Workflow path relative to the user directory |
-| `save_first` | `boolean?` | Save the tab's unsaved changes before reloading (default: true). Setting this false **discards** them. |
-
 ### Workflow Composition Tools
 
 #### `comfyui_build_node`
@@ -1287,88 +1125,7 @@ Returns:
 Build a SaveImage node with ID "9"
 ```
 
-#### `comfyui_get_node_info`
-Get detailed information about one node: inputs, outputs, example JSON, and tips.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `node` | `string` | Node class_type (e.g., "KSampler", "CheckpointLoaderSimple") |
-
-Returns:
-- Input specifications with types, defaults, ranges and valid options
-- Output types and slot indices
-- Example JSON showing how to use the node
-- Connection guide for each input type
-- Tips for certain node types
-
-```
-What are the inputs for KSampler?
-```
-
-#### `comfyui_find_nodes_by_type`
-Find nodes by their input or output types. Useful for workflow composition. Paginated.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `inputType` | `string?` | Find nodes that accept this type (e.g., "MODEL", "LATENT") |
-| `outputType` | `string?` | Find nodes that produce this type |
-| + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
-
-At least one of `inputType` / `outputType` is required.
-
-```
-What nodes can output a MODEL?
-```
-
-#### `comfyui_list_nodes`
-List available ComfyUI node types. Paginated, and returns a summary projection
-by default — a modded install carries 2000+ node types. Narrow before paging.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `category` | `string?` | Filter by category |
-| `search` | `string?` | Search term to filter node names |
-| `detail` | `"names" \| "summary" \| "full"` | How much per node (default: `summary`) |
-| + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
-
-Returns `{ total, count, offset, categoryCount, topCategories, nodes, has_more, next_offset }`.
-The category map is capped — a modded install has ~400 categories, and the full
-map cost four times the page of nodes it labelled.
-
-```
-What ControlNet nodes are available?
-```
-
 ### Discovery Tools
-
-#### `comfyui_get_capabilities`
-Get the detected capabilities of the connected ComfyUI instance: model
-architectures, feature support, counts of installed models by type, available
-samplers and schedulers, and prompting advice for the primary architecture.
-Takes no parameters.
-
-Returns a summary rather than full model lists — use
-[`comfyui_list_models`](#comfyui_list_models) for those.
-
-```
-What can this ComfyUI do? What models does it have?
-```
-
-#### `comfyui_list_models`
-List model files installed in ComfyUI. Paginated — filter before paging, since
-an install can hold hundreds of LoRAs.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `type` | `"all" \| "checkpoints" \| "loras" \| "vae" \| "controlnet" \| "upscale_models" \| "embeddings" \| "hypernetworks" \| "clip" \| "unet"` | Model type filter (default: `all`) |
-| `search` | `string?` | Filter filenames by substring |
-| + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
-
-Returns `{ total, count, offset, models: { <type>: [filename, …] }, has_more, next_offset }`.
-
-```
-What checkpoints do I have installed?
-```
 
 ### Task & Queue Management
 
@@ -1412,23 +1169,6 @@ cancels the underlying job; for one already generating, use
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `taskId` | `string` | The task ID to cancel |
-
-#### `comfyui_name_generation`
-Assign a descriptive name to an existing generation so it can be retrieved
-later by name.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `taskId` | `string` | The task ID to name |
-| `name` | `string` | Descriptive name (e.g., "landscape_sunset_warm") |
-
-#### `comfyui_get_generation_by_name`
-Retrieve a generation by the name assigned via `comfyui_run_workflow`'s `name`
-parameter or `comfyui_name_generation`.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `name` | `string` | The name assigned to the generation |
 
 #### `comfyui_get_queue`
 Get ComfyUI's current queue status — what is running now and what is pending.
@@ -1734,7 +1474,7 @@ When you call `comfyui_run_workflow`, the server:
 Sync and async share one implementation, so `comfyui_get_task_result` and a
 `sync: true` run return the same thing.
 
-**Graph shapes.** `comfyui_get_template` builds one of three shapes, chosen by
+**Graph shapes.** `comfyui_get_user_snippet` builds one of three shapes, chosen by
 the architecture registry rather than by the model's name:
 
 | Shape | Loaders | Used by |
@@ -1810,7 +1550,7 @@ User: Generate a pirate husky with Flux
 Claude: [comfyui_list_models] Found flux1-schnell-fp8.safetensors...
 Claude: [comfyui_recommend_workflow] It's a UNET model — needs the Flux graph, 4 steps, CFG 1.0...
 Claude: [comfyui_get_prompting_guide('flux')] Flux uses natural language prompts...
-Claude: [comfyui_get_template with parameters] Built workflow...
+Claude: [comfyui_get_user_snippet with parameters] Built workflow...
 Claude: [comfyui_validate_workflow] Workflow is valid...
 Claude: [comfyui_run_workflow] Started — task abc123
 Claude: [comfyui_get_task_result] Done!
