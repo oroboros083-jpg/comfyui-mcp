@@ -46,8 +46,31 @@ ComfyUI".
 ## Repo housekeeping
 
 - [x] **GitHub Actions has never run in this repo.** Now enabled, and
-      `.github/workflows/ci.yml` builds and tests on Node 18/20/22 for every
+      `.github/workflows/ci.yml` builds and tests on Node 24 and 26 for every
       push and PR.
+
+- [ ] **`listExamples` / `renderExamples` are orphaned.** Dropping
+      `list_examples` and `get_example_workflow` left their implementations
+      behind in `src/tools/examples/list-examples.ts`. Nothing calls
+      `listExamples`, `renderExamples` or `listExamplesSchema` - they are only
+      re-exported by `src/tools/examples/index.ts`. Note `fetchExampleWorkflow`
+      and `apiFormatOf` from the same file ARE still live
+      (`handlers/resources.ts`, `examples/recommend.ts`), so this is a
+      partial removal, not deleting the module. `EXAMPLE_WORKFLOWS` itself
+      stays: it feeds the `comfyui://examples/*` resources and
+      `comfyui_recommend_workflow`.
+
+- [ ] **`spawnComfyUI` is unreachable.** Same cause - `start_comfyui` was
+      dropped, so nothing in `src/` references `spawnComfyUI` outside its own
+      definition in `src/tools/launch.ts`. Only `launchBlockedReason` is
+      imported (by `server/connection.ts`), plus `readStartupLogTail`,
+      `LaunchTarget` and `isLocalUrl` by that file's own test. So launch.ts is
+      not dead as a module, but the part that actually spawns is. Deleting it
+      would also retire the `COMFYUI_LAUNCH_COMMAND` env var and the
+      "only one module spawns processes" security note in `README.md`, and
+      would mean this server can no longer spawn anything at all - arguably a
+      simplification worth having, since launching is now the official Comfy
+      MCP's `launch_comfyui`.
 
 ## Scope and context efficiency
 
