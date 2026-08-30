@@ -1019,11 +1019,18 @@ there is deliberately no tool for granting that, because a permission an agent
 can grant itself is not a permission.
 
 #### `comfyui_describe_image`
-Run an image through an installed tagger or captioner and get back what it says
-is in it. Use this on a reference image **before** writing a prompt from it: it
-answers in the vocabulary the diffusion model was trained on, which your own
-description of the image is not. A booru model does not know "glancing over her
-shoulder"; it knows `looking_back`.
+Get an example of the **prompt** that would be paired with this image in
+training data. Not a description of the image — an AI assistant with vision
+reads an image better than any of these backends do, so this is not a way of
+seeing. It answers the narrower question it cannot: which exact token fires on
+this model. You see "glancing over her shoulder"; the training data says
+`looking_back`, and looking harder at the image will never tell you whether
+the token is `looking_back`, `looking_over_shoulder` or `turning_head`.
+
+So look at the image first, then call this for the phrasing. **Where the two
+disagree, your reading is right about the image and the backend is right about
+the prompt** — a tag it misses is not a tag the image lacks, it is a tag that
+will not fire on this model.
 
 Pass exactly one image source.
 

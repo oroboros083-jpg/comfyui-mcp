@@ -473,6 +473,30 @@ Keep it that way. In particular:
 
 ### Adding an Image-to-Text Backend
 
+**First, what a backend is for.** None of them read an image better than the
+model calling them does - Claude has vision, and a tool positioned as "run
+this to find out what is in the image" is a downgrade dressed as a feature.
+They answer a narrower question the caller genuinely cannot:
+
+> what text would have been paired with an image like this in training data.
+
+A backend's output is a worked example of a *prompt*, not a description. The
+rule that follows, and which `describe_image`'s description and both `hintFor`
+branches state: where a backend disagrees with the caller's own reading, the
+CALLER is right about the image and the BACKEND is right about the prompt. A
+tag WD14 misses is not a tag the image lacks - it is a tag that will not fire.
+
+Write `goodFor` in those terms. A row that is merely a good captioner earns no
+place here; one whose vocabulary matches what the model was trained on does.
+It is also why JoyCaption outranks Florence-2 for prose despite Florence-2
+being the better-known model: JoyCaption was built to caption diffusion
+training sets, which is exactly the job.
+
+Detection and segmentation are **not** this registry's job. Purpose-built
+models - SAM3, Grounding DINO, the YOLO family - beat a captioner at boxes and
+masks by a wide margin. If coordinates are wanted, that is a new row for a
+real detector, not a `task` parameter on Florence-2.
+
 One row in `src/tools/describe/backends.ts`. Two things about ComfyUI make the
 rows less uniform than they look, and both bite silently:
 

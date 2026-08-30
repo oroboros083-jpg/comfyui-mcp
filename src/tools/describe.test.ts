@@ -356,3 +356,49 @@ test("the florence2 graph asks for a caption, matching what its goodFor says", (
     "reads the caption output, not the JSON data output that carries boxes"
   );
 });
+
+// --- the framing ----------------------------------------------------------
+
+test("the hints offer prompt phrasing, not a description of the image", () => {
+  // The whole point of this tool. A hint that reads as "here is what is in
+  // the image" invites using a weaker classifier in place of the caller's own
+  // vision, which is strictly worse than not calling it at all.
+  const tags = describeImage(
+    "refs/photo.png",
+    chooseBackends(WD14_ONLY, {}),
+    async () => ({ "2": { tags: ["1girl, solo"] } })
+  );
+  const prose = describeImage(
+    "refs/photo.png",
+    chooseBackends(FLORENCE_ONLY, {}),
+    async () => ({ "4": { text: ["A woman glances back."] } })
+  );
+
+  return Promise.all([tags, prose]).then(([tagResult, proseResult]) => {
+    for (const [label, result] of [["tags", tagResult], ["prose", proseResult]] as const) {
+      assert.match(
+        result.hint,
+        /prompt phrasing|not a description/i,
+        `the ${label} hint should frame its answer as prompt phrasing`
+      );
+    }
+
+    // The disagreement rule is the operationally useful half: it tells the
+    // caller which source wins on which question.
+    assert.match(tagResult.hint, /your own reading/i);
+    assert.match(tagResult.hint, /will not respond/i);
+  });
+});
+
+test("every backend describes itself as a prompt example, not as a describer", () => {
+  // `goodFor` is what an agent reads when choosing between backends, so it is
+  // where the framing has to hold. A row selling itself on description
+  // quality is selling the thing the caller already does better.
+  for (const backend of DESCRIBE_BACKENDS) {
+    assert.match(
+      backend.goodFor,
+      /prompt|token|trained|training|fires?\b/i,
+      `${backend.id} does not say what it gives you toward a prompt`
+    );
+  }
+});

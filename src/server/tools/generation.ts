@@ -164,10 +164,13 @@ export function registerGenerationTools(
   defineTool(server, {
     name: "describe_image",
     description:
-      "Run an image through an installed tagger or captioner and return what it says is in it. Use " +
-      "this on a reference image BEFORE writing a prompt from it: it answers in the vocabulary the " +
-      "diffusion model was trained on, which your own description of the image is not. A booru model " +
-      "does not know 'glancing over her shoulder'; it knows 'looking_back'.\n\n" +
+      "Get an example of the PROMPT that would be paired with this image in training data. Not a " +
+      "description of the image - you can already see the image, and you read it better than any " +
+      "of these backends. What you cannot do is say which exact token fires on this model: you " +
+      "see 'glancing over her shoulder', the training data says 'looking_back'.\n\n" +
+      "So look at the image yourself first, then call this for the phrasing. Where the two " +
+      "disagree, YOU are right about the image and the backend is right about the prompt - a tag " +
+      "it misses is not a tag the image lacks, it is a tag that will not fire on this model.\n\n" +
       "Pass 'promptingStyle' from comfyui_get_prompting_guide and the right kind of backend is " +
       "chosen - a tagger for booru_tags models, a captioner otherwise. Pass 'backends' to choose " +
       "explicitly, or to run a tagger AND a captioner in one call ('backends': ['wd14','florence2']); " +

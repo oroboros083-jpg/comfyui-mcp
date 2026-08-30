@@ -23,6 +23,14 @@
  *
  * Node names, inputs and return shapes below were read from each project's
  * source, not inferred; the comment on each row says which.
+ *
+ * WHAT A ROW IS FOR. None of these read an image better than the model
+ * calling them does. They are not here to see - they are here to answer a
+ * narrower question the caller genuinely cannot: what text would have been
+ * paired with an image like this in training data. A row's output is a
+ * worked example of a prompt, not a description, and `goodFor` should say so
+ * in those terms. A backend that is merely a good captioner earns no place
+ * here; one whose vocabulary matches what the model was trained on does.
  */
 
 import { ObjectInfo } from "../../client/comfyui.js";
@@ -115,9 +123,11 @@ export const DESCRIBE_BACKENDS: DescribeBackend[] = [
     kind: "tags",
     install: "https://github.com/pythongosssss/ComfyUI-WD14-Tagger",
     goodFor:
-      "Danbooru tags, in the exact vocabulary the booru models were trained on. Describing a " +
-      "reference image in the same words the model learned is the point - a caption in prose " +
-      "has to be translated before it can be prompted with.",
+      "The exact Danbooru tokens a booru model was trained on, with a confidence per tag. This " +
+      "is the closest thing here to a ground-truth prompt: it is the same class of tagger that " +
+      "labelled the training set, so what it emits is what fires. Its misses are informative - " +
+      "a tag it does not produce is one the model will not respond to, whatever you can see in " +
+      "the image.",
     build: ({ imageRef, nodeType }) => ({
       workflow: {
         "1": { class_type: "LoadImage", inputs: { image: imageRef } },
@@ -150,7 +160,9 @@ export const DESCRIBE_BACKENDS: DescribeBackend[] = [
     kind: "prose",
     install: "https://github.com/kijai/ComfyUI-Florence2",
     goodFor:
-      "A natural-language caption. Florence-2 can also do grounded tasks - OCR, region " +
+      "A generic caption, and the weakest of the three as a prompt example - it was trained to " +
+      "describe images for people, not to write prompts for a diffusion model. Reach for it " +
+      "when JoyCaption is not installed. Florence-2 can also do grounded tasks - OCR, region " +
       "captioning, phrase grounding - but this backend does NOT expose them: `task` is fixed " +
       "to a caption below, and the graph reads only the caption output. Nothing here returns " +
       "coordinates.",
@@ -202,9 +214,11 @@ export const DESCRIBE_BACKENDS: DescribeBackend[] = [
     kind: "prose",
     install: "https://github.com/fpgaminer/joycaption_comfyui",
     goodFor:
-      "A caption written for this corpus. JoyCaption is a VLM built specifically to caption " +
-      "diffusion training data, so it neither refuses nor sanitises the way a general-purpose " +
-      "VLM does on the same images - which is what makes its output usable as a prompt.",
+      "The best prose prompt example here, because writing diffusion training captions is " +
+      "literally what it was built for - its output is close to the text an image like this " +
+      "would have been trained against. It also neither refuses nor sanitises the way a " +
+      "general-purpose VLM does on this corpus, which is what keeps the result usable as a " +
+      "prompt rather than as a summary.",
     build: ({ imageRef, nodeType, terminalType, prompt }) => ({
       workflow: {
         "1": { class_type: "LoadImage", inputs: { image: imageRef } },
