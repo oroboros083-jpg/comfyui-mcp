@@ -7,7 +7,11 @@
  */
 
 import { ModelPromptingGuide } from "../types.js";
-import { COMFY_TEXT_ENCODE_SYNTAX, NATURAL_LANGUAGE_SYNTAX } from "./vocabulary.js";
+import {
+  COMFY_TEXT_ENCODE_SYNTAX,
+  NATURAL_LANGUAGE_SYNTAX,
+  SPATIAL_CONTROL_NOTE,
+} from "./vocabulary.js";
 
 export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
   sd15: {
@@ -43,6 +47,7 @@ export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
       "Negative prompts are essential - include: 'worst quality, low quality, blurry'",
       "Use prompt weights with (keyword:1.2) syntax to emphasize elements",
       "Keep prompts focused - SD1.5 struggles with complex multi-subject scenes",
+      SPATIAL_CONTROL_NOTE,
       "Artist style references work well: 'by greg rutkowski, artstation'",
     ],
     commonMistakes: [
@@ -102,6 +107,7 @@ export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
       "Include photographic terms for realism: camera model, lens, lighting setup",
       "Dual text encoders allow style separation (main prompt + style prompt)",
       "Complex multi-subject scenes work much better than SD1.5",
+      SPATIAL_CONTROL_NOTE,
       "Quality tags less necessary - SDXL handles quality well by default",
       "This is BASE SDXL. Anime finetunes built on it (Illustrious, NoobAI, Pony, Animagine) want booru tags instead - ask for their guide by name",
     ],

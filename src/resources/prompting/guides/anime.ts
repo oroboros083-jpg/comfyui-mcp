@@ -19,7 +19,11 @@
  */
 
 import { ModelPromptingGuide } from "../types.js";
-import { COMFY_TEXT_ENCODE_SYNTAX, DANBOORU_VOCABULARY } from "./vocabulary.js";
+import {
+  COMFY_TEXT_ENCODE_SYNTAX,
+  DANBOORU_VOCABULARY,
+  SPATIAL_CONTROL_NOTE,
+} from "./vocabulary.js";
 
 /** Shared by every model in this family, stated once. */
 const BOORU_SYNTAX =
@@ -229,6 +233,7 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
     syntax: COMFY_TEXT_ENCODE_SYNTAX,
     vocabulary: DANBOORU_VOCABULARY,
     tips: [
+      SPATIAL_CONTROL_NOTE,
       "Native 1536x1536 - generating at 1024 leaves resolution on the table",
       "Danbooru tag vocabulary: check the tag exists rather than inventing a phrase",
       "Natural language is understood and can be mixed in, unlike earlier anime finetunes",
@@ -337,6 +342,7 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
     syntax: COMFY_TEXT_ENCODE_SYNTAX,
     vocabulary: DANBOORU_VOCABULARY,
     tips: [
+      SPATIAL_CONTROL_NOTE,
       "Recency tags are the strongest single style lever: `newest` versus `old` changes the whole look",
       "Knows e621 tags as well as Danbooru ones, so the vocabulary is wider than Illustrious",
       "Check which variant you have - v-prediction builds want noticeably lower CFG than EPS builds",
@@ -443,6 +449,7 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
     syntax: COMFY_TEXT_ENCODE_SYNTAX,
     vocabulary: DANBOORU_VOCABULARY,
     tips: [
+      SPATIAL_CONTROL_NOTE,
       "Open with the score chain; without it output quality drops sharply",
       "`source_anime` versus `source_cartoon` versus `source_furry` is the biggest style switch available",
       "Rating tags are explicit tokens here (`rating_safe`), not bare words like other booru models",
@@ -556,6 +563,7 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
     syntax: COMFY_TEXT_ENCODE_SYNTAX,
     vocabulary: DANBOORU_VOCABULARY,
     tips: [
+      SPATIAL_CONTROL_NOTE,
       "Follow the published order: count, character, series, rating, general, quality",
       "Character plus series is the pair that makes character recall reliable",
       "Quality tags belong at the end - the opposite of Pony and Illustrious",
