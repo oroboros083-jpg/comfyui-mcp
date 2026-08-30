@@ -14,7 +14,7 @@ import {
   formattedResult,
   ToolResult,
 } from "../../utils/response.js";
-import { runWorkflowSchema, getImageSchema, getImage } from "../../tools/generate.js";
+import { runWorkflowSchema, getImageSchema, getImage, autoRunName } from "../../tools/generate.js";
 import { uploadImageSchema, uploadImage } from "../../tools/upload.js";
 import {
   describeImageSchema,
@@ -89,11 +89,16 @@ export function registerGenerationTools(
   defineTool(server, {
     name: "run_workflow",
     description:
-      "Run a ComfyUI workflow in API-format JSON. Async by default: returns a task ID immediately, then " +
-      "use comfyui_get_task for progress and comfyui_get_task_result for output. Set sync:true to block " +
-      "until it finishes.\n\n" +
-      "Pass 'name' with something descriptive ('sunset_portrait_v2') so the result can be found later " +
-      "with comfyui_get_generation_by_name.\n\n" +
+      "Run a ComfyUI workflow given as a JSON OBJECT (API format). Async by default: returns a task ID " +
+      "immediately, then use comfyui_get_task for progress and comfyui_get_task_result for output. Set " +
+      "sync:true to block until it finishes.\n\n" +
+      "Pass 'name' with something descriptive ('sunset_portrait_v2'): both of those tools accept it in " +
+      "place of the task id, so it is how you retrieve this run later without keeping the id.\n\n" +
+      "Use this rather than the official Comfy MCP's `run_workflow` when the graph is in hand rather " +
+      "than in a file - theirs takes a path only. It also takes 'collectText' with node ids, which is " +
+      "the only way to read a node's TEXT output (a captioner, a text encoder); their `fetch_outputs` " +
+      "returns files. Runs submitted here are NOT visible to their `job(...)` or `fetch_outputs`, " +
+      "which read comfy-cli's own state files - track them with comfyui_get_task.\n\n" +
       "Start from comfyui_recommend_workflow (which matches a model to a graph shape) or from a saved " +
       "snippet via comfyui_get_user_snippet, rather than assembling a workflow by hand.",
     schema: runWorkflowSchema,
@@ -118,7 +123,7 @@ export function registerGenerationTools(
         c.jobManager,
         client,
         ws,
-        input,
+        { ...input, name: input.name ?? autoRunName() },
         c.config.outputDir,
         c.config.outputSizeThreshold
       );

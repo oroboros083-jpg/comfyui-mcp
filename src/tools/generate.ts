@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { ComfyUIClient } from "../client/comfyui.js";
 import {
@@ -40,7 +41,13 @@ export const runWorkflowSchema = z.object({
   name: z
     .string()
     .optional()
-    .describe("Descriptive name for this generation (e.g., 'beach_sunset_v2', 'logo_blue_variant'). Use clear, searchable names to find it later with get_generation_by_name."),
+    .describe(
+      "Descriptive name for this generation, e.g. 'beach_sunset_v2' or 'logo_blue_variant'. " +
+        "comfyui_get_task and comfyui_get_task_result both accept it in place of the task id, so a " +
+        "good name is how you retrieve this run later without keeping its id. " +
+        "Omitted, a placeholder like 'run-20260829-a3f9c1' is assigned so the run is still " +
+        "addressable - but a name you chose is the one you will remember."
+    ),
   collectText: z
     .array(z.string())
     .optional()
@@ -135,4 +142,26 @@ export async function getImage(
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+/**
+ * A placeholder name for a run the caller did not name.
+ *
+ * Every run being addressable by name is what let comfyui_get_task and
+ * comfyui_get_task_result replace a separate lookup-by-name tool. But a
+ * generated name must never collide with one a human chose: `jobs.name` is
+ * UNIQUE, and `setJobName` resolves a collision by STEALING the name - it nulls
+ * it on whichever job held it first. A generated name landing on a human's
+ * label would silently strip it off their job.
+ *
+ * So the shape is one nobody would type: a `run-` prefix, the date, and six
+ * random hex characters. Assigned at the run_workflow tool boundary and passed
+ * to createJob, which inserts it directly rather than going through
+ * setJobName - describe_image calls runWorkflowAsync itself and is left
+ * unnamed, since nobody recalls a captioning pass by name.
+ */
+export function autoRunName(): string {
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const suffix = randomBytes(3).toString("hex");
+  return `run-${day}-${suffix}`;
 }

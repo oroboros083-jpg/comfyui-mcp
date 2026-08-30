@@ -42,6 +42,32 @@ const taskIdSchema = z
   .object({ taskId: z.string().min(1).describe("The task ID returned by comfyui_run_workflow") })
   .strict();
 
+/**
+ * A task named either way.
+ *
+ * Every run through comfyui_run_workflow gets a name, so both spellings always
+ * resolve, and an agent that kept "the logo draft" rather than a uuid is not
+ * stuck. This replaces a separate get_generation_by_name tool whose only real
+ * difference was the lookup - everything after it was a second, drifted copy of
+ * get_task_result.
+ */
+const taskRefSchema = z
+  .object({
+    task: z
+      .string()
+      .min(1)
+      .describe(
+        "The task ID from comfyui_run_workflow, or the name that run was given. " +
+          "Ids are tried first, so a name that looks like an id still resolves."
+      ),
+  })
+  .strict();
+
+/** Resolve a task reference to a job, by id first and then by name. */
+function resolveJob(c: ServerContext, ref: string) {
+  return c.jobManager.getJob(ref) ?? c.jobManager.getJobByName(ref);
+}
+
 export function registerTaskTools(server: McpServer, ctx: () => ServerContext): void {
   defineTool(server, {
     name: "get_queue",
@@ -158,8 +184,11 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     description:
       "Get the status of an async generation task: current step, total steps, average step time, " +
       "estimated time remaining, and a suggested poll interval derived from actual generation speed. " +
-      "Poll at the suggested interval rather than tighter - the work is GPU-bound either way.",
-    schema: taskIdSchema,
+      "Poll at the suggested interval rather than tighter - the work is GPU-bound either way.\n\n" +
+      "Accepts the task id or the name the run was given.\n\n" +
+      "The official Comfy MCP's `job(...)` cannot poll these: it reads comfy-cli's own job state " +
+      "files, which exist only for runs comfy-cli itself submitted.",
+    schema: taskRefSchema,
     requiresConnection: false,
     annotations: {
       title: "Get Task Status",
@@ -168,11 +197,11 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       openWorldHint: false,
     },
     handler: (input) => {
-      const job = ctx().jobManager.getJob(input.taskId);
+      const job = resolveJob(ctx(), input.task);
       if (!job) {
         return errorResult(
-          `Task not found: ${input.taskId}`,
-          "Use comfyui_list_tasks to see known task IDs."
+          `No task found for: ${input.task}`,
+          "Use comfyui_list_tasks to see known task ids and names."
         );
       }
 
@@ -213,9 +242,16 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
   defineTool(server, {
     name: "get_task_result",
     description:
-      "Get the result of a completed generation task, returning its images. If the task is still " +
-      "running, reports that instead of blocking - poll comfyui_get_task first.",
-    schema: taskIdSchema,
+      "Get the images from a finished generation. Accepts either the task id or the name the run was " +
+      "given - every run through comfyui_run_workflow has one, so 'the logo draft' is retrievable " +
+      "without having kept its id.\n\n" +
+      "If the task is still running, reports that instead of blocking - poll comfyui_get_task first. " +
+      "If it was recorded as failed, asks ComfyUI whether it actually finished before reporting the " +
+      "failure, because a dropped socket or a restarted server marks a job failed while ComfyUI goes " +
+      "on to complete it.\n\n" +
+      "Note the official Comfy MCP's `fetch_outputs` cannot serve these: it reads comfy-cli's own job " +
+      "state files, which exist only for runs comfy-cli itself submitted.",
+    schema: taskRefSchema,
     requiresConnection: false,
     annotations: {
       title: "Get Task Result",
@@ -223,18 +259,21 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       idempotentHint: true,
       openWorldHint: false,
     },
-    handler: (input) => {
-      const job = ctx().jobManager.getJob(input.taskId);
+    handler: async (input) => {
+      const c = ctx();
+      const job = resolveJob(c, input.task);
       if (!job) {
         return errorResult(
-          `Task not found: ${input.taskId}`,
-          "Use comfyui_list_tasks to see known task IDs."
+          `No task found for: ${input.task}`,
+          "Use comfyui_list_tasks to see known task ids and names."
         );
       }
+      const label = job.name ? `"${job.name}"` : job.taskId;
 
       if (job.status === "working") {
         return dataResult({
           taskId: job.taskId,
+          name: job.name,
           status: job.status,
           statusMessage: job.statusMessage,
           hint: "Still in progress. Poll comfyui_get_task for progress and a suggested interval.",
@@ -242,28 +281,50 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       }
 
       if (job.status === "failed") {
+        // Our record of a failure is not authoritative - a dropped socket or a
+        // restarted server marks a job failed while ComfyUI goes on to finish
+        // it. Ask ComfyUI before reporting the failure. This recovery used to
+        // exist only on get_generation_by_name, so it fired only for runs that
+        // happened to have been named.
+        const recovered = c.client
+          ? await completeJobFromHistory(
+              c.client,
+              c.jobManager,
+              job,
+              c.config.outputDir,
+              c.config.outputSizeThreshold
+            ).catch(() => null)
+          : null;
+
+        if (recovered) {
+          return imagesToContent(
+            `Task ${label} recovered from ComfyUI's history. ${recovered.length} image(s).`,
+            recovered
+          );
+        }
+
         return errorResult(
-          `Task failed: ${job.error}`,
+          `Task ${label} failed: ${job.error}`,
           "Validate the workflow first - write it with comfyui_write_workflow, then run the official Comfy MCP's validate_workflow on that path - then " +
             "comfyui_run_workflow to try again."
         );
       }
       if (job.status === "cancelled") {
         return errorResult(
-          "Task was cancelled.",
+          `Task ${label} was cancelled.`,
           "Submit it again with comfyui_run_workflow."
         );
       }
       if (!job.result) {
         return errorResult(
-          "Task completed but no result was recorded.",
+          `Task ${label} completed but no result was recorded.`,
           "The workflow may have no output node. " +
             "comfyui_get_history has what ComfyUI itself recorded for this prompt."
         );
       }
 
       return imagesToContent(
-        `Task ${job.taskId} completed. Generated ${job.result.images.length} image(s).`,
+        `Task ${label} completed. Generated ${job.result.images.length} image(s).`,
         job.result.images
       );
     },
@@ -373,136 +434,4 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
     },
   });
 
-  defineTool(server, {
-    name: "name_generation",
-    description:
-      "Assign a descriptive name to an existing generation so it can be retrieved later by name. Use " +
-      "names that describe the content ('landscape_sunset_warm', 'logo_draft_2'), not the ordering.",
-    schema: z
-      .object({
-        taskId: z.string().min(1).describe("The task ID to name"),
-        name: z
-          .string()
-          .min(1)
-          .describe("Descriptive name, e.g. 'hero_banner_blue' or 'product_shot_v3'"),
-      })
-      .strict(),
-    requiresConnection: false,
-    annotations: {
-      title: "Name Generation",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    handler: (input) => {
-      const c = ctx();
-      if (!c.jobManager.getJob(input.taskId)) {
-        return errorResult(
-          `Task not found: ${input.taskId}`,
-          "Use comfyui_list_tasks to see known task IDs."
-        );
-      }
-      if (!c.jobManager.setName(input.taskId, input.name)) {
-        return errorResult(
-          `Could not set name for task: ${input.taskId}`,
-          "The name may already be taken. Try another, or check comfyui_list_tasks for the names in use."
-        );
-      }
-
-      return dataResult({
-        taskId: input.taskId,
-        name: input.name,
-        hint: `Retrieve with comfyui_get_generation_by_name({ name: "${input.name}" }).`,
-      });
-    },
-  });
-
-  defineTool(server, {
-    name: "get_generation_by_name",
-    description:
-      "Retrieve a generation by the name assigned via comfyui_run_workflow's 'name' or " +
-      "comfyui_name_generation. Returns images, the same as comfyui_get_task_result.\n\n" +
-      "If the task was recorded as failed but ComfyUI actually finished it - a dropped connection " +
-      "or a restarted server - this recovers the output from ComfyUI's history rather than " +
-      "reporting a failure.",
-    schema: z
-      .object({ name: z.string().min(1).describe("The name assigned to the generation") })
-      .strict(),
-    requiresConnection: false,
-    annotations: {
-      title: "Get Generation by Name",
-      readOnlyHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    handler: async (input) => {
-      const c = ctx();
-      const job = c.jobManager.getJobByName(input.name);
-      if (!job) {
-        return errorResult(
-          `No generation found with name: ${input.name}`,
-          "Use comfyui_list_tasks to see tracked generations."
-        );
-      }
-
-      if (job.status === "working") {
-        return dataResult({
-          name: job.name,
-          taskId: job.taskId,
-          status: job.status,
-          statusMessage: job.statusMessage,
-          hint: "Still in progress. Poll comfyui_get_task with this taskId.",
-        });
-      }
-
-      if (job.status === "failed") {
-        // Our record of a failure is not authoritative - a dropped socket or a
-        // restarted server marks a job failed while ComfyUI goes on to finish
-        // it. Ask ComfyUI before reporting the failure. This used to be gated
-        // on the error containing "timed out", which nothing ever writes, so
-        // the recovery this tool advertises could never fire.
-        const recovered = c.client
-          ? await completeJobFromHistory(
-              c.client,
-              c.jobManager,
-              job,
-              c.config.outputDir,
-              c.config.outputSizeThreshold
-            ).catch(() => null)
-          : null;
-
-        if (recovered) {
-          return imagesToContent(
-            `Generation "${input.name}" recovered from ComfyUI's history. ${recovered.length} image(s).`,
-            recovered
-          );
-        }
-
-        return errorResult(
-          `Generation "${input.name}" failed: ${job.error}`,
-          "Validate the workflow first - write it with comfyui_write_workflow, then run the official Comfy MCP's validate_workflow on that path - then " +
-            "comfyui_run_workflow to try again."
-        );
-      }
-
-      if (job.status === "cancelled") {
-        return errorResult(
-          `Generation "${input.name}" was cancelled.`,
-          "Submit it again with comfyui_run_workflow."
-        );
-      }
-      if (!job.result) {
-        return errorResult(
-          `Generation "${input.name}" completed but no result was recorded.`,
-          "The workflow may have no output node."
-        );
-      }
-
-      return imagesToContent(
-        `Generation "${input.name}" (task ${job.taskId}) completed. ${job.result.images.length} image(s).`,
-        job.result.images
-      );
-    },
-  });
 }
