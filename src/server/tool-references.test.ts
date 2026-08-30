@@ -87,3 +87,42 @@ test("no source file mentions a comfyui_ tool that is not registered", () => {
       "official Comfy MCP's equivalent, or at the tool that replaced them"
   );
 });
+
+/**
+ * Strip the blocks that are allowed to name a removed tool.
+ *
+ * The README has to be able to document a removal - its migration table is
+ * nothing but removed names, and that table is the reason an upgrader is not
+ * stranded. So the allowance is explicit and bounded by markers rather than
+ * inferred from context, and everything outside them is held to the same
+ * standard as the source.
+ */
+function withoutAllowedBlocks(text: string): string {
+  return text.replace(
+    /<!--\s*tool-references:allow-removed[\s\S]*?<!--\s*\/tool-references:allow-removed\s*-->/g,
+    ""
+  );
+}
+
+test("the README does not send a reader to a comfyui_ tool that was removed", () => {
+  // The source guard above is what `68f7ffe` added after pruning twelve tools
+  // left ~40 dangling references. It scans src/ only - and the README, which
+  // is where a new user starts, still named 13 removed tools across 42
+  // references after that sweep. Same defect, wider blast radius: the doc is
+  // read before any tool is called.
+  const registered = registeredToolNames();
+  const readme = new URL("../../README.md", import.meta.url).pathname;
+  const text = withoutAllowedBlocks(readFileSync(readme, "utf-8"));
+
+  const offenders = [...new Set(text.match(/(?<!\/)\bcomfyui_[a-z_]+/g) ?? [])]
+    .filter((name) => !registered.has(name))
+    .sort();
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "the README names comfyui_ tools that no longer exist - repoint them at " +
+      "the official Comfy MCP's equivalent, or document the removal inside a " +
+      "<!-- tool-references:allow-removed --> block"
+  );
+});
