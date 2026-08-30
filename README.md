@@ -1060,6 +1060,13 @@ reported as unavailable rather than run to produce nothing. With no backend
 installed the tool errors naming the repos, rather than returning an empty
 description that reads as "there is nothing in this image".
 
+**None of these return coordinates.** Florence-2 has grounded modes — OCR,
+region captioning, phrase grounding — but this backend does not expose them:
+its `task` is fixed to a caption and the graph reads only the caption output.
+For boxes and masks, purpose-built models (SAM3, Grounding DINO, the YOLO
+family) beat a captioner by a wide margin, so that belongs in a new backend
+row for a real detector rather than as a `task` parameter here.
+
 ```
 Describe ~/refs/pose.jpg as tags I can use with an Illustrious model
 ```

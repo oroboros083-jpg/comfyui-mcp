@@ -172,8 +172,9 @@ export function registerGenerationTools(
       "chosen - a tagger for booru_tags models, a captioner otherwise. Pass 'backends' to choose " +
       "explicitly, or to run a tagger AND a captioner in one call ('backends': ['wd14','florence2']); " +
       "each answer stays labelled by backend.\n\n" +
-      "Backends: 'wd14' (Danbooru tags), 'florence2' (prose caption, plus OCR and grounded/region " +
-      "tasks via 'prompt'), 'joycaption' (prose written specifically for diffusion training data). " +
+      "Backends: 'wd14' (Danbooru tags), 'florence2' (prose caption), 'joycaption' (prose written " +
+      "specifically for diffusion training data). None of them return coordinates or masks - for " +
+      "detection and segmentation use a purpose-built model, not a captioner. " +
       "Each needs its custom node installed; the captioners also need a text preview node such as " +
       "ComfyUI's built-in PreviewAny to return their caption at all.\n\n" +
       "Returns: { reference, descriptions: [{ backend, kind, nodeType, values }], hint }. Errors " +

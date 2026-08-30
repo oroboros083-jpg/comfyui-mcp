@@ -314,3 +314,45 @@ test("no text at all says what to check rather than staying silent", async () =>
   assert.deepEqual(result.descriptions[0]!.values, []);
   assert.match(result.hint, /nodes/);
 });
+
+// --- what these backends do NOT do ----------------------------------------
+
+test("no backend advertises grounding, because none of them expose it", () => {
+  // This shipped as a claim before it shipped as a feature: the tool
+  // description and the florence2 row both promised "grounded/region tasks
+  // via prompt", while backends.ts hardcodes task: "more_detailed_caption"
+  // and reads only output index 2. Florence2Run CAN ground; this graph
+  // cannot ask it to. A guard rather than a comment, because the wording is
+  // what misleads and the wording is what drifts.
+  for (const backend of DESCRIBE_BACKENDS) {
+    const promise = /\b(grounded|grounding|bounding box|coordinates)\b/i;
+    const claim = backend.goodFor.match(promise);
+    if (!claim) continue;
+
+    // Mentioning it is fine; promising it is not. Anything that names
+    // grounding must also say this backend does not do it.
+    assert.match(
+      backend.goodFor,
+      /\b(not|NOT|does not|cannot|no)\b/,
+      `${backend.id} mentions '${claim[0]}' without saying it is unavailable here`
+    );
+  }
+});
+
+test("the florence2 graph asks for a caption, matching what its goodFor says", () => {
+  // The row's text and the graph it builds have to agree. If someone wires
+  // task selection later, this fails and the text gets updated with it.
+  const built = backendById("florence2")!.build({
+    imageRef: "a.png",
+    nodeType: "Florence2Run",
+    terminalType: "PreviewAny",
+  });
+  const run = built.workflow["3"] as { inputs: { task: string } };
+
+  assert.match(run.inputs.task, /caption/);
+  assert.deepEqual(
+    (built.workflow["4"] as { inputs: { source: unknown } }).inputs.source,
+    ["3", 2],
+    "reads the caption output, not the JSON data output that carries boxes"
+  );
+});

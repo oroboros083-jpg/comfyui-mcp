@@ -92,6 +92,18 @@ export function splitTags(text: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Detection and segmentation are somebody else's job.
+ *
+ * Florence-2 has grounded modes, and it is tempting to reach for them because
+ * the node is already here. Purpose-built models - SAM3, Grounding DINO, the
+ * YOLO family - beat a captioner at boxes and masks by a wide margin, so a
+ * mediocre coordinate path built on this row would be the wrong thing in the
+ * codebase rather than a missing feature.
+ *
+ * If someone wants coordinates, that is a new row for a real detector, not a
+ * `task` parameter on this one.
+ */
 export const DESCRIBE_BACKENDS: DescribeBackend[] = [
   {
     // Node name, inputs and the {"ui": {"tags": ...}} output read from
@@ -138,9 +150,10 @@ export const DESCRIBE_BACKENDS: DescribeBackend[] = [
     kind: "prose",
     install: "https://github.com/kijai/ComfyUI-Florence2",
     goodFor:
-      "A natural-language caption, and the only backend here that also does grounded tasks - " +
-      "OCR, region captioning, phrase grounding - so it is the one to reach for when the " +
-      "question is where things are rather than what they are.",
+      "A natural-language caption. Florence-2 can also do grounded tasks - OCR, region " +
+      "captioning, phrase grounding - but this backend does NOT expose them: `task` is fixed " +
+      "to a caption below, and the graph reads only the caption output. Nothing here returns " +
+      "coordinates.",
     build: ({ imageRef, nodeType, terminalType, prompt }) => ({
       workflow: {
         "1": { class_type: "LoadImage", inputs: { image: imageRef } },
