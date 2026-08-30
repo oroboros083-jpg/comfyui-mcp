@@ -72,9 +72,11 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
   defineTool(server, {
     name: "get_queue",
     description:
-      "Get ComfyUI's current queue: what is running now and what is pending. Reflects everything " +
-      "queued on the instance, including work submitted outside this server. Paginated, running " +
-      "jobs first.\n\n" +
+      "Get ComfyUI's current queue: what is running now and what is pending. Reads ComfyUI's own " +
+      "/queue, so it reflects EVERY job on the instance whoever submitted it - this server, another " +
+      "agent, the official Comfy MCP, or a human in a browser tab. Paginated, running jobs first.\n\n" +
+      "Prefer this over the official Comfy MCP's `job(action=\"queue\")`, which lists only what " +
+      "comfy-cli itself submitted. This is the only cross-server view of what is actually running.\n\n" +
       "Returns: { total, count, offset, running, pending, jobs: [{ position, promptId, state }], " +
       "has_more, next_offset }, where 'running'/'pending' count the whole queue and 'jobs' is this " +
       "page of it.",
@@ -150,6 +152,8 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       "Get ComfyUI's generation history. Without 'promptId' this lists prompts - id, status, and " +
       "whether outputs exist - paginated. With 'promptId' it returns that one prompt's full detail " +
       "including its output files.\n\n" +
+      "Reads ComfyUI's own /history, so it covers every prompt the instance ran, including ones this " +
+      "server never submitted.\n\n" +
       "Listing returns: { total, count, offset, entries: [{ promptId, status, completed, hasOutputs }], " +
       "has_more, next_offset }\n" +
       "Detail returns: { promptId, status, completed, outputs }\n\n" +

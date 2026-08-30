@@ -237,8 +237,11 @@ export function registerGenerationTools(
   defineTool(server, {
     name: "get_image",
     description:
-      "Retrieve a generated image from ComfyUI's output directory as an image content block. Use when " +
-      "you know the filename; comfyui_get_task_result returns images for a task without needing one.",
+      "Retrieve an image from ComfyUI's output directory as an image content block, BY FILENAME. Use " +
+      "when you know the filename; comfyui_get_task_result returns images for a task without one.\n\n" +
+      "Being keyed by filename rather than by prompt id is the point: this can show you an image a " +
+      "HUMAN just made in the browser, which the official Comfy MCP's `fetch_outputs` cannot - that " +
+      "is keyed by a comfy-cli prompt id, and a browser generation has none.",
     schema: getImageSchema,
     requiresConnection: true,
     annotations: {
@@ -279,6 +282,11 @@ export function registerGenerationTools(
       "generation is reachable until it is uploaded.\n\n" +
       "Give 'path' for a local file, or 'from_output' to feed a generated image back in (upscaling, " +
       "refinement, animating a still). Exactly one of the two.\n\n" +
+      "'from_output' is the mode the official Comfy MCP has no equivalent for: its `upload_file` " +
+      "takes paths on THIS machine, so an output that lives in ComfyUI's own directory - or on a " +
+      "remote ComfyUI - is out of its reach. That copy happens server-side here, so the bytes never " +
+      "travel through this conversation or the local disk. Use `upload_file` for a plain local file " +
+      "if you prefer; use this for the refine loop.\n\n" +
       "Returns: { filename, subfolder, type, reference, width, height, format, sizeBytes }. Use " +
       "'reference' verbatim - with overwrite false, ComfyUI stores a colliding name as 'photo (1).png' " +
       "and the workflow must name the file that actually exists. 'width'/'height' are the uploaded " +
