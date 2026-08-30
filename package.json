@@ -13,7 +13,7 @@
     "start": "node dist/index.js",
     "inspector": "npx @anthropics/mcp-inspector dist/index.js",
     "link:tabbridge": "node scripts/link-tabbridge.mjs",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run build && node scripts/run-tests.mjs"
   },
   "keywords": [
     "mcp",

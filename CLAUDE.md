@@ -220,8 +220,19 @@ dependency. Tests live beside the code as `*.test.ts` and run from `dist/`
 after compilation, so `npm test` builds first.
 
 Note `node --test dist/` (a bare directory) would execute `dist/index.js` as
-a test and hang forever on stdio. The script globs `dist/**/*.test.js`
-instead; keep it that way.
+a test and hang forever on stdio, so the runner must always pass explicit
+files. `scripts/run-tests.mjs` walks `dist/` for `*.test.js` and hands those
+over.
+
+That script exists because the obvious spelling is version-dependent:
+`node --test "dist/**/*.test.js"` relies on the runner expanding the glob,
+which only Node 21+ does. On the 18 and 20 that `engines` claims to support,
+the pattern is taken as a literal path and the whole suite dies with "Could
+not find". Letting the shell expand it instead is no better - `**` needs bash
+with globstar, npm often runs scripts through `sh`, and Windows is a supported
+dev platform here. Doing the walk in JS is the only spelling that works
+everywhere. It also exits non-zero on a missing or empty `dist/`, so a broken
+build cannot report a green suite.
 
 Cover pure logic in unit tests: pagination boundaries, response shaping,
 parsing, and any bug being fixed. Anything needing a live ComfyUI is not a
