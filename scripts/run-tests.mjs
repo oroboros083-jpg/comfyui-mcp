@@ -1,23 +1,19 @@
-#!/usr/bin/env node
 /**
  * Run the compiled test files.
  *
- * WHY THIS EXISTS. `npm test` used to be
- * `node --test "dist/**\/*.test.js"`, which relies on the test runner
- * expanding the glob itself - a feature added in Node 21. On Node 18 and 20 the
- * quoted pattern is taken as a literal path and the run dies with
- * "Could not find '.../dist/**\/*.test.js'". package.json declares
- * `engines.node >= 18`, so the suite could not run on two of the three
- * versions it claims to support, and nobody noticed because this repo had no
- * CI until now.
+ * WHY THIS EXISTS. The obvious spelling is
+ * `node --test "dist/**\/*.test.js"`, and on the Node 24 this package now
+ * requires that works: the runner expands the glob itself from Node 21.
+ * It is kept as a script anyway for one reason - it fails LOUDLY when there
+ * is nothing to run. `node --test` on a pattern that matches no files, or on
+ * a dist/ that a build emitted nothing into, is a suite that reports green
+ * having tested nothing, which is the worst outcome a test command has.
  *
- * Unquoting it and letting the shell expand instead is not a fix: `**` needs
- * bash with globstar, npm runs scripts through `sh` on many systems, and it
- * fails differently again on Windows - which is a supported dev platform here
- * (see the TabBridge junction handling).
- *
- * So the globbing happens here, in portable JS, and the files are passed
- * explicitly.
+ * It also makes the runner independent of the engines floor. This repo shipped
+ * for a long time with `engines.node >= 18` and a test command that could not
+ * run on Node 18 or 20 at all - the glob was a literal path there, and the
+ * suite died with "Could not find". Nobody noticed until CI existed. Doing the
+ * walk here means lowering the floor again cannot silently break the suite.
  *
  * NEVER pass a bare directory to `node --test`. It would treat every .js file
  * under dist/ as a test, including `dist/index.js` - which is an MCP server

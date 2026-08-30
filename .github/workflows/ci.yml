@@ -15,11 +15,15 @@ jobs:
       # One red Node version should not hide the result on the others.
       fail-fast: false
       matrix:
-        # package.json declares engines.node >=18; 22 is what the Dockerfile
-        # runs. Testing the floor, the middle and the shipped version means a
-        # syntax or API change that only works on newer Node fails here rather
-        # than for a user on the declared minimum.
-        node: ["18", "20", "22"]
+        # 24 is the declared floor (engines.node) and Node's current Active
+        # LTS; 26 is the Current line, which becomes LTS in October 2026.
+        #
+        # Testing both means a break on the line that is about to become the
+        # recommended one surfaces here rather than on users after they
+        # upgrade. That is exactly the class of bug this workflow found twice
+        # on its first run, in the other direction: two Node-version
+        # incompatibilities that had been invisible for lack of CI.
+        node: ["24", "26"]
 
     steps:
       - uses: actions/checkout@v4

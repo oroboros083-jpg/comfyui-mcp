@@ -392,7 +392,7 @@ Claude will automatically:
 ### Prerequisites
 - [ComfyUI](https://www.comfy.org/download) (desktop app recommended) or manual installation
 - One or more checkpoint/model files
-- Docker, or Node.js 18+
+- Docker, or Node.js 24+ (Active LTS)
 
 ### Option 1: Docker
 
