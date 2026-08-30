@@ -618,7 +618,7 @@ ComfyUI where the tool needs one. Put the numbers in the commit message.
 
 ## Environment
 
-- Node.js 18+
+- Node.js 24+ (Active LTS)
 - TypeScript with ESM modules
 - Zod for schema validation
 - ws package for WebSocket

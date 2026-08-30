@@ -20,11 +20,17 @@ after(() => rmSync(dir, { recursive: true, force: true }));
  * CRC-32 over a PNG chunk.
  *
  * Implemented here rather than imported from `node:zlib`, whose `crc32` export
- * only exists from Node 20.15. package.json declares `engines.node >= 18`, and
- * an unavailable named export is a SyntaxError at module load - so importing it
- * did not fail this one assertion on Node 18, it failed the whole FILE, taking
- * its three tests with it. This is the standard PNG polynomial; nothing here
- * needs zlib's speed for a handful of fixture bytes.
+ * only exists from Node 20.15. The floor is now 24, so that import would work
+ * again - but it is not worth reinstating a version-sensitive import for a
+ * checksum over a handful of fixture bytes, and the failure mode when it is
+ * wrong is nasty: an unavailable named export is a SyntaxError at MODULE LOAD,
+ * so it takes the whole file down rather than failing one assertion. That is
+ * how this file's three tests went missing on Node 18 while the run still
+ * reported 366 passing.
+ *
+ * Verified byte-identical to zlib.crc32 over empty input, PNG chunk types,
+ * binary data and 1KB of random bytes, plus the standard check value
+ * crc32("123456789") = 0xcbf43926.
  */
 function crc32(buf: Buffer): number {
   let crc = 0xffffffff;
