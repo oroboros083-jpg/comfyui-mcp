@@ -31,9 +31,15 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
  *
  *     flush  ->  read + diff  ->  write  ->  reload
  *
- * These tools do that for you. The ComfyUI-TabBridge custom node supplies
- * the flush/reload/state endpoints; without it the write still works, it
- * just cannot see or steer tabs.
+ * Every step of that is implicit and non-optional. read_workflow flushes
+ * before it reads, so the version it records as the write's base includes the
+ * human's unsaved work; write_workflow flushes again (they can edit between
+ * the two), checks, writes, and reloads. There is deliberately no way to skip
+ * a step: the opt-out arguments that used to exist only turned the safety off,
+ * and their own descriptions said to leave them alone.
+ *
+ * The ComfyUI-TabBridge custom node supplies the flush/reload/state endpoints;
+ * without it the write still works, it just cannot see or steer tabs.
  */
 
 // ---------------------------------------------------------------------------
@@ -41,32 +47,6 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 // ---------------------------------------------------------------------------
 
 export const listOpenWorkflowsSchema = z.object({}).strict();
-
-export const flushWorkflowSchema = z.object({
-  path: z
-    .string()
-    .describe(
-      "Workflow path as ComfyUI knows it, relative to the user directory, " +
-        "e.g. 'workflows/Shared/pipeline.json'"
-    ),
-  wait_seconds: z
-    .number()
-    .min(0)
-    .max(30)
-    .optional()
-    .describe("How long to wait for the tab to finish saving. Default 4."),
-}).strict();
-
-export const reloadWorkflowSchema = z.object({
-  path: z.string().describe("Workflow path relative to the user directory"),
-  save_first: z
-    .boolean()
-    .optional()
-    .describe(
-      "Save the tab's unsaved changes before reloading. Default true. " +
-        "Setting this false DISCARDS whatever the human had not saved."
-    ),
-}).strict();
 
 export const readWorkflowSchema = z.object({
   path: z
@@ -88,22 +68,6 @@ export const writeWorkflowSchema = z.object({
   workflow: z
     .record(z.unknown())
     .describe("The full workflow JSON (UI format, with nodes and links)"),
-  skip_flush: z
-    .boolean()
-    .optional()
-    .describe(
-      "Skip asking open tabs to save first. Leave this alone: flushing is " +
-        "what makes the human's unsaved edits visible in the returned diff " +
-        "instead of being destroyed by this write."
-    ),
-  skip_reload: z
-    .boolean()
-    .optional()
-    .describe(
-      "Skip telling open tabs to re-read afterwards. Leave this alone, or " +
-        "the tab keeps showing the old graph and may autosave it back over " +
-        "what you just wrote."
-    ),
   expected_version: z
     .string()
     .optional()
@@ -127,8 +91,6 @@ export const writeWorkflowSchema = z.object({
 }).strict();
 
 export type ListOpenWorkflowsInput = z.infer<typeof listOpenWorkflowsSchema>;
-export type FlushWorkflowInput = z.infer<typeof flushWorkflowSchema>;
-export type ReloadWorkflowInput = z.infer<typeof reloadWorkflowSchema>;
 export type ReadWorkflowInput = z.infer<typeof readWorkflowSchema>;
 export type WriteWorkflowInput = z.infer<typeof writeWorkflowSchema>;
 

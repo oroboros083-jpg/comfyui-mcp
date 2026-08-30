@@ -29,8 +29,6 @@ import { recordWorkflowBase, getWorkflowBase } from "../../db/index.js";
 import { WorkflowConflictError } from "../../utils/errors.js";
 import {
   listOpenWorkflowsSchema,
-  flushWorkflowSchema,
-  reloadWorkflowSchema,
   readWorkflowSchema,
   writeWorkflowSchema,
   getTabState,
@@ -324,64 +322,12 @@ export function registerGenerationTools(
   });
 
   defineTool(server, {
-    name: "flush_workflow",
-    description:
-      "Ask any open tab to SAVE a workflow now, and wait for it to settle. Use before overwriting a " +
-      "workflow so the human's unsaved edits reach disk, where they can be read and taken into account " +
-      "instead of being destroyed by your write. comfyui_write_workflow does this for you.",
-    schema: flushWorkflowSchema,
-    requiresConnection: true,
-    annotations: {
-      title: "Flush Workflow Tab",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
-    },
-    handler: async (input) => {
-      const result = await flushWorkflow(
-        workflowTarget(ctx()),
-        input.path,
-        input.wait_seconds ?? 4
-      );
-      return dataResult({
-        ...result,
-        hint: result.requested ? undefined : BRIDGE_MISSING_HINT,
-      });
-    },
-  });
-
-  defineTool(server, {
-    name: "reload_workflow",
-    description:
-      "Tell open tabs to re-read a workflow from disk after it was rewritten. Necessary because ComfyUI " +
-      "restores a workflow from cached session state rather than re-reading the file, so a tab can sit " +
-      "on a stale graph indefinitely and autosave it back. comfyui_write_workflow does this for you.",
-    schema: reloadWorkflowSchema,
-    requiresConnection: true,
-    annotations: {
-      title: "Reload Workflow Tab",
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
-    },
-    handler: async (input) => {
-      const ok = await reloadWorkflow(
-        workflowTarget(ctx()),
-        input.path,
-        input.save_first !== false
-      );
-      return dataResult({ requested: ok, hint: ok ? undefined : BRIDGE_MISSING_HINT });
-    },
-  });
-
-  defineTool(server, {
     name: "read_workflow",
     description:
-      "Read a workflow file as JSON. Reads through ComfyUI so it always sees the current file rather " +
-      "than a cached copy. Returns { found, path, version, workflow }, or { found: false, path } when " +
-      "the file does not exist.\n\n" +
+      "Read a workflow file as JSON. FLUSHES any open ComfyUI tab first, so what you get includes the " +
+      "human's unsaved edits rather than the last thing that happened to reach disk. Reads through " +
+      "ComfyUI, so never a cached copy. Returns { found, path, version, workflow, flushed }, or " +
+      "{ found: false, path } when the file does not exist.\n\n" +
       "`version` identifies exactly this content. comfyui_write_workflow needs it to tell your own " +
       "changes apart from someone else's, and remembers it for you - so read a workflow once before " +
       "editing it, and that write and its follow-ups are protected.",
@@ -395,8 +341,17 @@ export function registerGenerationTools(
     },
     handler: async (input) => {
       const c = ctx();
+      const base = workflowTarget(c);
+
+      // Flush FIRST, unconditionally. The version recorded below becomes the
+      // base that comfyui_write_workflow compares against, and a base that
+      // omits the human's unsaved tab edits is a base that will later call
+      // their work "no change" and let a write walk over it. On a clean tab
+      // this returns immediately; only a dirty one costs the wait.
+      const flushed = await flushWorkflow(base, input.path, 4);
+
       const wf = await readWorkflowFile(
-        workflowTarget(c),
+        base,
         input.path,
         c.config.workflowWriteDirs ?? []
       );
@@ -410,7 +365,7 @@ export function registerGenerationTools(
       recordWorkflowBase(input.path, version, c.config.agentId);
 
       return textResult(
-        JSON.stringify({ found: true, path: input.path, version, workflow: wf }),
+        JSON.stringify({ found: true, path: input.path, version, flushed, workflow: wf }),
         "This workflow is very large; read it in ComfyUI directly."
       );
     },
@@ -420,8 +375,10 @@ export function registerGenerationTools(
     name: "write_workflow",
     description:
       "Write a workflow file SAFELY: flushes any open tab so unsaved human edits reach disk, checks the " +
-      "file has not changed since you read it, writes, then tells the tab to reload. ALWAYS use this " +
-      "instead of writing workflow JSON with a file tool.\n\n" +
+      "file has not changed since you read it, writes, then tells the tab to re-read it. Every step is " +
+      "automatic and cannot be skipped. ALWAYS use this instead of writing workflow JSON with a file " +
+      "tool - and note the official Comfy MCP's `set_workflow_slot(stdout=false)` writes in place with " +
+      "no version check at all, so it cannot detect a concurrent edit.\n\n" +
       "REFUSES rather than overwriting when the file changed after your comfyui_read_workflow (a human " +
       "or another agent got there first), and when an existing file has not been read at all. Both " +
       "refusals name what to do; force: true is the only way past either. Creating a new file needs no " +
@@ -445,8 +402,9 @@ export function registerGenerationTools(
 
       // 1. Flush, so unsaved hand edits land on disk and show up in the
       //    diff below instead of being destroyed by this write.
-      let flushed = null;
-      if (!input.skip_flush) flushed = await flushWorkflow(base, input.path, 4);
+      // Always. See read_workflow: the human can edit between our read and
+      // this write, so the flush at read time does not cover this window.
+      const flushed = await flushWorkflow(base, input.path, 4);
 
       // 2. Read back what is on disk NOW (post-flush, so a tab's unsaved
       //    edits are part of it) and decide whether this write is safe.
@@ -503,8 +461,10 @@ export function registerGenerationTools(
       }
 
       // 4. Reload, so the tab is not left on the old graph.
-      let reloaded = false;
-      if (!input.skip_reload) reloaded = await reloadWorkflow(base, input.path, true);
+      // Always. ComfyUI restores a workflow from cached session state rather
+      // than re-reading the file, so a tab left unreloaded sits on the old
+      // graph and can autosave it back over what was just written.
+      const reloaded = await reloadWorkflow(base, input.path, true);
 
       // 5. Re-base. The file this agent now knows about is the one it just
       //    wrote, so the next write compares against that rather than against
