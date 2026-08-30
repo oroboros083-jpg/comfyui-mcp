@@ -1,12 +1,21 @@
 /**
- * Reading an image into something a model can act on.
+ * Turning an image into an example of the prompt that would produce it.
  *
- * The gap this closes: an agent handed a reference image can describe what it
- * thinks it sees, but it cannot say what the *diffusion model* would call it.
- * A booru model does not know "she is glancing over her shoulder"; it knows
- * `looking_back`. Running the image through the same class of classifier that
- * labelled the training data turns an image into prompt-ready vocabulary
- * instead of a paraphrase.
+ * Not a way of seeing. The model calling this reads an image better than
+ * WD14, Florence-2 or JoyCaption do, so a tool positioned as "run this to
+ * find out what is in the image" is a downgrade dressed as a feature.
+ *
+ * The narrower question it answers is one the caller genuinely cannot: what
+ * text would have been paired with an image like this in training data. A
+ * booru model does not know "she is glancing over her shoulder"; it knows
+ * `looking_back`, and no amount of looking at the image tells you which of
+ * `looking_back`, `looking_over_shoulder` or `turning_head` is the token that
+ * fires. Running the image through the same class of classifier that labelled
+ * the training set answers exactly that.
+ *
+ * The rule this implies, and which the tool description and hints both state:
+ * where the classifier disagrees with the caller's own reading, the CALLER is
+ * right about the image and the CLASSIFIER is right about the prompt.
  *
  * Backends live in `describe/backends.ts` so a new SOTA tagger is a row. This
  * module is the orchestration: pick backends, build each graph, run it, and
@@ -255,19 +264,26 @@ function hintFor(descriptions: BackendDescription[]): string {
   const gotProse = descriptions.some((d) => d.kind === "prose" && d.values.length);
 
   if (gotTags) {
-    // Closing the loop: what is in the image, then what to write.
+    // Closing the loop: prompt phrasing, then the tools that check and
+    // extend it. Deliberately not "what is in the image" - the caller can
+    // see the image, and reading this as a description is the failure mode.
     return (
-      "These are Danbooru tags, usable in a prompt as-is on a booru model. " +
+      "Prompt phrasing, not a description: these are the tokens that fire on a booru model, " +
+      "usable as-is. Trust your own reading of the image over this list, and trust this list " +
+      "over your own guess at the wording - a tag missing here is one the model will not " +
+      "respond to, however clearly you can see the thing. " +
       "comfyui_search_tags confirms any one of them and reports how well represented it is; " +
       "comfyui_related_tags extends the set with what commonly co-occurs." +
-      (gotProse ? " The prose caption is the same image described for a natural-language model." : "")
+      (gotProse ? " The prose caption is the same image phrased for a natural-language model." : "")
     );
   }
   if (gotProse) {
     return (
-      "A natural-language caption, suited to a model that prompts in prose. For a booru model, " +
-      "run the same image through the 'wd14' backend instead - its tags go straight into a " +
-      "prompt, where a caption has to be translated first."
+      "Prompt phrasing, not a description - a worked example of the caption an image like this " +
+      "would have been trained against. Use it for the wording; keep your own reading of the " +
+      "image for what is actually in it. For a booru model, run the same image through the " +
+      "'wd14' backend instead: its tags go straight into a prompt, where a caption has to be " +
+      "translated first."
     );
   }
   return (

@@ -8,6 +8,7 @@
  */
 
 import { ModelPromptingGuide } from "../types.js";
+import { SPATIAL_CONTROL_NOTE } from "./vocabulary.js";
 
 export const DIT_GUIDES: Record<string, ModelPromptingGuide> = {
   qwen: {
@@ -235,6 +236,7 @@ export const DIT_GUIDES: Record<string, ModelPromptingGuide> = {
       "Can be refined with SDXL refiner for improved quality",
       "Sigma version has better prompt understanding than Alpha",
       "Describe spatial relationships for complex compositions",
+      SPATIAL_CONTROL_NOTE,
       "Use torch.compile for 20-30% faster inference",
     ],
     commonMistakes: [

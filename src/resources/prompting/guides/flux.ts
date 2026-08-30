@@ -3,6 +3,7 @@
  */
 
 import { ModelPromptingGuide } from "../types.js";
+import { SPATIAL_CONTROL_NOTE } from "./vocabulary.js";
 
 export const FLUX_GUIDES: Record<string, ModelPromptingGuide> = {
   flux: {
@@ -26,6 +27,7 @@ export const FLUX_GUIDES: Record<string, ModelPromptingGuide> = {
       "Use phrases like 'with emphasis on' or 'with a focus on' instead of weights",
       "Describe what you want, not what you don't want (no negative prompts)",
       "For complex scenes, describe spatial relationships explicitly",
+      SPATIAL_CONTROL_NOTE,
       "One change at a time when iterating - understand each effect",
     ],
     commonMistakes: [

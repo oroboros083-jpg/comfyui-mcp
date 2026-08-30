@@ -243,7 +243,11 @@ export async function planIteration(
       note:
         `Draft on the same base model with '${lora.name}' applied, then re-run at the same ` +
         `seed with the LoRA removed. Same weights, so composition largely survives the jump ` +
-        `- the draft is a real preview, and farming seeds on it is worth doing.`,
+        `- the draft is a real preview, and farming seeds on it is worth doing.\n\n` +
+        `One exception: a distill LoRA wants CFG ${lora.hit.cfg}, and REGIONAL conditioning ` +
+        `(ConditioningSetArea and friends) rides on CFG. If the workflow binds prompts to ` +
+        `areas, the draft will not preview those regions whatever the seed - dial that in on ` +
+        `the final settings.`,
     };
   }
 
@@ -357,7 +361,7 @@ export function renderIterationPlan(plan: IterationPlan): string {
   if (plan.suggestedDownloads?.length) {
     lines.push("", "## Worth downloading", "");
     for (const item of plan.suggestedDownloads) lines.push(`- ${item}`);
-    lines.push("", "Resolve any of these with `the official Comfy MCP's download_model`.");
+    lines.push("", "Resolve any of these with the official Comfy MCP's `download_model`.");
   }
 
   return lines.join("\n");

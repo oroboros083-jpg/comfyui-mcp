@@ -13,6 +13,9 @@
 > removed or renamed. Nothing needs doing unless you referenced a tool name by
 > hand — in a permission allowlist, a saved prompt, or a script:
 >
+> <!-- tool-references:allow-removed - this table documents the removals, so
+>      naming a removed tool here is the point. See
+>      src/server/tool-references.test.ts. -->
 > | Removed | Use instead |
 > |---|---|
 > | `comfyui_start_comfyui`, `comfyui_restart_comfyui` | `launch_comfyui`, `restart_comfyui` (official) |
@@ -26,6 +29,7 @@
 > | `comfyui_name_generation` | Pass `name` to `comfyui_run_workflow` |
 > | `comfyui_get_generation_by_name` | `comfyui_get_task_result` accepts a name or an id |
 > | `comfyui_search_templates` and friends | Renamed `comfyui_search_user_snippets` etc. — they search YOUR saved workflows, not the Comfy gallery |
+> <!-- /tool-references:allow-removed -->
 >
 > `skip_flush`, `skip_reload` and `save_first` are gone too; each only turned a
 > safety off.
@@ -208,14 +212,16 @@ different port — no need to restart the server or your MCP client.
 
 ### Works Without ComfyUI Running
 Even if ComfyUI isn't installed or running, the server provides tools to:
-- Guide you through installation (`comfyui_get_install_guide`, `comfyui_get_model_guide`)
-- Look up where to download a model, with a ready-to-run `wget` command (`comfyui_get_download_url`)
-- Browse and fetch example workflows from the documentation
-- Read prompting guides, search templates, and save notes
+- Read prompting guides for all 26 architectures (`comfyui_get_prompting_guide`)
+- Search the Danbooru tag vocabulary (`comfyui_search_tags`, `comfyui_related_tags`)
+- Plan a draft-then-final iteration loop (`comfyui_plan_iteration`)
+- Search your saved workflows and save notes (`comfyui_search_user_snippets`,
+  `comfyui_save_note`)
 
-Launching ComfyUI is one tool call away (`comfyui_start_comfyui`), and tools
-that need a live instance say so and name the tool that fixes it rather than
-failing blankly.
+Installing ComfyUI, downloading models and launching the server are the
+official Comfy MCP's job (`install_comfyui`, `search_models`,
+`download_model`, `launch_comfyui`). Tools here that need a live instance say
+so and name what fixes it rather than failing blankly.
 
 ### Workflow-First Architecture
 All generation happens through `comfyui_run_workflow`, giving you full control over the ComfyUI workflow. The server provides comprehensive tools for:
@@ -274,9 +280,11 @@ Three sources of workflow templates:
 ### Workflow Composition Tools
 Build custom workflows programmatically:
 - **`comfyui_build_node`**: Generate valid node JSON with proper defaults
-- **`comfyui_get_node_info`**: Detailed node inputs/outputs with examples
-- **`comfyui_find_nodes_by_type`**: Discover nodes by what they accept/produce
-- **`comfyui_validate_workflow`**: Check validity before running — including whether each model filename, sampler and input image actually exists on this instance
+- **`comfyui_extract_workflow`**: Pull the graph back out of a generated PNG
+
+Node introspection and workflow validation are the official Comfy MCP's job:
+its `nodes` searches, inspects, filters and graph-walks the live catalog, and
+its `validate_workflow` checks a workflow file.
 
 ### Safe Workflow-File Editing
 Writing a `.json` workflow with a plain file tool loses work, because the
@@ -297,7 +305,8 @@ ComfyUI-TabBridge](#optional-comfyui-tabbridge). Without it, writes still work
 ### Responses Sized for a Model
 Every listing is paginated, capped, and returns compact JSON by default,
 because a tool response is context the reader pays for on every call.
-`comfyui_list_nodes` once returned 440KB (~110k tokens) on a modded install.
+A node listing once returned 440KB (~110k tokens) on a modded install, which
+is what set the rule.
 Single responses are truncated at 25,000 characters with a message naming the
 parameter that narrows the request.
 
@@ -343,8 +352,8 @@ You need at least one checkpoint model. Here are popular options:
 - Download `v1-5-pruned-emaonly.safetensors` from [HuggingFace](https://huggingface.co/runwayml/stable-diffusion-v1-5)
 - Place in `ComfyUI/models/checkpoints/`
 
-Or ask your assistant: `comfyui_get_download_url` returns the URL, the folder
-it belongs in, and a `wget` command for any model it knows about.
+Or ask your assistant: the official Comfy MCP's `search_models` and
+`download_model` find a model and fetch it into the right folder.
 
 ### Step 3: Configure Your AI Assistant
 
@@ -530,8 +539,9 @@ Adjust the `COMFYUI_URL` environment variable accordingly:
 
 Two behaviours change inside a container, both deliberate:
 
-- **`comfyui_start_comfyui` refuses to run.** The process to launch is on the
-  host, not in the container. Start ComfyUI yourself.
+- **Launching ComfyUI is impossible from here.** The process to launch is on
+  the host, not in the container, so `comfyui_get_status` reports that and
+  tells you to start it yourself and call `comfyui_reconnect`.
 - **Generated images are not written to disk** unless you set `OUTPUT_DIR` and
   mount a volume for it — otherwise the write lands in a container layer
   nobody will ever look at. Images still come back inline as base64.
@@ -666,8 +676,8 @@ server or your MCP client — tools reconnect on their own — but this forces i
 immediately and reports what was found. It also resolves any tasks that were
 left in flight by the restart.
 
-This does **not** start ComfyUI. If nothing is running, use
-[`comfyui_start_comfyui`](#comfyui_start_comfyui).
+This does **not** start ComfyUI. If nothing is running, use the official
+Comfy MCP's `launch_comfyui`, then call this.
 
 ```
 Reconnect to ComfyUI.
@@ -805,7 +815,7 @@ not behave the same way:
 |---|---|---|
 | Same base model + a distill LoRA (Lightning, Hyper, LCM, DMD2, TCD) | `composition` | Layout, pose and framing largely survive at the same seed. The draft is a real preview, so seed farming pays off. |
 | A separate distilled checkpoint (`flux1-schnell` → `flux1-dev`) | `prompt-only` | Different weights, so the same seed renders a **different image**. Only prompt wording and framing intent carry. |
-| Nothing fast installed | `none` | Nothing — the response names distill LoRAs to fetch through [`comfyui_get_download_url`](#comfyui_get_download_url). |
+| Nothing fast installed | `none` | Nothing — the response names distill LoRAs to fetch through the official Comfy MCP's `download_model`. |
 
 The LoRA path wins when both are available, since it is the only one that
 previews composition. Works with ComfyUI stopped if you pass the model lists.
@@ -1019,11 +1029,18 @@ there is deliberately no tool for granting that, because a permission an agent
 can grant itself is not a permission.
 
 #### `comfyui_describe_image`
-Run an image through an installed tagger or captioner and get back what it says
-is in it. Use this on a reference image **before** writing a prompt from it: it
-answers in the vocabulary the diffusion model was trained on, which your own
-description of the image is not. A booru model does not know "glancing over her
-shoulder"; it knows `looking_back`.
+Get an example of the **prompt** that would be paired with this image in
+training data. Not a description of the image — an AI assistant with vision
+reads an image better than any of these backends do, so this is not a way of
+seeing. It answers the narrower question it cannot: which exact token fires on
+this model. You see "glancing over her shoulder"; the training data says
+`looking_back`, and looking harder at the image will never tell you whether
+the token is `looking_back`, `looking_over_shoulder` or `turning_head`.
+
+So look at the image first, then call this for the phrasing. **Where the two
+disagree, your reading is right about the image and the backend is right about
+the prompt** — a tag it misses is not a tag the image lacks, it is a tag that
+will not fire on this model.
 
 Pass exactly one image source.
 
@@ -1059,6 +1076,13 @@ all; ComfyUI's built-in `PreviewAny` is enough, and a backend without one is
 reported as unavailable rather than run to produce nothing. With no backend
 installed the tool errors naming the repos, rather than returning an empty
 description that reads as "there is nothing in this image".
+
+**None of these return coordinates.** Florence-2 has grounded modes — OCR,
+region captioning, phrase grounding — but this backend does not expose them:
+its `task` is fixed to a caption and the graph reads only the caption output.
+For boxes and masks, purpose-built models (SAM3, Grounding DINO, the YOLO
+family) beat a captioner by a wide margin, so that belongs in a new backend
+row for a real detector rather than as a `task` parameter here.
 
 ```
 Describe ~/refs/pose.jpg as tags I can use with an Illustrious model
@@ -1395,7 +1419,7 @@ too large to read whole.
 |----------|-------------|
 | `COMFYUI_URL` | ComfyUI URL. Takes priority over the config file and skips port scanning. |
 | `COMFYUI_API_KEY` | API key sent to ComfyUI, for instances that require authentication. Overrides the config file. |
-| `COMFYUI_LAUNCH_COMMAND` | Executable or script `comfyui_start_comfyui` should launch, when auto-detection can't find your install |
+| `COMFYUI_LAUNCH_COMMAND` | Executable or script the launch detection should use, when auto-detection can't find your install. Launching itself is the official Comfy MCP's `launch_comfyui`. |
 | `COMFYUI_LAUNCH_ARGS` | Arguments for that command |
 | `COMFYUI_LAUNCH_CWD` | Working directory for that command |
 | `COMFYUI_MCP_DB_PATH` | Path to the notes/templates SQLite file (default: `~/.comfyui-mcp/data.db`) |
@@ -1526,9 +1550,11 @@ extending it:
   64MB.
 - **Workflow writes are sandboxed** to ComfyUI's user directory plus whatever
   is explicitly listed in `workflowWriteDirs`, and no tool can extend that list.
-- **Only one module spawns processes** (`comfyui_start_comfyui`), it refuses to
-  run in Docker or against a remote `COMFYUI_URL`, and what it starts is
-  detached with stdio discarded.
+- **Only one module can spawn a process at all** (`src/tools/launch.ts`); no
+  tool now reaches it, since launching moved to the official Comfy MCP. What
+  remains of it refuses to act in Docker or against a remote `COMFYUI_URL`,
+  and anything it starts is detached with stdio discarded so it can neither
+  outlive its purpose nor corrupt the MCP stream.
 - **All schemas are strict**, so an unexpected argument is an error rather than
   something silently dropped.
 
@@ -1539,19 +1565,19 @@ extending it:
 ### First-Time Setup
 ```
 User: I want to use ComfyUI but I don't have it installed
-Claude: [comfyui_get_install_guide] Here's how to install ComfyUI...
-Claude: [comfyui_get_model_guide] Here's how to download and set up models...
-Claude: [comfyui_start_comfyui] Launched it and connected.
+Claude: [install_comfyui] (official Comfy MCP) Installing ComfyUI...
+Claude: [search_models + download_model] (official) Fetching a checkpoint...
+Claude: [launch_comfyui] (official) Started it.
+Claude: [comfyui_get_status] Connected — SDXL and Flux detected.
 ```
 
 ### Generate Images with Templates
 ```
 User: Generate a pirate husky with Flux
-Claude: [comfyui_list_models] Found flux1-schnell-fp8.safetensors...
+Claude: [comfyui_get_status] Flux detected — flux1-schnell-fp8.safetensors...
 Claude: [comfyui_recommend_workflow] It's a UNET model — needs the Flux graph, 4 steps, CFG 1.0...
 Claude: [comfyui_get_prompting_guide('flux')] Flux uses natural language prompts...
 Claude: [comfyui_get_user_snippet with parameters] Built workflow...
-Claude: [comfyui_validate_workflow] Workflow is valid...
 Claude: [comfyui_run_workflow] Started — task abc123
 Claude: [comfyui_get_task_result] Done!
 [Image displayed]
@@ -1560,11 +1586,10 @@ Claude: [comfyui_get_task_result] Done!
 ### Custom Workflow Composition
 ```
 User: I want to build a custom workflow with ControlNet
-Claude: [comfyui_list_nodes(search="controlnet")] Here are the ControlNet nodes...
-Claude: [comfyui_get_node_info("ControlNetApply")] Here's how to use it...
+Claude: [nodes(search="controlnet")] (official Comfy MCP) Here are the ControlNet nodes...
+Claude: [nodes("ControlNetApply")] (official) Here's how to use it...
 Claude: [comfyui_upload_image] Put your reference image where LoadImage can read it...
 Claude: [comfyui_build_node] Building each node...
-Claude: [comfyui_validate_workflow] Checking the workflow...
 Claude: [comfyui_run_workflow] Running your custom workflow...
 ```
 
@@ -1630,21 +1655,21 @@ npm run inspector
 ## Troubleshooting
 
 ### ComfyUI not detected
-1. Make sure ComfyUI is running — or just call `comfyui_start_comfyui`
+1. Make sure ComfyUI is running — the official Comfy MCP's `launch_comfyui` starts it
 2. Check it's reachable at http://localhost:8188 (or :8000 for the desktop app)
 3. Set `COMFYUI_URL` if it's on an unusual port or another host
 4. `comfyui_get_status` lists every URL it tried when it can't connect
 
 ### Models not found
 1. Ensure models are in the correct ComfyUI subdirectory
-2. Restart ComfyUI after adding new models — `comfyui_restart_comfyui` does this cleanly if you have ComfyUI-Manager
+2. Restart ComfyUI after adding new models — the official Comfy MCP's `restart_comfyui` does this cleanly if you have ComfyUI-Manager
 3. Use `comfyui_reconnect` to refresh this server's cached model list
-4. Use `comfyui_list_models` to see what's detected
+4. Use the official Comfy MCP's `search_models` to see what's detected
 
 ### Generation fails
-1. Use `comfyui_validate_workflow` — it catches missing model filenames and bad samplers before the run, not after
+1. Write the workflow with `comfyui_write_workflow`, then check it with the official Comfy MCP's `validate_workflow` — it catches missing model filenames and bad samplers before the run, not after
 2. Check `comfyui_get_task` or `comfyui_get_history` for the error
-3. Verify the model exists with `comfyui_list_models`
+3. Verify the model exists with the official Comfy MCP's `search_models`
 4. Check `comfyui_recommend_workflow` — a checkpoint model in a UNET graph produces noise rather than an error
 5. Try simpler parameters (smaller size, fewer steps)
 

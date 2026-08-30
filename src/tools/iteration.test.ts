@@ -198,3 +198,20 @@ test("the real turbo checkpoint filename reaches its own row", () => {
   assert.equal(match?.workflowName, "SDXL Turbo");
   assert.equal(match?.defaultCfg, 1);
 });
+
+test("the composition promise says where it stops holding", async () => {
+  // "Composition carries over" is true for a distill LoRA on the same weights
+  // - but regional conditioning rides on CFG, and the whole point of the
+  // draft stage is CFG 1. Someone farming seeds on a regional workflow would
+  // watch the areas do nothing and blame the seed.
+  const plan = await planIteration(undefined, input({
+    model: "flux1-dev.safetensors",
+    availableCheckpoints: ["flux1-dev.safetensors"],
+    availableUnets: [],
+    availableLoras: ["hyper-flux-8steps.safetensors"],
+  }));
+
+  assert.equal(plan.seedCarryOver, "composition");
+  assert.match(plan.note, /regional/i);
+  assert.match(plan.note, /CFG/);
+});

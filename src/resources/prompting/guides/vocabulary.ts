@@ -283,3 +283,33 @@ export const DANBOORU_VOCABULARY: TagVocabulary = {
   notes:
     "Prefer an exact tag over a description: `cowboy_shot` frames from mid-thigh up and is understood precisely, where 'three-quarter length shot' is not a tag and does almost nothing. Character tags carry their series in parentheses and MUST be escaped in ComfyUI - `ganyu \\(genshin impact\\)` - or the brackets are parsed as a weight group.",
 };
+
+/**
+ * Why wording cannot place things, and what can.
+ *
+ * Shared across guides because the failure is a property of cross-attention
+ * rather than of any one architecture: text conditioning is applied over the
+ * whole latent, so "a red cube on the left and a blue sphere on the right"
+ * has nowhere to attach "left" to. The colours swap, the objects merge, or
+ * both land in the middle.
+ *
+ * This is also why prompt weights are the wrong tool for it, which is worth
+ * saying explicitly: `(red cube:1.3)` scales that token *everywhere*. Several
+ * guides currently advise "describe spatial relationships explicitly", which
+ * cannot work for placement and sends the reader in a circle.
+ *
+ * The remedy is a different graph, not different words - and building that
+ * graph is ComfyUI's job, not this server's. So this points at ComfyUI's own
+ * documented example rather than at a tool here.
+ */
+export const SPATIAL_CONTROL_NOTE =
+  "Placement is a graph problem, not a wording problem. Text conditioning is applied across " +
+  "the whole latent, so a prompt has no way to say 'here' - which is why two subjects merge, " +
+  "why the red cube comes out blue, and why prompt weights do not help ((red cube:1.3) scales " +
+  "that token everywhere). Bind text to a region instead: the bundled 'Area Composition' " +
+  "example does it with core nodes (ConditioningSetArea / ConditioningSetAreaPercentage / " +
+  "ConditioningCombine), and 'Noisy Latent Composition' is the alternative when hard-edged " +
+  "areas leave seams. Both are readable as MCP resources - comfyui://examples/area-composition " +
+  "and comfyui://examples/noisy-latent-composition - and the official Comfy MCP's template " +
+  "gallery carries runnable equivalents. Caveat: regional conditioning rides on CFG, so it " +
+  "works best on SD1.5/SDXL and poorly at CFG 1 (Flux, and any distilled draft model).";

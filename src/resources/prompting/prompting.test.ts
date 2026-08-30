@@ -13,6 +13,7 @@ import {
 import { ARCHITECTURES, architectureFor } from "../../architectures/registry.js";
 import { CHARACTER_LIMIT } from "../../constants.js";
 import { EXAMPLE_WORKFLOWS } from "../../tools/examples/data.js";
+import { SPATIAL_CONTROL_NOTE } from "./guides/vocabulary.js";
 
 // --- coverage -------------------------------------------------------------
 
@@ -403,4 +404,75 @@ test("guide counts used by evals/library.xml", () => {
     15,
     stale("the example counts in those categories")
   );
+});
+
+// --- spatial control ------------------------------------------------------
+
+test("the regional example is findable from the symptom, not just the cure", () => {
+  // The whole deliverable. An agent watching two subjects merge does not know
+  // to search for "ConditioningSetArea" - that IS the answer it is hunting
+  // for. Since list_examples was dropped, this description is what reaches a
+  // reader through the resource listing, so the symptoms have to be in it.
+  const area = EXAMPLE_WORKFLOWS.find((e) => e.name === "Area Composition")!;
+  const text = `${area.description} ${area.notes ?? ""}`.toLowerCase();
+
+  for (const symptom of ["merg", "swap", "left", "place"]) {
+    assert.ok(text.includes(symptom), `Area Composition never mentions '${symptom}'`);
+  }
+
+  // And the nodes, so a reader knows nothing needs installing.
+  assert.deepEqual(area.requiredNodes, [
+    "ConditioningSetArea",
+    "ConditioningSetAreaPercentage",
+    "ConditioningCombine",
+  ]);
+});
+
+test("the example says where regional conditioning stops working", () => {
+  // Advice that omits "and this breaks at CFG 1" sends someone to spend an
+  // afternoon on a Turbo model wondering why the regions do nothing.
+  const area = EXAMPLE_WORKFLOWS.find((e) => e.name === "Area Composition")!;
+  assert.match(area.notes!, /CFG 1/);
+  assert.match(area.notes!, /seam/i);
+});
+
+test("the spatial note says wording cannot fix placement", () => {
+  // The misconception it exists to correct. Two guides instruct "describe
+  // spatial relationships explicitly", which cannot work - a weight scales a
+  // token everywhere and a plain graph has no "here".
+  assert.match(SPATIAL_CONTROL_NOTE, /weights do not help|no way to say 'here'/);
+  assert.match(SPATIAL_CONTROL_NOTE, /Area Composition/);
+  assert.match(SPATIAL_CONTROL_NOTE, /CFG 1/);
+});
+
+test("the spatial note reaches the guides where area conditioning works", () => {
+  const carrying = Object.entries(PROMPTING_GUIDES)
+    .filter(([, guide]) => guide.tips.includes(SPATIAL_CONTROL_NOTE))
+    .map(([key]) => key)
+    .sort();
+
+  assert.deepEqual(carrying, [
+    "animagine",
+    "flux",
+    "illustrious",
+    "noobai",
+    "pixart",
+    "pony",
+    "sd15",
+    "sdxl",
+  ]);
+
+  // anima sits beside the booru rows but is single-encoder unet_clip - a
+  // different graph shape, untested for this. chroma is CFG-1 Flux-shaped.
+  // Both are excluded on purpose, so pin it.
+  assert.ok(!carrying.includes("anima"));
+  assert.ok(!carrying.includes("chroma"));
+});
+
+test("the note routes only at surfaces that still exist", () => {
+  // list_examples and get_example_workflow were dropped. Naming either here
+  // would be a dead pointer at the moment it is needed - and would fail
+  // server/tool-references.test.ts, which is the belt to this braces.
+  assert.ok(!/comfyui_list_examples|comfyui_get_example_workflow/.test(SPATIAL_CONTROL_NOTE));
+  assert.match(SPATIAL_CONTROL_NOTE, /comfyui:\/\/examples\/area-composition/);
 });
