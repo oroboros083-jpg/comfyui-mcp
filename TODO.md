@@ -3,6 +3,7 @@
 - add support for fetching from civitai/civitaired with metadata preservation
 - add support for checking pickletensors for known hacks
 - run /doctor
+- run /code-review ultracode
 
 ## Verify the coexistence work against a live ComfyUI (PR #9)
 
