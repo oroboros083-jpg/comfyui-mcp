@@ -50,16 +50,13 @@ ComfyUI".
       `.github/workflows/ci.yml` builds and tests on Node 24 and 26 for every
       push and PR.
 
-- [ ] **`listExamples` / `renderExamples` are orphaned.** Dropping
-      `list_examples` and `get_example_workflow` left their implementations
-      behind in `src/tools/examples/list-examples.ts`. Nothing calls
-      `listExamples`, `renderExamples` or `listExamplesSchema` - they are only
-      re-exported by `src/tools/examples/index.ts`. Note `fetchExampleWorkflow`
-      and `apiFormatOf` from the same file ARE still live
-      (`handlers/resources.ts`, `examples/recommend.ts`), so this is a
-      partial removal, not deleting the module. `EXAMPLE_WORKFLOWS` itself
-      stays: it feeds the `comfyui://examples/*` resources and
-      `comfyui_recommend_workflow`.
+- [x] **`listExamples` / `renderExamples` are orphaned.** Removed, along with
+      three more orphans from the same prune that the note had missed:
+      `getExampleWorkflow` in the same file, the whole `MODEL_DOWNLOADS`
+      catalogue in `examples/downloads.ts`, and `getInstallGuide` /
+      `getModelGuide` in `tools/install.ts`. What was left of
+      `list-examples.ts` is only the fetching, so it is now
+      `examples/workflow-fetch.ts`. `EXAMPLE_WORKFLOWS` stays, as noted.
 
 - [ ] **`spawnComfyUI` is unreachable.** Same cause - `start_comfyui` was
       dropped, so nothing in `src/` references `spawnComfyUI` outside its own

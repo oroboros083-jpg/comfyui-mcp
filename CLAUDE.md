@@ -59,7 +59,7 @@ src/
 │   ├── upload.ts           # Put an image into ComfyUI's input dir for LoadImage
 │   ├── models.ts           # Model/node listing and building
 │   ├── queue.ts            # Queue management tools
-│   ├── install.ts          # Installation assistance
+│   ├── install.ts          # Install detection + get_status
 │   ├── launch.ts           # Launcher detection and detached process start
 │   ├── tags.ts             # Danbooru tag search + co-occurrence lookup
 │   ├── svg.ts              # SVG rendering to PNG
@@ -68,10 +68,9 @@ src/
 │       ├── index.ts        # Main exports
 │       ├── data.ts         # Aggregated example data
 │       ├── types.ts        # Type definitions
-│       ├── list-examples.ts # list_examples tool
+│       ├── workflow-fetch.ts # Pull a graph out of a docs PNG or .json
 │       ├── templates.ts    # Template system (search/get/save)
 │       ├── recommend.ts    # Workflow recommendations
-│       ├── downloads.ts    # Model download URLs
 │       ├── basics.ts       # Basic workflow examples
 │       ├── flux.ts         # Flux model examples
 │       ├── sdxl.ts         # SDXL examples

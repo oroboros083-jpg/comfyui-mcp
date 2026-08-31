@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { extractWorkflowFromPng } from "./list-examples.js";
+import { extractWorkflowFromPng } from "./workflow-fetch.js";
 
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
