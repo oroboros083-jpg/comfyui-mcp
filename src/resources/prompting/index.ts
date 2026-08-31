@@ -19,7 +19,7 @@ import {
 } from "./guides/vocabulary.js";
 
 export * from "./types.js";
-export { formatPromptingGuide, huggingFaceUrl } from "./render.js";
+export { formatPromptingGuide, huggingFaceUrl, civitaiUrl } from "./render.js";
 
 /**
  * Fill in `syntax` for any guide that did not declare one.

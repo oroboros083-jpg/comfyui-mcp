@@ -483,7 +483,7 @@ export const ANIME_GUIDES: Record<string, ModelPromptingGuide> = {
     models: [
       {
         name: "Pony Diffusion V6 XL",
-        homepage: "https://civitai.com/models/257749/pony-diffusion-v6-xl",
+        civitai: "models/257749/pony-diffusion-v6-xl",
         note: "Distributed through Civitai rather than an official Hugging Face repo; HF copies are community mirrors.",
       },
     ],

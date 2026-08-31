@@ -82,6 +82,16 @@ export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
         huggingFace: "runwayml/stable-diffusion-v1-5",
         note: "The original repo has been restricted at times; community mirrors carry the same weights.",
       },
+      {
+        name: "Realistic Vision",
+        civitai: "models/4201",
+        note: "Photographic finetune. Community finetunes are where SD 1.5 is still worth using; the base model is mostly a starting point for them.",
+      },
+      {
+        name: "DreamShaper",
+        civitai: "models/4384",
+        note: "General-purpose finetune, stylised rather than photographic.",
+      },
     ],
   },
 
@@ -151,6 +161,21 @@ export const STABLE_DIFFUSION_GUIDES: Record<string, ModelPromptingGuide> = {
         name: "SDXL Turbo",
         huggingFace: "stabilityai/sdxl-turbo",
         note: "Distilled: 1-4 steps at CFG 1.",
+      },
+      {
+        name: "Juggernaut XL",
+        civitai: "models/133005",
+        note: "Photographic SDXL finetune, and the usual first stop when base SDXL looks flat.",
+      },
+      {
+        name: "RealVisXL",
+        civitai: "models/139562",
+        note: "The other widely used photorealistic SDXL finetune; stronger on faces and skin than Juggernaut, weaker on wide scenes.",
+      },
+      {
+        name: "DreamShaper XL",
+        civitai: "models/112902",
+        note: "Stylised and illustrative rather than photographic. For anime specifically, use the booru-tag models and their own guide instead - this one still wants natural language.",
       },
     ],
   },

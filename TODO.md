@@ -1,10 +1,17 @@
-- add model descriptions to non-text to image models
-- allow for additional model sources (like civitai/civitai.red). prefer hf model card
-- add support for fetching from civitai/civitaired with metadata preservation
-- add support for checking pickletensors for known hacks
-- run /doctor
-- run /code-review ultracode
-- update readme
+- [x] add model descriptions to non-text to image models — every
+      `ModelReference` in the video and audio guides now carries a `note`
+      saying what that file is and how it differs from its siblings, which
+      the image guides mostly got for free from the architecture name.
+- [x] allow for additional model sources (like civitai/civitai.red). prefer
+      hf model card — `ModelReference.civitai` holds a path, not a URL, so
+      the renderer supplies the host and can name the `civitai.red` mirror
+      once per section. The HF card renders first wherever a model has both.
+- [ ] add support for fetching from civitai/civitaired with metadata
+      preservation
+- [ ] add support for checking pickletensors for known hacks
+- [ ] run /doctor
+- [ ] run /code-review ultracode
+- [ ] update readme
 
 ## Verify the coexistence work against a live ComfyUI (PR #9)
 

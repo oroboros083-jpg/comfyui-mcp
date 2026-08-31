@@ -96,20 +96,33 @@ export interface StarterPrompt {
 }
 
 /**
- * A concrete model this guide applies to, with its Hugging Face repo.
+ * A concrete model this guide applies to, and where to get it.
  *
  * `huggingFace` is a repo id (`owner/name`), not a URL - the renderer builds
  * the URL, so the id can also be used to look the model up through other
- * tooling. Omitted where a model has no canonical HF home (several anime
- * finetunes are distributed on Civitai instead), because a wrong link is
- * worse than no link.
+ * tooling. `civitai` is the same idea for the other place open image models
+ * actually live: the path after the host, so the renderer can point at either
+ * `civitai.com` or the `civitai.red` mirror.
+ *
+ * A model may carry both, and the HF card is preferred as the primary link
+ * when it does: it names the file layout, the licence and the base model in
+ * one place, where a Civitai page is organised around versions and previews.
+ * Civitai leads only when there is no HF home - which is the real situation
+ * for several of the anime finetunes, where the HF copies are community
+ * mirrors of a Civitai release rather than the release itself.
+ *
+ * Every field is optional and omitting one is fine; a wrong link is worse
+ * than no link.
  */
 export interface ModelReference {
   name: string;
   /** Hugging Face repo id, e.g. "black-forest-labs/FLUX.1-dev". */
   huggingFace?: string;
-  /** Where it actually lives, when that is not Hugging Face. */
+  /** Civitai path, e.g. "models/257749/pony-diffusion-v6-xl". No host. */
+  civitai?: string;
+  /** Where it actually lives, when that is neither of the above. */
   homepage?: string;
+  /** What this file is, and what distinguishes it from its siblings. */
   note?: string;
 }
 

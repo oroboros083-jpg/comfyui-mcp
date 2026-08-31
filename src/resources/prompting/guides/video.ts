@@ -97,10 +97,14 @@ export const VIDEO_GUIDES: Record<string, ModelPromptingGuide> = {
       {
         name: "Wan 2.1 (ComfyUI repackaged)",
         huggingFace: "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+        note:
+          "Split into diffusion model, umt5-xxl text encoder and wan_2.1_vae, so it builds as UNETLoader + CLIPLoader + VAELoader. T2V comes at 1.3B (runs on modest VRAM) and 14B; I2V only at 14B, in 480p and 720p variants that are trained for their resolution rather than interchangeable.",
       },
       {
         name: "Wan 2.2 (ComfyUI repackaged)",
         huggingFace: "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+        note:
+          "The 14B line splits the denoiser in two - a high-noise and a low-noise expert, loaded as a pair and swapped partway through sampling - so a graph written for 2.1 needs a second loader. Reuses the 2.1 encoder and VAE. The 5B TI2V model is a single file and the cheaper starting point.",
       },
     ],
   },
@@ -141,7 +145,14 @@ export const VIDEO_GUIDES: Record<string, ModelPromptingGuide> = {
           "blurry, distorted, morphing, jittery motion, watermark, text, low quality",
       },
     ],
-    models: [{ name: "LTX-Video", huggingFace: "Lightricks/LTX-Video" }],
+    models: [
+      {
+        name: "LTX-Video",
+        huggingFace: "Lightricks/LTX-Video",
+        note:
+          "A 2B DiT - small enough that generation approaches real time on consumer hardware, which is the whole reason to pick it. It pays for that with prompt sensitivity: the long dense prompts this guide asks for are not a stylistic preference, they are what separates a usable clip from mush.",
+      },
+    ],
   },
 
   mochi: {
@@ -182,6 +193,8 @@ export const VIDEO_GUIDES: Record<string, ModelPromptingGuide> = {
       {
         name: "Mochi 1 preview (ComfyUI repackaged)",
         huggingFace: "Comfy-Org/mochi_preview_repackaged",
+        note:
+          "A 10B asymmetric DiT, text-to-video only - there is no image-to-video path, so a first frame cannot be supplied. Needs the t5xxl encoder and its own VAE. The bf16 weights are the quality reference; the fp8 scaled all-in-one is what fits on a single consumer card.",
       },
     ],
   },
@@ -231,10 +244,14 @@ export const VIDEO_GUIDES: Record<string, ModelPromptingGuide> = {
       {
         name: "Cosmos Predict2 (ComfyUI repackaged)",
         huggingFace: "Comfy-Org/Cosmos_Predict2_repackaged",
+        note:
+          "The current generation, at 2B and 14B. Each size ships a text-to-image and a video2world variant, and video2world is the one that takes a starting frame. Predict2 pairs with the Wan 2.1 VAE rather than the Cosmos 1.0 one below, which is the easiest thing to get wrong here.",
       },
       {
         name: "Cosmos 1.0 text encoder and VAE",
         huggingFace: "comfyanonymous/cosmos_1.0_text_encoder_and_VAE_ComfyUI",
+        note:
+          "Support files for the Cosmos 1.0 Diffusion 7B/14B Text2World and Video2World checkpoints, not a model in itself. Note the encoder is the *old* t5-xxl, distinct from the umt5 the Wan graphs load - a Cosmos 1.0 graph pointed at the Wan encoder builds and then produces noise.",
       },
     ],
   },

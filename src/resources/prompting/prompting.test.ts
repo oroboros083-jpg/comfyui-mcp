@@ -7,6 +7,7 @@ import {
   getGuideIndex,
   formatPromptingGuide,
   huggingFaceUrl,
+  civitaiUrl,
   sectionsPresent,
   GUIDE_SECTIONS,
 } from "./index.js";
@@ -206,11 +207,11 @@ test("model references render as Hugging Face links", () => {
   const flux = formatPromptingGuide(PROMPTING_GUIDES.flux!, ["models"]);
   assert.match(flux, /https:\/\/huggingface\.co\/black-forest-labs\/FLUX\.1-dev/);
 
-  // Pony has no official HF repo, so it carries a homepage instead - and must
-  // not invent an HF link.
+  // Pony has no official HF repo, so it carries a Civitai path instead - and
+  // must not invent an HF link.
   const pony = formatPromptingGuide(PROMPTING_GUIDES.pony!, ["models"]);
   assert.ok(!pony.includes("huggingface.co"));
-  assert.match(pony, /civitai\.com/);
+  assert.match(pony, /civitai\.com\/models\/257749/);
 });
 
 test("huggingFaceUrl builds a repo URL", () => {
@@ -220,12 +221,47 @@ test("huggingFaceUrl builds a repo URL", () => {
   );
 });
 
+test("civitaiUrl builds a model URL, with or without a leading slash", () => {
+  assert.equal(civitaiUrl("models/4201"), "https://civitai.com/models/4201");
+  assert.equal(civitaiUrl("/models/4201"), "https://civitai.com/models/4201");
+});
+
+test("a model with both sources leads with the Hugging Face card", () => {
+  // Both are worth having - the HF card states file layout and licence, the
+  // Civitai page states version history and trigger words - but only one can
+  // be first, and the caller reads the first.
+  const rendered = formatPromptingGuide(
+    {
+      ...PROMPTING_GUIDES.sdxl!,
+      models: [
+        { name: "Both", huggingFace: "owner/name", civitai: "models/1" },
+      ],
+    },
+    ["models"]
+  );
+
+  assert.ok(
+    rendered.indexOf("huggingface.co") < rendered.indexOf("civitai.com"),
+    "the HF card is the primary link when a model has one"
+  );
+});
+
+test("the civitai.red mirror is mentioned once, and only where it applies", () => {
+  // A second URL on every Civitai row would be the same guidance paid for
+  // per row; a guide with no Civitai link should not carry it at all.
+  const sd15 = formatPromptingGuide(PROMPTING_GUIDES.sd15!, ["models"]);
+  assert.equal(sd15.match(/civitai\.red/g)?.length, 1);
+
+  const flux = formatPromptingGuide(PROMPTING_GUIDES.flux!, ["models"]);
+  assert.ok(!flux.includes("civitai.red"));
+});
+
 test("every model reference has a link of some kind", () => {
   for (const [key, guide] of Object.entries(PROMPTING_GUIDES)) {
     for (const model of guide.models ?? []) {
       assert.ok(
-        model.huggingFace || model.homepage,
-        `${key}: '${model.name}' has neither a huggingFace repo nor a homepage`
+        model.huggingFace || model.civitai || model.homepage,
+        `${key}: '${model.name}' names no source at all`
       );
       if (model.huggingFace) {
         assert.match(
@@ -234,6 +270,28 @@ test("every model reference has a link of some kind", () => {
           `${key}: '${model.huggingFace}' is not an owner/name repo id`
         );
       }
+      if (model.civitai) {
+        // A path, not a URL: the renderer supplies the host, which is what
+        // lets it offer the civitai.red mirror as well.
+        assert.ok(
+          !/^https?:/.test(model.civitai),
+          `${key}: '${model.name}' has a full URL where a civitai path belongs`
+        );
+      }
+    }
+  }
+});
+
+test("every non-text-to-image model says what it is", () => {
+  // A bare repo link answers "where do I get it" and nothing else. For the
+  // image models the architecture name usually carries the rest; for video
+  // and audio it does not - which of Wan's four files, and whether ACE-Step
+  // or Stable Audio is the one that sings, are not guessable from a name.
+  for (const key of ["wan", "ltxvideo", "mochi", "cosmos", "aceaudio"]) {
+    const guide = PROMPTING_GUIDES[key];
+    assert.ok(guide, `no guide for ${key}`);
+    for (const model of guide.models ?? []) {
+      assert.ok(model.note, `${key}: '${model.name}' has no description`);
     }
   }
 });
