@@ -1,14 +1,41 @@
-- add model descriptions to non-text to image models
-- allow for additional model sources (like civitai/civitai.red). prefer hf model card
-- add support for fetching from civitai/civitaired with metadata preservation
-- add support for checking pickletensors for known hacks
-- run /doctor
-- run /code-review ultracode
-- update readme
+- [x] add model descriptions to non-text to image models — every
+      `ModelReference` in the video and audio guides now carries a `note`
+      saying what that file is and how it differs from its siblings, which
+      the image guides mostly got for free from the architecture name.
+- [x] allow for additional model sources (like civitai/civitai.red). prefer
+      hf model card — `ModelReference.civitai` holds a path, not a URL, so
+      the renderer supplies the host and can name the `civitai.red` mirror
+      once per section. The HF card renders first wherever a model has both.
+- [ ] add support for fetching from civitai/civitaired with metadata
+      preservation. NOT attempted: this one needs live network to design
+      against, not just to test. The open questions are what "metadata
+      preservation" writes and where (trigger words, base model and version id
+      belong somewhere ComfyUI or a later session can find them, and nothing
+      here has a place for that yet), and whether a download tool belongs in a
+      companion server at all when `download_model` exists - the honest
+      argument for it is that comfy-cli's is Hugging Face-shaped and Civitai's
+      version/file model does not map onto it. `comfyui_scan_model` is the
+      natural finisher for whatever this becomes: fetch, then scan before
+      anything loads it.
+- [x] add support for checking pickletensors for known hacks —
+      `comfyui_scan_model` walks the opcodes of a `.ckpt`/`.pt`/`.bin` without
+      unpickling and reports what `torch.load` would import, handling raw
+      pickles, the ZIP `torch.save` writes (including ZIP64), and safetensors
+      / GGUF as nothing-to-scan. See "Changing the Model Scanner" in
+      CLAUDE.md before touching the opcode table or the signature lists.
+- [ ] run /doctor
+- [ ] run /code-review ultracode
+- [x] update readme — Docker gone and From Source made the only install path,
+      the launcher env vars removed, the empty "Discovery Tools" section
+      filled with `comfyui_scan_model`, and three stale claims fixed: it
+      offered to "install ComfyUI, launch it, find model downloads" (none of
+      which it does), listed workflow validation as a feature (the official
+      server's), and pointed the TOC at a "Docker Build" section. Counts
+      re-checked against the code: 77 examples, 26 architectures, 26 guides.
 
 ## Verify the coexistence work against a live ComfyUI (PR #9)
 
-Merged unverified against a real instance. The 386 unit tests all run against
+Merged unverified against a real instance. The unit tests all run against
 stubs, and none of the cases below can be reached that way - each one needs a
 running ComfyUI, and the last two need a browser tab and the official Comfy
 MCP mounted alongside. Until these pass, the write refusal and the ownership
@@ -50,37 +77,47 @@ ComfyUI".
       `.github/workflows/ci.yml` builds and tests on Node 24 and 26 for every
       push and PR.
 
-- [ ] **`listExamples` / `renderExamples` are orphaned.** Dropping
-      `list_examples` and `get_example_workflow` left their implementations
-      behind in `src/tools/examples/list-examples.ts`. Nothing calls
-      `listExamples`, `renderExamples` or `listExamplesSchema` - they are only
-      re-exported by `src/tools/examples/index.ts`. Note `fetchExampleWorkflow`
-      and `apiFormatOf` from the same file ARE still live
-      (`handlers/resources.ts`, `examples/recommend.ts`), so this is a
-      partial removal, not deleting the module. `EXAMPLE_WORKFLOWS` itself
-      stays: it feeds the `comfyui://examples/*` resources and
-      `comfyui_recommend_workflow`.
+- [x] **`listExamples` / `renderExamples` are orphaned.** Removed, along with
+      three more orphans from the same prune that the note had missed:
+      `getExampleWorkflow` in the same file, the whole `MODEL_DOWNLOADS`
+      catalogue in `examples/downloads.ts`, and `getInstallGuide` /
+      `getModelGuide` in `tools/install.ts`. What was left of
+      `list-examples.ts` is only the fetching, so it is now
+      `examples/workflow-fetch.ts`. `EXAMPLE_WORKFLOWS` stays, as noted.
 
-- [ ] **`spawnComfyUI` is unreachable.** Same cause - `start_comfyui` was
-      dropped, so nothing in `src/` references `spawnComfyUI` outside its own
-      definition in `src/tools/launch.ts`. Only `launchBlockedReason` is
-      imported (by `server/connection.ts`), plus `readStartupLogTail`,
-      `LaunchTarget` and `isLocalUrl` by that file's own test. So launch.ts is
-      not dead as a module, but the part that actually spawns is. Deleting it
-      would also retire the `COMFYUI_LAUNCH_COMMAND` env var and the
-      "only one module spawns processes" security note in `README.md`, and
-      would mean this server can no longer spawn anything at all - arguably a
-      simplification worth having, since launching is now the official Comfy
-      MCP's `launch_comfyui`.
+- [x] **`spawnComfyUI` is unreachable.** Taken the simplification: the whole
+      of `src/tools/launch.ts` is gone, and with it `COMFYUI_LAUNCH_COMMAND`
+      / `_ARGS` / `_CWD`. `isLocalUrl` was the only part with a live caller,
+      so it moved into `server/connection.ts` beside `nextStepWhenDown`,
+      which is the one thing that asked. `src/tools/restart.ts` - a schema
+      for the dropped `restart_comfyui`, with no tool behind it - went too.
+      `src/` no longer imports `child_process` anywhere, which is a stronger
+      security note than the one it replaces.
+
+- [ ] **Six example workflows are unreachable.** The SVD, Cosmos, Wan 2.1 and
+      Wan 2.2 entries in `examples/video.ts` publish their graph as
+      `jsonUrls` with `imageUrls: []`, and both live consumers -
+      `handlers/resources.ts` and `recommend.ts` - only ever try
+      `imageUrls[0]`. So `comfyui://examples/wan-21` throws "No workflow
+      images available" and `recommend_workflow` returns no
+      `exampleWorkflow` for any of them. `fetchJsonWorkflow` in
+      `examples/workflow-fetch.ts` is the function that would fetch them and
+      is currently called by nothing.
+
+      Not wired up yet because it needs one fact I could not check offline:
+      whether those docs `.json` files are API format (what `/prompt` and
+      `run_workflow` accept) or the UI graph. `apiFormatOf` prefers `prompt`
+      over `workflow` for exactly this reason, and a UI graph handed back
+      through `exampleWorkflow` - whose own doc says it is runnable - would be
+      worse than the current error. Fetch one, look, then wire it.
 
 ## Scope and context efficiency
 
-- [ ] **Remove Docker support.** `Dockerfile`, the Docker install path in
-      `README.md`, and `publish.yml` (which builds and pushes the GHCR image
-      that has never successfully published). Also the Docker branch in the
-      output handling - `outputMode` saves or inlines differently "unless
-      Docker says otherwise", and that is the only reason the output path has
-      two modes. Not part of this user's workflow.
+- [x] **Remove Docker support.** `Dockerfile`, `publish.yml` and the Docker
+      install path in `README.md` are gone, along with every in-container code
+      path: the output handler's skip-the-write branch, discovery's
+      `host.docker.internal` probe, and `launchBlockedReason`'s container
+      check. `DOCKER` is no longer read anywhere.
 - [ ] **Context-efficient node management.** The node tools are gone in favour
       of the official Comfy MCP's `nodes`, so this is only worth revisiting if
       that proves insufficient. Start from artokun's implementation

@@ -13,7 +13,6 @@
 import { join } from "path";
 
 import { discoverComfyUI, getCandidateUrls } from "../discovery/index.js";
-import { launchBlockedReason } from "../tools/launch.js";
 import { ToolError } from "../utils/errors.js";
 import { ComfyUIClient, ObjectInfo } from "../client/comfyui.js";
 import { ComfyUIWebSocket } from "../client/websocket.js";
@@ -213,6 +212,29 @@ export async function probeCurrentClient(): Promise<boolean> {
 }
 
 /**
+ * Whether a URL points at this machine.
+ *
+ * Nothing here launches anything any more, but where ComfyUI lives still
+ * decides what advice is worth giving: telling someone to run `launch_comfyui`
+ * cannot help a ComfyUI on another host, because that tool starts a process
+ * where it is running, which is here.
+ */
+export function isLocalUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "0.0.0.0" ||
+      host === "::1" ||
+      host.endsWith(".localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * What to actually do about a ComfyUI that is down.
  *
  * This is the server's main disclosure point for a dead connection:
@@ -223,21 +245,25 @@ export async function probeCurrentClient(): Promise<boolean> {
  * help (reconnect only works once something is already listening) while
  * omitting the one that can.
  *
- * When a local launch is impossible - inside Docker, or a COMFYUI_URL that
- * points at another host - it says so instead, rather than advertising a tool
- * that would fail.
+ * When the configured URL is on another host, it says so instead, rather
+ * than advertising a tool that would start a process in the wrong place.
  */
 export function nextStepWhenDown(): string {
-  const blocked = launchBlockedReason(
-    process.env.COMFYUI_URL || ctx.config.comfyui.url
-  );
-  if (blocked) return blocked;
+  const url = process.env.COMFYUI_URL || ctx.config.comfyui.url;
+  if (!isLocalUrl(url)) {
+    return (
+      `ComfyUI is configured at ${url}, which is not this machine. ` +
+      "Start it on that host and call 'comfyui_reconnect'."
+    );
+  }
 
   return (
-    "Launch it with the official Comfy MCP's launch_comfyui - this server does not manage the " +
-    "the desktop app, a portable launcher or a source checkout, waits for it, " +
-    "and connects. If you would rather start it yourself, call comfyui_reconnect " +
-    "ComfyUI process. Its `install_comfyui` covers installing one in the first place."
+    "Launch it with the official Comfy MCP's launch_comfyui - it knows the " +
+    "desktop app, a portable launcher and a source checkout, waits for the " +
+    "server to answer, and connects. This server does not manage the ComfyUI " +
+    "process at all. Its `install_comfyui` covers installing one in the first " +
+    "place. If you would rather start ComfyUI yourself, call comfyui_reconnect " +
+    "once it is up."
   );
 }
 

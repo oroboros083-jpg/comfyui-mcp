@@ -4,9 +4,6 @@
  * This was written twice - once in generate.ts for the sync path and once in
  * generate-async.ts for the async one - and the two copies drifted:
  *
- *  - The Docker escape hatch honouring a mounted OUTPUT_DIR existed only in
- *    the sync copy, so in Docker the async path silently saved nothing even
- *    with a volume configured.
  *  - The sync copy wrote the *processed* buffer, honouring imageFormat and
  *    imageQuality; the async copy wrote the raw bytes, so those two options
  *    were silently ignored for any file it saved.
@@ -65,23 +62,6 @@ const FORMAT_EXTENSIONS: Record<string, string> = {
   png: ".png",
   webp: ".webp",
 };
-
-export function isRunningInDocker(): boolean {
-  return existsSync("/.dockerenv") || process.env.DOCKER === "true";
-}
-
-/**
- * Whether writing output files should be skipped.
- *
- * Inside Docker a write usually lands in a container layer nobody will look
- * at - unless OUTPUT_DIR is set, which means the user mounted a volume for
- * exactly this. The async path used a bare isRunningInDocker() and so ignored
- * the mount.
- */
-export function shouldSkipFileSaving(): boolean {
-  if (!isRunningInDocker()) return false;
-  return !process.env.OUTPUT_DIR;
-}
 
 /** How many suffixed names to try before giving up on a collision. */
 const MAX_FILENAME_ATTEMPTS = 1000;
@@ -173,8 +153,8 @@ export function workflowPromptFor(workflow: Record<string, unknown>): string {
  * whether to inline it as base64.
  *
  * Saving and inlining are separate decisions, which is what `outputMode`
- * has always documented: the file is written unless Docker says otherwise,
- * and `outputMode` controls only whether the bytes also travel inline.
+ * has always documented: the file is always written, and `outputMode`
+ * controls only whether the bytes also travel inline.
  */
 export async function collectOutputImages(
   client: ComfyUIClient,
@@ -185,7 +165,6 @@ export async function collectOutputImages(
   sizeThreshold: number
 ): Promise<OutputImage[]> {
   const workflowPrompt = workflowPromptFor(workflow);
-  const skipFileSave = shouldSkipFileSaving();
 
   const processingOptions: ImageProcessingOptions = {
     format: input.imageFormat || DEFAULT_TRANSFER_OPTIONS.format,
@@ -221,36 +200,31 @@ export async function collectOutputImages(
         return processed;
       };
 
-      let absolutePath: string | undefined;
-      let savedFilename = readableFilename;
-      if (!skipFileSave) {
-        // resolve(), not join(): outputMode's own description promises
-        // "absolute paths returned", and the shipped default outputDir is
-        // "./outputs". A relative path is resolved against the MCP server
-        // process's cwd, which for a stdio server launched by a client is
-        // not the agent's - so the agent could not open the file it was
-        // handed.
-        const directory = resolve(outputDir);
-        if (!existsSync(directory)) {
-          await mkdir(directory, { recursive: true });
-        }
-        // The converted bytes, so the file on disk is in the requested
-        // format. The async path used to write the raw buffer here.
-        const outputPath = await writeUnique(
-          directory,
-          readableFilename,
-          Buffer.from((await process()).data, "base64")
-        );
-        // Keep the reported name in step with the file actually written:
-        // writeUnique may have appended -2, and a `filename` disagreeing
-        // with basename(path) would be wrong in exactly the collision case
-        // it exists to handle.
-        savedFilename = basename(outputPath);
-        absolutePath = outputPath;
+      // resolve(), not join(): outputMode's own description promises
+      // "absolute paths returned", and the shipped default outputDir is
+      // "./outputs". A relative path is resolved against the MCP server
+      // process's cwd, which for a stdio server launched by a client is
+      // not the agent's - so the agent could not open the file it was
+      // handed.
+      const directory = resolve(outputDir);
+      if (!existsSync(directory)) {
+        await mkdir(directory, { recursive: true });
       }
+      // The converted bytes, so the file on disk is in the requested
+      // format. The async path used to write the raw buffer here.
+      const outputPath = await writeUnique(
+        directory,
+        readableFilename,
+        Buffer.from((await process()).data, "base64")
+      );
+      // Keep the reported name in step with the file actually written:
+      // writeUnique may have appended -2, and a `filename` disagreeing
+      // with basename(path) would be wrong in exactly the collision case
+      // it exists to handle.
+      const savedFilename = basename(outputPath);
+      const absolutePath = outputPath;
 
       const includeBase64 =
-        skipFileSave || // nothing was written, so the bytes must travel inline
         input.outputMode === "base64" ||
         (input.outputMode === "auto" && imageBuffer.length <= sizeThreshold);
 

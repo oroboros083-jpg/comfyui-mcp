@@ -21,6 +21,11 @@ export function huggingFaceUrl(repoId: string): string {
   return `https://huggingface.co/${repoId}`;
 }
 
+/** Build the Civitai URL for a model path. */
+export function civitaiUrl(path: string): string {
+  return `https://civitai.com/${path.replace(/^\/+/, "")}`;
+}
+
 function renderOverview(guide: ModelPromptingGuide): string[] {
   const lines = [
     guide.description,
@@ -204,12 +209,29 @@ function renderModels(guide: ModelPromptingGuide): string[] {
 
   const lines = ["## Models", ""];
   for (const model of guide.models) {
-    const link = model.huggingFace
-      ? `[${model.huggingFace}](${huggingFaceUrl(model.huggingFace)})`
-      : model.homepage
-        ? `[homepage](${model.homepage})`
-        : "no canonical link";
+    // The HF card leads when there is one: it states the file layout, the
+    // licence and the base model in one place. Civitai is listed alongside
+    // rather than instead, because for a finetune it is where the version
+    // history and the trigger words are.
+    const sources: string[] = [];
+    if (model.huggingFace) {
+      sources.push(`[${model.huggingFace}](${huggingFaceUrl(model.huggingFace)})`);
+    }
+    if (model.civitai) sources.push(`[civitai](${civitaiUrl(model.civitai)})`);
+    if (model.homepage) sources.push(`[homepage](${model.homepage})`);
+
+    const link = sources.length ? sources.join(", ") : "no canonical link";
     lines.push(`- **${model.name}** — ${link}${model.note ? `. ${model.note}` : ""}`);
+  }
+
+  // Said once, at the foot of the section, rather than as a second URL on
+  // every row that has one.
+  if (guide.models.some((m) => m.civitai)) {
+    lines.push(
+      "",
+      "Civitai links work against `civitai.red` too — same paths, different host, " +
+        "which is the way through when civitai.com is blocked or gated where you are."
+    );
   }
   return lines;
 }

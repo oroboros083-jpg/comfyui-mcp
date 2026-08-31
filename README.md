@@ -46,6 +46,7 @@
     - [Template System](#template-system)
     - [Workflow Composition Tools](#workflow-composition-tools)
     - [Safe Workflow-File Editing](#safe-workflow-file-editing)
+    - [Checkpoint Safety Scanning](#checkpoint-safety-scanning)
     - [Responses Sized for a Model](#responses-sized-for-a-model)
   - [Quick Start Guide](#quick-start-guide)
     - [Step 1: Install ComfyUI](#step-1-install-comfyui)
@@ -54,16 +55,13 @@
     - [Step 4: Start Generating!](#step-4-start-generating)
   - [Installation](#installation)
     - [Prerequisites](#prerequisites)
-    - [Option 1: Docker](#option-1-docker)
-      - [Claude Desktop](#claude-desktop)
+    - [From Source](#from-source)
       - [Claude Code (CLI)](#claude-code-cli)
+      - [Claude Desktop](#claude-desktop)
       - [Cursor](#cursor)
       - [Windsurf](#windsurf)
       - [Cline (VS Code Extension)](#cline-vs-code-extension)
-      - [Linux (Any Client)](#linux-any-client)
       - [Port Configuration](#port-configuration)
-      - [Docker Caveats](#docker-caveats)
-    - [Option 2: From Source](#option-2-from-source)
     - [Optional: ComfyUI-TabBridge](#optional-comfyui-tabbridge)
   - [Tools Reference](#tools-reference)
     - [Shared Parameters](#shared-parameters)
@@ -92,7 +90,8 @@
       - [`comfyui_write_workflow`](#comfyui_write_workflow)
     - [Workflow Composition Tools](#workflow-composition-tools-1)
       - [`comfyui_build_node`](#comfyui_build_node)
-    - [Discovery Tools](#discovery-tools)
+    - [Model File Tools](#model-file-tools)
+      - [`comfyui_scan_model`](#comfyui_scan_model)
     - [Task \& Queue Management](#task--queue-management)
       - [`comfyui_get_task`](#comfyui_get_task)
       - [`comfyui_get_task_result`](#comfyui_get_task_result)
@@ -133,12 +132,12 @@
     - [Running Locally](#running-locally)
     - [Testing](#testing)
     - [Evals](#evals)
-    - [Docker Build](#docker-build)
     - [Testing with MCP Inspector](#testing-with-mcp-inspector)
   - [Troubleshooting](#troubleshooting)
     - [ComfyUI not detected](#comfyui-not-detected)
     - [Models not found](#models-not-found)
     - [Generation fails](#generation-fails)
+    - [I downloaded a `.ckpt` and I'm not sure about it](#i-downloaded-a-ckpt-and-im-not-sure-about-it)
     - [Workflow edits keep reverting](#workflow-edits-keep-reverting)
   - [Contributing](#contributing)
   - [License](#license)
@@ -158,9 +157,10 @@ Copy and paste this prompt to your AI assistant (Claude, Cursor, etc.) to have i
 ```
 I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP server.
 
-1. First, add the ComfyUI MCP server to my configuration. The Docker config is:
-   - Command: docker
-   - Args: run -i --rm --pull always -e COMFYUI_URL=http://host.docker.internal:8000 ghcr.io/shawnrushefsky/comfyui-mcp:latest
+1. First, clone https://github.com/oroboros083-jpg/comfyui-mcp, run `npm install`
+   and `npm run build`, then add the server to my configuration:
+   - Command: node
+   - Args: /absolute/path/to/comfyui-mcp/dist/index.js
 
 2. Once configured, use comfyui_get_status to check if ComfyUI is running and connected.
 
@@ -186,7 +186,8 @@ I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP s
 
 This is a fork of the original repo owned by Shawn R that adds security
 improvements (SSRF-guarded URL fetching, sandboxed workflow writes, size and
-extension limits on local file reads) along with response-size discipline and
+extension limits on local file reads, and a pickle scanner for checkpoints)
+along with response-size discipline and
 a companion ComfyUI custom node. This MCP server acts as a bridge between AI
 assistants and ComfyUI, the powerful node-based interface for Stable Diffusion
 and other generative AI models. It allows Claude and other MCP-compatible AI
@@ -198,9 +199,11 @@ assistants to:
 - **Create videos** using AnimateDiff, Stable Video Diffusion, Wan, LTX-Video, Mochi, Cosmos and Hunyuan Video
 - **Generate audio** using Stable Audio, ACE-Step and other audio models
 - **Edit workflow files** without clobbering what you have open in a browser tab
-- **Manage your queue** - view, cancel, and interrupt jobs
+- **Manage your queue** - view, cancel, and interrupt jobs, including work
+  submitted from a browser tab or another MCP server
 - **Remember what worked** across sessions, in a local notes database
-- **Help you set up** - install ComfyUI, launch it, find model downloads
+- **Check a checkpoint before loading it** - a `.ckpt` is a pickle, and
+  `torch.load` runs what it names
 
 ## Key Features
 
@@ -215,6 +218,7 @@ Even if ComfyUI isn't installed or running, the server provides tools to:
 - Read prompting guides for all 26 architectures (`comfyui_get_prompting_guide`)
 - Search the Danbooru tag vocabulary (`comfyui_search_tags`, `comfyui_related_tags`)
 - Plan a draft-then-final iteration loop (`comfyui_plan_iteration`)
+- Check whether a downloaded checkpoint is safe to load (`comfyui_scan_model`)
 - Search your saved workflows and save notes (`comfyui_search_user_snippets`,
   `comfyui_save_note`)
 
@@ -224,10 +228,18 @@ official Comfy MCP's job (`install_comfyui`, `search_models`,
 so and name what fixes it rather than failing blankly.
 
 ### Workflow-First Architecture
-All generation happens through `comfyui_run_workflow`, giving you full control over the ComfyUI workflow. The server provides comprehensive tools for:
-- **Templates**: Pre-built workflows for common tasks
-- **Node composition**: Build custom workflows node by node
-- **Validation**: Check workflows before running
+All generation happens through `comfyui_run_workflow`, which takes the graph
+as an object rather than a path — so a workflow can be assembled, run and
+adjusted without ever touching disk. Around it:
+- **Starting points**: `comfyui_recommend_workflow` matches a model filename to
+  a graph shape and the settings that model wants
+- **Node composition**: `comfyui_build_node` fills an instance from the live
+  catalog, so a graph can be built one node at a time
+- **Your own library**: `comfyui_save_user_snippet` and friends keep the
+  workflows that worked
+
+Validating a workflow file is the official server's `validate_workflow`, which
+takes a path — so write the file first.
 
 ### 77 Example Workflows
 Library of example workflows from the [official ComfyUI documentation](https://comfyanonymous.github.io/ComfyUI_examples/), split into individually discoverable entries:
@@ -302,6 +314,19 @@ which ships in this repo. See [Optional:
 ComfyUI-TabBridge](#optional-comfyui-tabbridge). Without it, writes still work
 — they just can't see or steer tabs.
 
+### Checkpoint Safety Scanning
+A `.ckpt`, `.pt` or `.bin` is a Python pickle, and `torch.load` imports and
+calls whatever the file names — that is the format, not a bug, and it is the
+reason `.safetensors` exists. Neither ComfyUI nor `download_model` looks
+inside, so a model from a community share is loaded unchecked.
+
+`comfyui_scan_model` walks the pickle's opcodes without unpickling and reports
+what loading it would import, telling `posix.system` apart from
+`collections.OrderedDict`. It reads the ZIP `torch.save` writes through the
+central directory, so a 7GB checkpoint costs one small read. Where a
+`.safetensors` build sits beside the file it names that too, since loading it
+instead removes the question.
+
 ### Responses Sized for a Model
 Every listing is paginated, capped, and returns compact JSON by default,
 because a tool response is context the reader pays for on every call.
@@ -355,6 +380,11 @@ You need at least one checkpoint model. Here are popular options:
 Or ask your assistant: the official Comfy MCP's `search_models` and
 `download_model` find a model and fetch it into the right folder.
 
+Every file above is `.safetensors`, which is the right default: it has no code
+path to execute. If you end up with a `.ckpt` or `.pt` from a community share,
+run `comfyui_scan_model` on it before loading — those are pickles, and
+`torch.load` runs what they name.
+
 ### Step 3: Configure Your AI Assistant
 
 Add the ComfyUI MCP server to your AI assistant's configuration.
@@ -365,18 +395,17 @@ Add the ComfyUI MCP server to your AI assistant's configuration.
 {
   "mcpServers": {
     "comfyui": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
+      "command": "node",
+      "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
     }
   }
 }
 ```
 
-> **Note**: The ComfyUI Desktop app uses port 8000. If you're running ComfyUI manually, change the port to 8188.
+> **Note**: The server discovers a local ComfyUI on its own, so no URL is
+> needed in the common case. Set `COMFYUI_URL` only when ComfyUI is on an
+> unusual port or another host — the desktop app uses 8000, a manual install
+> 8188.
 
 ### Step 4: Start Generating!
 
@@ -401,187 +430,30 @@ Claude will automatically:
 ### Prerequisites
 - [ComfyUI](https://www.comfy.org/download) (desktop app recommended) or manual installation
 - One or more checkpoint/model files
-- Docker, or Node.js 24+ (Active LTS)
+- Node.js 24+ (Active LTS)
 
-### Option 1: Docker
+### From Source
 
-Works with any MCP-compatible AI assistant, and the image pulls updates
-automatically.
-
-> **This fork does not publish a public image.** The `ghcr.io/shawnrushefsky/comfyui-mcp`
-> image below is the upstream one and does **not** contain this fork's changes.
-> To run this fork, build the image locally (see [Docker Build](#docker-build))
-> and use that tag, or install [from source](#option-2-from-source).
-
-#### Claude Desktop
-
-Config file location:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-#### Claude Code (CLI)
-
-Add to `.mcp.json` in your project root:
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-Or add globally via CLI:
-```bash
-claude mcp add comfyui --transport stdio -- docker run -i --rm --pull always -e COMFYUI_URL=http://host.docker.internal:8000 ghcr.io/shawnrushefsky/comfyui-mcp:latest
-```
-
-#### Cursor
-
-Add to Cursor's MCP settings (Settings → MCP Servers):
-```json
-{
-  "comfyui": {
-    "command": "docker",
-    "args": [
-      "run", "-i", "--rm", "--pull", "always",
-      "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-      "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-    ]
-  }
-}
-```
-
-#### Windsurf
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-#### Cline (VS Code Extension)
-
-Add to Cline's MCP settings in VS Code:
-```json
-{
-  "comfyui": {
-    "command": "docker",
-    "args": [
-      "run", "-i", "--rm", "--pull", "always",
-      "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-      "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-    ]
-  }
-}
-```
-
-#### Linux (Any Client)
-
-On Linux, use `--network=host` instead of `host.docker.internal`:
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "--network=host",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-#### Port Configuration
-
-- **ComfyUI Desktop app** (macOS/Windows): Uses port `8000` by default
-- **Manual ComfyUI installation**: Uses port `8188` by default
-
-Adjust the `COMFYUI_URL` environment variable accordingly:
-- Desktop app: `http://host.docker.internal:8000`
-- Manual install: `http://host.docker.internal:8188`
-
-#### Docker Caveats
-
-Two behaviours change inside a container, both deliberate:
-
-- **Launching ComfyUI is impossible from here.** The process to launch is on
-  the host, not in the container, so `comfyui_get_status` reports that and
-  tells you to start it yourself and call `comfyui_reconnect`.
-- **Generated images are not written to disk** unless you set `OUTPUT_DIR` and
-  mount a volume for it — otherwise the write lands in a container layer
-  nobody will ever look at. Images still come back inline as base64.
-
-```json
-"args": [
-  "run", "-i", "--rm", "--pull", "always",
-  "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-  "-e", "OUTPUT_DIR=/outputs",
-  "-v", "/Users/me/comfy-outputs:/outputs",
-  "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-]
-```
-
-### Option 2: From Source
+There is one way to install this server, and it runs on the same machine as
+ComfyUI. That is not an oversight: the workflow-file tools read and write
+ComfyUI's own directories, `comfyui_upload_image` copies from its output
+folder, and generated images are saved to a path the agent is handed and
+expected to open. None of that survives a filesystem boundary.
 
 ```bash
 git clone https://github.com/oroboros083-jpg/comfyui-mcp.git
 cd comfyui-mcp
 npm install
 npm run build
+npm run link:tabbridge   # see "Optional: ComfyUI-TabBridge" below
 ```
 
-Then configure your MCP client to use the built server:
+Then point your MCP client at `dist/index.js`.
 
-**Claude Desktop**:
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "node",
-      "args": ["/path/to/comfyui-mcp/dist/index.js"]
-    }
-  }
-}
-```
+#### Claude Code (CLI)
 
-**Claude Code** (`.mcp.json`): the repo ships one, so cloning and building is
-enough. It uses a path relative to the repo, since that is where the file
-lives:
+The repo ships an `.mcp.json`, so cloning and building is enough. It uses a
+path relative to the repo, since that is where the file lives:
 
 ```json
 {
@@ -595,8 +467,90 @@ lives:
 }
 ```
 
-Claude Desktop needs the absolute path above instead - it has no project
-directory to resolve a relative one against.
+Or add it globally:
+```bash
+claude mcp add comfyui --transport stdio -- node /absolute/path/to/comfyui-mcp/dist/index.js
+```
+
+#### Claude Desktop
+
+Config file location:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+Claude Desktop has no project directory to resolve a relative path against, so
+this one must be absolute:
+
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "node",
+      "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+#### Cursor
+
+Add to Cursor's MCP settings (Settings → MCP Servers):
+```json
+{
+  "comfyui": {
+    "command": "node",
+    "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
+  }
+}
+```
+
+#### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "node",
+      "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+#### Cline (VS Code Extension)
+
+Add to Cline's MCP settings in VS Code:
+```json
+{
+  "comfyui": {
+    "command": "node",
+    "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
+  }
+}
+```
+
+#### Port Configuration
+
+Discovery finds a local ComfyUI without being told where it is, so most
+installs need no configuration at all:
+
+- **ComfyUI Desktop app** (macOS/Windows): Uses port `8000` by default
+- **Manual ComfyUI installation**: Uses port `8188` by default
+
+Set `COMFYUI_URL` only for an unusual port:
+
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "node",
+      "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"],
+      "env": { "COMFYUI_URL": "http://127.0.0.1:9000" }
+    }
+  }
+}
+```
 
 ### Optional: ComfyUI-TabBridge
 
@@ -1149,7 +1103,38 @@ Returns:
 Build a SaveImage node with ID "9"
 ```
 
-### Discovery Tools
+### Model File Tools
+
+#### `comfyui_scan_model`
+Read a model file's pickle without executing it, and report what loading it
+would import.
+
+A `.ckpt`, `.pt`, `.pth` or `.bin` is a Python pickle, and `torch.load`
+imports and calls whatever the file names — that is what the format does, and
+it is why `.safetensors` exists. Neither ComfyUI nor the official Comfy MCP's
+`download_model` looks inside before loading, so anything that arrived through
+either is unchecked.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | `string` | Absolute path to the file. Only `.ckpt .pt .pth .bin .pkl .pickle .safetensors .sft .gguf` are opened |
+
+Returns:
+- `verdict`: `dangerous`, `suspicious` or `safe`
+- `findings`: each dangerous or unusual import, with why it is one
+- `format`: `safetensors` / `gguf` (nothing to scan), `pickle`, or `torch-zip`
+- `saferAlternative`: a `.safetensors` build sitting beside the file, when one
+  does — loading that makes the question moot
+- `ordinaryImports`: the `collections.OrderedDict` / `torch._utils` traffic a
+  real checkpoint is made of
+
+`safe` means "names nothing on the known-dangerous list", not proof: the list
+is of published exploit primitives, and a novel one is not on it. A file whose
+format isn't recognised is an **error**, not a pass — treat it as unscanned.
+
+```
+Scan ~/ComfyUI/models/checkpoints/downloaded.ckpt before I load it
+```
 
 ### Task & Queue Management
 
@@ -1419,12 +1404,8 @@ too large to read whole.
 |----------|-------------|
 | `COMFYUI_URL` | ComfyUI URL. Takes priority over the config file and skips port scanning. |
 | `COMFYUI_API_KEY` | API key sent to ComfyUI, for instances that require authentication. Overrides the config file. |
-| `COMFYUI_LAUNCH_COMMAND` | Executable or script the launch detection should use, when auto-detection can't find your install. Launching itself is the official Comfy MCP's `launch_comfyui`. |
-| `COMFYUI_LAUNCH_ARGS` | Arguments for that command |
-| `COMFYUI_LAUNCH_CWD` | Working directory for that command |
 | `COMFYUI_MCP_DB_PATH` | Path to the notes/templates SQLite file (default: `~/.comfyui-mcp/data.db`) |
-| `OUTPUT_DIR` | Where generated images are written. In Docker, setting this is also what re-enables file saving. |
-| `DOCKER` | Set to `true` to force the in-container behaviour when `/.dockerenv` isn't present |
+| `OUTPUT_DIR` | Where generated images are written (default: `./outputs`) |
 
 ### Config File
 
@@ -1467,7 +1448,6 @@ The server discovers ComfyUI in this order:
 2. Config file URL
 3. ComfyUI Desktop app configuration files
 4. Port scanning on localhost: `8188`, `8000`, `8189`, `8190` (the desktop app commonly uses 8000)
-5. If running in Docker, `host.docker.internal` on those same ports
 
 Discovery is re-run automatically when a tool finds the connection dead, so a
 ComfyUI that restarts — or comes back on a different port — is picked up
@@ -1528,10 +1508,6 @@ returned. `outputMode` controls only whether the bytes also travel inline:
 Filenames are readable and collision-free — the write picks the first free name
 atomically, so two runs landing in the same second can't overwrite each other.
 
-The one exception is Docker: file saving is skipped there unless `OUTPUT_DIR`
-is set, because otherwise the write lands in a container layer nobody will look
-at. See [Docker Caveats](#docker-caveats).
-
 ---
 
 ## Security Notes
@@ -1550,11 +1526,14 @@ extending it:
   64MB.
 - **Workflow writes are sandboxed** to ComfyUI's user directory plus whatever
   is explicitly listed in `workflowWriteDirs`, and no tool can extend that list.
-- **Only one module can spawn a process at all** (`src/tools/launch.ts`); no
-  tool now reaches it, since launching moved to the official Comfy MCP. What
-  remains of it refuses to act in Docker or against a remote `COMFYUI_URL`,
-  and anything it starts is detached with stdio discarded so it can neither
-  outlive its purpose nor corrupt the MCP stream.
+- **`comfyui_scan_model` never executes what it reads.** It walks the pickle's
+  opcodes and reports the imports; it does not unpickle. It opens model
+  extensions only, so it cannot be pointed at an arbitrary file, and it returns
+  import names rather than file contents.
+- **Nothing here spawns a process.** `child_process` is not imported anywhere
+  in `src/`. Launching ComfyUI moved to the official Comfy MCP's
+  `launch_comfyui`, and the launcher this server used to carry is gone rather
+  than left unreachable — so there is no code path to reach by accident.
 - **All schemas are strict**, so an unexpected argument is an error rather than
   something silently dropped.
 
@@ -1634,16 +1613,6 @@ an MCP server is judged on.
 
 See [`evals/README.md`](evals/README.md).
 
-### Docker Build
-
-```bash
-docker build -t comfyui-mcp .
-docker run -i --network=host comfyui-mcp
-```
-
-Use that local tag in your MCP client config to run this fork's code rather
-than the upstream published image.
-
 ### Testing with MCP Inspector
 
 ```bash
@@ -1672,6 +1641,12 @@ npm run inspector
 3. Verify the model exists with the official Comfy MCP's `search_models`
 4. Check `comfyui_recommend_workflow` — a checkpoint model in a UNET graph produces noise rather than an error
 5. Try simpler parameters (smaller size, fewer steps)
+
+### I downloaded a `.ckpt` and I'm not sure about it
+Run `comfyui_scan_model` on the path before anything loads it. It reads the
+pickle's opcodes without unpickling and reports what `torch.load` would import.
+If a `.safetensors` build of the same model exists, the scan names it — take
+that one instead and the question goes away.
 
 ### Workflow edits keep reverting
 That's ComfyUI's `Comfy.Workflow.AutoSave` writing a stale tab back over your

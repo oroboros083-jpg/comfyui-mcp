@@ -59,8 +59,12 @@ src/
 │   ├── upload.ts           # Put an image into ComfyUI's input dir for LoadImage
 │   ├── models.ts           # Model/node listing and building
 │   ├── queue.ts            # Queue management tools
-│   ├── install.ts          # Installation assistance
-│   ├── launch.ts           # Launcher detection and detached process start
+│   ├── install.ts          # Install detection + get_status
+│   ├── scan-model.ts       # Is this checkpoint safe to torch.load?
+│   ├── scan/
+│   │   ├── pickle.ts       # Opcode walker; never unpickles
+│   │   ├── zip.ts          # Reads one member of a torch.save archive
+│   │   └── signatures.ts   # Dangerous / suspicious / expected imports
 │   ├── tags.ts             # Danbooru tag search + co-occurrence lookup
 │   ├── svg.ts              # SVG rendering to PNG
 │   ├── fonts.ts            # Font download and management
@@ -68,10 +72,9 @@ src/
 │       ├── index.ts        # Main exports
 │       ├── data.ts         # Aggregated example data
 │       ├── types.ts        # Type definitions
-│       ├── list-examples.ts # list_examples tool
+│       ├── workflow-fetch.ts # Pull a graph out of a docs PNG or .json
 │       ├── templates.ts    # Template system (search/get/save)
 │       ├── recommend.ts    # Workflow recommendations
-│       ├── downloads.ts    # Model download URLs
 │       ├── basics.ts       # Basic workflow examples
 │       ├── flux.ts         # Flux model examples
 │       ├── sdxl.ts         # SDXL examples
@@ -516,6 +519,39 @@ inferring from docs - the output index in particular. JoyCaption returns
 `("query","caption")` and Florence2Run returns `("image","mask","caption",
 "data")`, so index 0 is the wrong one in both.
 
+### Changing the Model Scanner
+
+`scan_model` walks a pickle's opcodes to report what `torch.load` would import,
+and never unpickles. Three things about it are load-bearing.
+
+**The opcode table must stay complete.** `src/tools/scan/pickle.ts` lists every
+opcode of protocols 0-5 with its argument WIDTH, and an unknown opcode stops
+the walk with `truncated: true` rather than assuming zero width. That is not
+caution for its own sake: one wrong width leaves the cursor inside a payload,
+every opcode after it is misread, and a file carrying a real exploit reports
+clean. Adding an opcode means adding its width, not defaulting it.
+
+**Signatures are matched twice, and that redundancy is the point.** The walker
+does not simulate the stack, so `STACK_GLOBAL` is resolved from the last two
+string constants, honouring the memo. A crafted stream can break that pairing.
+So `signatures.ts` is also matched against the raw string constants
+(`danglingDangerousConstants`), which an attacker cannot avoid: `subprocess`
+has to appear in the file as text either way. Do not drop either half.
+
+**`EXPECTED` does not override `DANGEROUS`.** `classifyImport` checks dangerous
+first on purpose - `torch` is ordinary and `torch.load` is a second unpickle
+hidden inside the first. Reordering those two loops is a silent hole.
+
+`_codecs.encode` is on `EXPECTED` while `codecs` is on `SUSPICIOUS`, because
+torch writes the former for every non-ASCII string it stores. A scanner that
+flags every real checkpoint teaches its user to ignore it, which is worse than
+not having one.
+
+The unit tests build their fixtures byte by byte rather than checking in a
+`.ckpt`; the opcode table was additionally validated against 75 pickles written
+by CPython's own pickler across protocols 0-5, plus stored, deflated and ZIP64
+archives.
+
 ### Running a Workflow
 
 There is one execution path. `runWorkflowAsync` submits, creates the job, and
@@ -524,9 +560,9 @@ completion`. Do not add a second implementation for sync - that is what these
 two were, and they drifted in three user-visible ways before being merged.
 
 Image collection lives in `tools/outputs.ts` and is shared. Saving and
-inlining are separate decisions: the file is written unless Docker says
-otherwise, and `outputMode` controls only whether the bytes also travel
-inline, which is what `outputModeSchema` has always documented.
+inlining are separate decisions: the file is always written, and `outputMode`
+controls only whether the bytes also travel inline, which is what
+`outputModeSchema` has always documented.
 
 ### Adding a New Model Architecture
 
@@ -653,6 +689,6 @@ ComfyUI where the tool needs one. Put the numbers in the commit message.
 
 - All console output uses `console.error` (stdout is reserved for MCP protocol)
 - Server works even if ComfyUI is not running (setup tools remain available)
-- `tools/launch.ts` is the only module that spawns processes. Anything it starts must be `detached` with `stdio: "ignore"` — inherited stdout would corrupt the MCP stream, and an attached child would die with the server
+- Nothing in `src/` imports `child_process`, and nothing should. Launching and restarting ComfyUI are the official Comfy MCP's `launch_comfyui` / `restart_comfyui`. If a process ever has to be spawned again, it must be `detached` with `stdio: "ignore"` — inherited stdout would corrupt the MCP stream, and an attached child would die with the server
 - Image outputs can be base64 (inline) or saved to files based on size threshold
 - Example workflows are extracted from PNG metadata in ComfyUI docs images

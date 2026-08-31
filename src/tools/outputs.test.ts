@@ -8,7 +8,6 @@ import sharp from "sharp";
 import {
   collectOutputImages,
   collectTextOutputs,
-  shouldSkipFileSaving,
   workflowPromptFor,
   generateReadableFilename,
   writeUnique,
@@ -178,53 +177,6 @@ test("a workflow with no text node still produces a usable name", async () => {
   assert.match(generateReadableFilename("custom-workflow", "workflow", 0, ".png"), /customworkflow/);
 });
 
-test("Docker skips file saving only when no OUTPUT_DIR is mounted", () => {
-  // The async copy used a bare in-Docker check, so a configured volume mount
-  // was ignored and nothing was ever written.
-  const priorDocker = process.env.DOCKER;
-  const priorOutput = process.env.OUTPUT_DIR;
-  try {
-    delete process.env.DOCKER;
-    delete process.env.OUTPUT_DIR;
-    assert.equal(shouldSkipFileSaving(), false, "not in Docker: always save");
-
-    process.env.DOCKER = "true";
-    assert.equal(shouldSkipFileSaving(), true, "in Docker with no mount: skip");
-
-    process.env.OUTPUT_DIR = "/outputs";
-    assert.equal(shouldSkipFileSaving(), false, "in Docker with a mount: save");
-  } finally {
-    if (priorDocker === undefined) delete process.env.DOCKER;
-    else process.env.DOCKER = priorDocker;
-    if (priorOutput === undefined) delete process.env.OUTPUT_DIR;
-    else process.env.OUTPUT_DIR = priorOutput;
-  }
-});
-
-test("when nothing is saved the bytes still travel inline", async () => {
-  const priorDocker = process.env.DOCKER;
-  try {
-    process.env.DOCKER = "true";
-    delete process.env.OUTPUT_DIR;
-
-    const dir = freshDir();
-    const [image] = await collectOutputImages(
-      stubClient(),
-      OUTPUTS,
-      { outputMode: "file" }, // asked for file-only, but no file is possible
-      WORKFLOW,
-      dir,
-      1024 * 1024
-    );
-
-    assert.equal(image.path, undefined, "nothing written");
-    assert.ok(image.data, "so the image is inlined regardless of outputMode");
-    assert.equal(readdirSync(dir).length, 0);
-  } finally {
-    if (priorDocker === undefined) delete process.env.DOCKER;
-    else process.env.DOCKER = priorDocker;
-  }
-});
 
 test("the returned path is absolute even when outputDir is relative", async () => {
   // The shipped default outputDir is "./outputs", and outputModeSchema

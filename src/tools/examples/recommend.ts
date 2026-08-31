@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ExampleWorkflow } from "./types.js";
 import { EXAMPLE_WORKFLOWS } from "./data.js";
-import { fetchExampleWorkflow, apiFormatOf } from "./list-examples.js";
+import { fetchExampleWorkflow, apiFormatOf } from "./workflow-fetch.js";
 import { BUILTIN_TEMPLATES } from "../../workflows/builder.js";
 import { architectureById, isUnetShape } from "../../architectures/registry.js";
 import { listTemplates as dbListTemplates } from "../../db/index.js";
@@ -646,7 +646,7 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
       // accepts, "workflow" is the UI one. Taking `.workflow` handed back a
       // graph ComfyUI rejects, under a field whose own doc comment and
       // rendered text both say to pass it straight to run_workflow.
-      // get_example_workflow and handlers/resources.ts both prefer prompt.
+      // handlers/resources.ts prefers prompt for the same reason.
       const apiWorkflow = apiFormatOf(workflowResult);
       if (apiWorkflow) {
         recommendation.exampleWorkflow = apiWorkflow as Record<string, unknown>;

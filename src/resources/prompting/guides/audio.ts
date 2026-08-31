@@ -110,10 +110,14 @@ export const AUDIO_GUIDES: Record<string, ModelPromptingGuide> = {
       {
         name: "ACE-Step (ComfyUI repackaged)",
         huggingFace: "Comfy-Org/ACE-Step_ComfyUI_repackaged",
+        note:
+          "The one to reach for when you want a *song*: it takes a style/genre prompt and a separate lyrics input, sings them, and holds structure over minutes rather than seconds. The lyrics field is not decoration - leave it empty and you get an instrumental.",
       },
       {
         name: "Stable Audio Open 1.0",
         huggingFace: "stabilityai/stable-audio-open-1.0",
+        note:
+          "The opposite job: sound effects, foley, one-shot samples and short instrumental loops from a text description, capped around 47 seconds of 44.1kHz stereo. No vocals, and asking it for a song wastes the run.",
       },
     ],
   },
