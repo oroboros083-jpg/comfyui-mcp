@@ -58,17 +58,14 @@ ComfyUI".
       `list-examples.ts` is only the fetching, so it is now
       `examples/workflow-fetch.ts`. `EXAMPLE_WORKFLOWS` stays, as noted.
 
-- [ ] **`spawnComfyUI` is unreachable.** Same cause - `start_comfyui` was
-      dropped, so nothing in `src/` references `spawnComfyUI` outside its own
-      definition in `src/tools/launch.ts`. Only `launchBlockedReason` is
-      imported (by `server/connection.ts`), plus `readStartupLogTail`,
-      `LaunchTarget` and `isLocalUrl` by that file's own test. So launch.ts is
-      not dead as a module, but the part that actually spawns is. Deleting it
-      would also retire the `COMFYUI_LAUNCH_COMMAND` env var and the
-      "only one module spawns processes" security note in `README.md`, and
-      would mean this server can no longer spawn anything at all - arguably a
-      simplification worth having, since launching is now the official Comfy
-      MCP's `launch_comfyui`.
+- [x] **`spawnComfyUI` is unreachable.** Taken the simplification: the whole
+      of `src/tools/launch.ts` is gone, and with it `COMFYUI_LAUNCH_COMMAND`
+      / `_ARGS` / `_CWD`. `isLocalUrl` was the only part with a live caller,
+      so it moved into `server/connection.ts` beside `nextStepWhenDown`,
+      which is the one thing that asked. `src/tools/restart.ts` - a schema
+      for the dropped `restart_comfyui`, with no tool behind it - went too.
+      `src/` no longer imports `child_process` anywhere, which is a stronger
+      security note than the one it replaces.
 
 ## Scope and context efficiency
 

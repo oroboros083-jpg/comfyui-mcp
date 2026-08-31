@@ -1340,9 +1340,6 @@ too large to read whole.
 |----------|-------------|
 | `COMFYUI_URL` | ComfyUI URL. Takes priority over the config file and skips port scanning. |
 | `COMFYUI_API_KEY` | API key sent to ComfyUI, for instances that require authentication. Overrides the config file. |
-| `COMFYUI_LAUNCH_COMMAND` | Executable or script the launch detection should use, when auto-detection can't find your install. Launching itself is the official Comfy MCP's `launch_comfyui`. |
-| `COMFYUI_LAUNCH_ARGS` | Arguments for that command |
-| `COMFYUI_LAUNCH_CWD` | Working directory for that command |
 | `COMFYUI_MCP_DB_PATH` | Path to the notes/templates SQLite file (default: `~/.comfyui-mcp/data.db`) |
 | `OUTPUT_DIR` | Where generated images are written (default: `./outputs`) |
 
@@ -1465,11 +1462,10 @@ extending it:
   64MB.
 - **Workflow writes are sandboxed** to ComfyUI's user directory plus whatever
   is explicitly listed in `workflowWriteDirs`, and no tool can extend that list.
-- **Only one module can spawn a process at all** (`src/tools/launch.ts`); no
-  tool now reaches it, since launching moved to the official Comfy MCP. What
-  remains of it refuses to act against a remote `COMFYUI_URL`,
-  and anything it starts is detached with stdio discarded so it can neither
-  outlive its purpose nor corrupt the MCP stream.
+- **Nothing here spawns a process.** `child_process` is not imported anywhere
+  in `src/`. Launching ComfyUI moved to the official Comfy MCP's
+  `launch_comfyui`, and the launcher this server used to carry is gone rather
+  than left unreachable — so there is no code path to reach by accident.
 - **All schemas are strict**, so an unexpected argument is an error rather than
   something silently dropped.
 

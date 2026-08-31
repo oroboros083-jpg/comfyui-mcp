@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { bindContext, nextStepWhenDown, unreachableError } from "./connection.js";
+import { bindContext, isLocalUrl, nextStepWhenDown, unreachableError } from "./connection.js";
 import { ServerContext } from "../context.js";
 
 /**
@@ -62,4 +62,12 @@ test("a remote ComfyUI is not told to launch one locally", () => {
 test("guidance still points somewhere useful when it cannot offer a launch", () => {
   bind("http://192.168.1.50:8188");
   assert.match(nextStepWhenDown(), /comfyui_reconnect/);
+});
+
+test("isLocalUrl distinguishes this machine from a remote ComfyUI", () => {
+  assert.equal(isLocalUrl("http://127.0.0.1:8188"), true);
+  assert.equal(isLocalUrl("http://localhost:8000"), true);
+  assert.equal(isLocalUrl("http://[::1]:8188"), true);
+  assert.equal(isLocalUrl("http://192.168.1.50:8188"), false);
+  assert.equal(isLocalUrl("not a url"), false);
 });

@@ -60,7 +60,6 @@ src/
 │   ├── models.ts           # Model/node listing and building
 │   ├── queue.ts            # Queue management tools
 │   ├── install.ts          # Install detection + get_status
-│   ├── launch.ts           # Launcher detection and detached process start
 │   ├── tags.ts             # Danbooru tag search + co-occurrence lookup
 │   ├── svg.ts              # SVG rendering to PNG
 │   ├── fonts.ts            # Font download and management
@@ -652,6 +651,6 @@ ComfyUI where the tool needs one. Put the numbers in the commit message.
 
 - All console output uses `console.error` (stdout is reserved for MCP protocol)
 - Server works even if ComfyUI is not running (setup tools remain available)
-- `tools/launch.ts` is the only module that spawns processes. Anything it starts must be `detached` with `stdio: "ignore"` — inherited stdout would corrupt the MCP stream, and an attached child would die with the server
+- Nothing in `src/` imports `child_process`, and nothing should. Launching and restarting ComfyUI are the official Comfy MCP's `launch_comfyui` / `restart_comfyui`. If a process ever has to be spawned again, it must be `detached` with `stdio: "ignore"` — inherited stdout would corrupt the MCP stream, and an attached child would die with the server
 - Image outputs can be base64 (inline) or saved to files based on size threshold
 - Example workflows are extracted from PNG metadata in ComfyUI docs images
