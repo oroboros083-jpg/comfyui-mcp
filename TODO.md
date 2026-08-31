@@ -2,6 +2,7 @@
       `ModelReference` in the video and audio guides now carries a `note`
       saying what that file is and how it differs from its siblings, which
       the image guides mostly got for free from the architecture name.
+- expland scope for the model scanner. include known easily checked exploits for all major model types, kick off the scanner by default, especially for non-hf sources. 
 - [x] allow for additional model sources (like civitai/civitai.red). prefer
       hf model card — `ModelReference.civitai` holds a path, not a URL, so
       the renderer supplies the host and can name the `civitai.red` mirror
