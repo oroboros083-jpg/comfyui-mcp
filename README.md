@@ -54,16 +54,13 @@
     - [Step 4: Start Generating!](#step-4-start-generating)
   - [Installation](#installation)
     - [Prerequisites](#prerequisites)
-    - [Option 1: Docker](#option-1-docker)
-      - [Claude Desktop](#claude-desktop)
+    - [From Source](#from-source)
       - [Claude Code (CLI)](#claude-code-cli)
+      - [Claude Desktop](#claude-desktop)
       - [Cursor](#cursor)
       - [Windsurf](#windsurf)
       - [Cline (VS Code Extension)](#cline-vs-code-extension)
-      - [Linux (Any Client)](#linux-any-client)
       - [Port Configuration](#port-configuration)
-      - [Docker Caveats](#docker-caveats)
-    - [Option 2: From Source](#option-2-from-source)
     - [Optional: ComfyUI-TabBridge](#optional-comfyui-tabbridge)
   - [Tools Reference](#tools-reference)
     - [Shared Parameters](#shared-parameters)
@@ -133,7 +130,6 @@
     - [Running Locally](#running-locally)
     - [Testing](#testing)
     - [Evals](#evals)
-    - [Docker Build](#docker-build)
     - [Testing with MCP Inspector](#testing-with-mcp-inspector)
   - [Troubleshooting](#troubleshooting)
     - [ComfyUI not detected](#comfyui-not-detected)
@@ -158,9 +154,10 @@ Copy and paste this prompt to your AI assistant (Claude, Cursor, etc.) to have i
 ```
 I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP server.
 
-1. First, add the ComfyUI MCP server to my configuration. The Docker config is:
-   - Command: docker
-   - Args: run -i --rm --pull always -e COMFYUI_URL=http://host.docker.internal:8000 ghcr.io/shawnrushefsky/comfyui-mcp:latest
+1. First, clone https://github.com/oroboros083-jpg/comfyui-mcp, run `npm install`
+   and `npm run build`, then add the server to my configuration:
+   - Command: node
+   - Args: /absolute/path/to/comfyui-mcp/dist/index.js
 
 2. Once configured, use comfyui_get_status to check if ComfyUI is running and connected.
 
@@ -365,18 +362,17 @@ Add the ComfyUI MCP server to your AI assistant's configuration.
 {
   "mcpServers": {
     "comfyui": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
+      "command": "node",
+      "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
     }
   }
 }
 ```
 
-> **Note**: The ComfyUI Desktop app uses port 8000. If you're running ComfyUI manually, change the port to 8188.
+> **Note**: The server discovers a local ComfyUI on its own, so no URL is
+> needed in the common case. Set `COMFYUI_URL` only when ComfyUI is on an
+> unusual port or another host — the desktop app uses 8000, a manual install
+> 8188.
 
 ### Step 4: Start Generating!
 
@@ -401,187 +397,30 @@ Claude will automatically:
 ### Prerequisites
 - [ComfyUI](https://www.comfy.org/download) (desktop app recommended) or manual installation
 - One or more checkpoint/model files
-- Docker, or Node.js 24+ (Active LTS)
+- Node.js 24+ (Active LTS)
 
-### Option 1: Docker
+### From Source
 
-Works with any MCP-compatible AI assistant, and the image pulls updates
-automatically.
-
-> **This fork does not publish a public image.** The `ghcr.io/shawnrushefsky/comfyui-mcp`
-> image below is the upstream one and does **not** contain this fork's changes.
-> To run this fork, build the image locally (see [Docker Build](#docker-build))
-> and use that tag, or install [from source](#option-2-from-source).
-
-#### Claude Desktop
-
-Config file location:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-#### Claude Code (CLI)
-
-Add to `.mcp.json` in your project root:
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-Or add globally via CLI:
-```bash
-claude mcp add comfyui --transport stdio -- docker run -i --rm --pull always -e COMFYUI_URL=http://host.docker.internal:8000 ghcr.io/shawnrushefsky/comfyui-mcp:latest
-```
-
-#### Cursor
-
-Add to Cursor's MCP settings (Settings → MCP Servers):
-```json
-{
-  "comfyui": {
-    "command": "docker",
-    "args": [
-      "run", "-i", "--rm", "--pull", "always",
-      "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-      "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-    ]
-  }
-}
-```
-
-#### Windsurf
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-#### Cline (VS Code Extension)
-
-Add to Cline's MCP settings in VS Code:
-```json
-{
-  "comfyui": {
-    "command": "docker",
-    "args": [
-      "run", "-i", "--rm", "--pull", "always",
-      "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-      "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-    ]
-  }
-}
-```
-
-#### Linux (Any Client)
-
-On Linux, use `--network=host` instead of `host.docker.internal`:
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--pull", "always",
-        "--network=host",
-        "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-      ]
-    }
-  }
-}
-```
-
-#### Port Configuration
-
-- **ComfyUI Desktop app** (macOS/Windows): Uses port `8000` by default
-- **Manual ComfyUI installation**: Uses port `8188` by default
-
-Adjust the `COMFYUI_URL` environment variable accordingly:
-- Desktop app: `http://host.docker.internal:8000`
-- Manual install: `http://host.docker.internal:8188`
-
-#### Docker Caveats
-
-Two behaviours change inside a container, both deliberate:
-
-- **Launching ComfyUI is impossible from here.** The process to launch is on
-  the host, not in the container, so `comfyui_get_status` reports that and
-  tells you to start it yourself and call `comfyui_reconnect`.
-- **Generated images are not written to disk** unless you set `OUTPUT_DIR` and
-  mount a volume for it — otherwise the write lands in a container layer
-  nobody will ever look at. Images still come back inline as base64.
-
-```json
-"args": [
-  "run", "-i", "--rm", "--pull", "always",
-  "-e", "COMFYUI_URL=http://host.docker.internal:8000",
-  "-e", "OUTPUT_DIR=/outputs",
-  "-v", "/Users/me/comfy-outputs:/outputs",
-  "ghcr.io/shawnrushefsky/comfyui-mcp:latest"
-]
-```
-
-### Option 2: From Source
+There is one way to install this server, and it runs on the same machine as
+ComfyUI. That is not an oversight: the workflow-file tools read and write
+ComfyUI's own directories, `comfyui_upload_image` copies from its output
+folder, and generated images are saved to a path the agent is handed and
+expected to open. None of that survives a filesystem boundary.
 
 ```bash
 git clone https://github.com/oroboros083-jpg/comfyui-mcp.git
 cd comfyui-mcp
 npm install
 npm run build
+npm run link:tabbridge   # see "Optional: ComfyUI-TabBridge" below
 ```
 
-Then configure your MCP client to use the built server:
+Then point your MCP client at `dist/index.js`.
 
-**Claude Desktop**:
-```json
-{
-  "mcpServers": {
-    "comfyui": {
-      "command": "node",
-      "args": ["/path/to/comfyui-mcp/dist/index.js"]
-    }
-  }
-}
-```
+#### Claude Code (CLI)
 
-**Claude Code** (`.mcp.json`): the repo ships one, so cloning and building is
-enough. It uses a path relative to the repo, since that is where the file
-lives:
+The repo ships an `.mcp.json`, so cloning and building is enough. It uses a
+path relative to the repo, since that is where the file lives:
 
 ```json
 {
@@ -595,8 +434,90 @@ lives:
 }
 ```
 
-Claude Desktop needs the absolute path above instead - it has no project
-directory to resolve a relative one against.
+Or add it globally:
+```bash
+claude mcp add comfyui --transport stdio -- node /absolute/path/to/comfyui-mcp/dist/index.js
+```
+
+#### Claude Desktop
+
+Config file location:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+Claude Desktop has no project directory to resolve a relative path against, so
+this one must be absolute:
+
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "node",
+      "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+#### Cursor
+
+Add to Cursor's MCP settings (Settings → MCP Servers):
+```json
+{
+  "comfyui": {
+    "command": "node",
+    "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
+  }
+}
+```
+
+#### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "node",
+      "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+#### Cline (VS Code Extension)
+
+Add to Cline's MCP settings in VS Code:
+```json
+{
+  "comfyui": {
+    "command": "node",
+    "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"]
+  }
+}
+```
+
+#### Port Configuration
+
+Discovery finds a local ComfyUI without being told where it is, so most
+installs need no configuration at all:
+
+- **ComfyUI Desktop app** (macOS/Windows): Uses port `8000` by default
+- **Manual ComfyUI installation**: Uses port `8188` by default
+
+Set `COMFYUI_URL` only for an unusual port:
+
+```json
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "node",
+      "args": ["/absolute/path/to/comfyui-mcp/dist/index.js"],
+      "env": { "COMFYUI_URL": "http://127.0.0.1:9000" }
+    }
+  }
+}
+```
 
 ### Optional: ComfyUI-TabBridge
 
@@ -1423,8 +1344,7 @@ too large to read whole.
 | `COMFYUI_LAUNCH_ARGS` | Arguments for that command |
 | `COMFYUI_LAUNCH_CWD` | Working directory for that command |
 | `COMFYUI_MCP_DB_PATH` | Path to the notes/templates SQLite file (default: `~/.comfyui-mcp/data.db`) |
-| `OUTPUT_DIR` | Where generated images are written. In Docker, setting this is also what re-enables file saving. |
-| `DOCKER` | Set to `true` to force the in-container behaviour when `/.dockerenv` isn't present |
+| `OUTPUT_DIR` | Where generated images are written (default: `./outputs`) |
 
 ### Config File
 
@@ -1467,7 +1387,6 @@ The server discovers ComfyUI in this order:
 2. Config file URL
 3. ComfyUI Desktop app configuration files
 4. Port scanning on localhost: `8188`, `8000`, `8189`, `8190` (the desktop app commonly uses 8000)
-5. If running in Docker, `host.docker.internal` on those same ports
 
 Discovery is re-run automatically when a tool finds the connection dead, so a
 ComfyUI that restarts — or comes back on a different port — is picked up
@@ -1528,10 +1447,6 @@ returned. `outputMode` controls only whether the bytes also travel inline:
 Filenames are readable and collision-free — the write picks the first free name
 atomically, so two runs landing in the same second can't overwrite each other.
 
-The one exception is Docker: file saving is skipped there unless `OUTPUT_DIR`
-is set, because otherwise the write lands in a container layer nobody will look
-at. See [Docker Caveats](#docker-caveats).
-
 ---
 
 ## Security Notes
@@ -1552,7 +1467,7 @@ extending it:
   is explicitly listed in `workflowWriteDirs`, and no tool can extend that list.
 - **Only one module can spawn a process at all** (`src/tools/launch.ts`); no
   tool now reaches it, since launching moved to the official Comfy MCP. What
-  remains of it refuses to act in Docker or against a remote `COMFYUI_URL`,
+  remains of it refuses to act against a remote `COMFYUI_URL`,
   and anything it starts is detached with stdio discarded so it can neither
   outlive its purpose nor corrupt the MCP stream.
 - **All schemas are strict**, so an unexpected argument is an error rather than
@@ -1633,16 +1548,6 @@ an MCP server is judged on.
 | `evals/live-instance.xml` | Yes — answers depend on which models are installed. |
 
 See [`evals/README.md`](evals/README.md).
-
-### Docker Build
-
-```bash
-docker build -t comfyui-mcp .
-docker run -i --network=host comfyui-mcp
-```
-
-Use that local tag in your MCP client config to run this fork's code rather
-than the upstream published image.
 
 ### Testing with MCP Inspector
 

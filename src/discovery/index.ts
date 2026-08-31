@@ -6,20 +6,11 @@ import { debug } from "../utils/logging.js";
 const DEFAULT_PORTS = [8188, 8000, 8189, 8190]; // 8000 is used by ComfyUI Desktop on macOS
 // Use 127.0.0.1 instead of localhost due to Node 18 fetch IPv6/IPv4 issues
 const LOCALHOST = "127.0.0.1";
-// Docker Desktop (macOS/Windows) uses this to access host services
-const DOCKER_HOST = "host.docker.internal";
-
-/**
- * Check if we're running inside a Docker container
- */
-function isRunningInDocker(): boolean {
-  return existsSync("/.dockerenv") || process.env.DOCKER === "true";
-}
 const PROBE_TIMEOUT = 2000; // 2 seconds
 
 export interface DiscoveryResult {
   url: string;
-  source: "desktop" | "port-scan" | "environment" | "config" | "docker-host";
+  source: "desktop" | "port-scan" | "environment" | "config";
 }
 
 /**
@@ -147,17 +138,6 @@ export async function discoverComfyUI(
     }
   }
 
-  // 5. If running in Docker, try host.docker.internal
-  if (isRunningInDocker()) {
-    debug("Running in Docker, trying host.docker.internal...", undefined, "discovery");
-    for (const port of DEFAULT_PORTS) {
-      const url = `http://${DOCKER_HOST}:${port}`;
-      if (await probeUrl(url)) {
-        return { url, source: "docker-host" };
-      }
-    }
-  }
-
   return null;
 }
 
@@ -179,12 +159,6 @@ export function getCandidateUrls(configUrl?: string): string[] {
 
   for (const port of DEFAULT_PORTS) {
     add(`http://${LOCALHOST}:${port}`);
-  }
-
-  if (isRunningInDocker()) {
-    for (const port of DEFAULT_PORTS) {
-      add(`http://${DOCKER_HOST}:${port}`);
-    }
   }
 
   return urls;

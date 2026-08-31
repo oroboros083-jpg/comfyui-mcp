@@ -524,9 +524,9 @@ completion`. Do not add a second implementation for sync - that is what these
 two were, and they drifted in three user-visible ways before being merged.
 
 Image collection lives in `tools/outputs.ts` and is shared. Saving and
-inlining are separate decisions: the file is written unless Docker says
-otherwise, and `outputMode` controls only whether the bytes also travel
-inline, which is what `outputModeSchema` has always documented.
+inlining are separate decisions: the file is always written, and `outputMode`
+controls only whether the bytes also travel inline, which is what
+`outputModeSchema` has always documented.
 
 ### Adding a New Model Architecture
 

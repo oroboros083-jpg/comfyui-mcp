@@ -75,12 +75,11 @@ ComfyUI".
 
 ## Scope and context efficiency
 
-- [ ] **Remove Docker support.** `Dockerfile`, the Docker install path in
-      `README.md`, and `publish.yml` (which builds and pushes the GHCR image
-      that has never successfully published). Also the Docker branch in the
-      output handling - `outputMode` saves or inlines differently "unless
-      Docker says otherwise", and that is the only reason the output path has
-      two modes. Not part of this user's workflow.
+- [x] **Remove Docker support.** `Dockerfile`, `publish.yml` and the Docker
+      install path in `README.md` are gone, along with every in-container code
+      path: the output handler's skip-the-write branch, discovery's
+      `host.docker.internal` probe, and `launchBlockedReason`'s container
+      check. `DOCKER` is no longer read anywhere.
 - [ ] **Context-efficient node management.** The node tools are gone in favour
       of the official Comfy MCP's `nodes`, so this is only worth revisiting if
       that proves insufficient. Start from artokun's implementation

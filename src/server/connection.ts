@@ -223,9 +223,8 @@ export async function probeCurrentClient(): Promise<boolean> {
  * help (reconnect only works once something is already listening) while
  * omitting the one that can.
  *
- * When a local launch is impossible - inside Docker, or a COMFYUI_URL that
- * points at another host - it says so instead, rather than advertising a tool
- * that would fail.
+ * When a local launch is impossible - a COMFYUI_URL that points at another
+ * host - it says so instead, rather than advertising a tool that would fail.
  */
 export function nextStepWhenDown(): string {
   const blocked = launchBlockedReason(

@@ -29,10 +29,6 @@ function isWindows(): boolean {
   return platform() === "win32";
 }
 
-function isRunningInDocker(): boolean {
-  return existsSync("/.dockerenv") || process.env.DOCKER === "true";
-}
-
 function needsShell(command: string): boolean {
   return isWindows() && /\.(bat|cmd)$/i.test(command);
 }
@@ -451,13 +447,6 @@ export function isLocalUrl(url: string): boolean {
  * Why this machine cannot be the one to start ComfyUI, if it cannot.
  */
 export function launchBlockedReason(url: string): string | null {
-  if (isRunningInDocker()) {
-    return (
-      "This MCP server is running inside Docker, so it cannot start ComfyUI on the host. " +
-      "Start ComfyUI outside the container and call 'comfyui_reconnect'."
-    );
-  }
-
   if (!isLocalUrl(url)) {
     return (
       `ComfyUI is configured at ${url}, which is not this machine. ` +
