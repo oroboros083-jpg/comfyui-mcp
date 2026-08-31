@@ -89,7 +89,8 @@
       - [`comfyui_write_workflow`](#comfyui_write_workflow)
     - [Workflow Composition Tools](#workflow-composition-tools-1)
       - [`comfyui_build_node`](#comfyui_build_node)
-    - [Discovery Tools](#discovery-tools)
+    - [Model File Tools](#model-file-tools)
+      - [`comfyui_scan_model`](#comfyui_scan_model)
     - [Task \& Queue Management](#task--queue-management)
       - [`comfyui_get_task`](#comfyui_get_task)
       - [`comfyui_get_task_result`](#comfyui_get_task_result)
@@ -1070,7 +1071,38 @@ Returns:
 Build a SaveImage node with ID "9"
 ```
 
-### Discovery Tools
+### Model File Tools
+
+#### `comfyui_scan_model`
+Read a model file's pickle without executing it, and report what loading it
+would import.
+
+A `.ckpt`, `.pt`, `.pth` or `.bin` is a Python pickle, and `torch.load`
+imports and calls whatever the file names — that is what the format does, and
+it is why `.safetensors` exists. Neither ComfyUI nor the official Comfy MCP's
+`download_model` looks inside before loading, so anything that arrived through
+either is unchecked.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | `string` | Absolute path to the file. Only `.ckpt .pt .pth .bin .pkl .pickle .safetensors .sft .gguf` are opened |
+
+Returns:
+- `verdict`: `dangerous`, `suspicious` or `safe`
+- `findings`: each dangerous or unusual import, with why it is one
+- `format`: `safetensors` / `gguf` (nothing to scan), `pickle`, or `torch-zip`
+- `saferAlternative`: a `.safetensors` build sitting beside the file, when one
+  does — loading that makes the question moot
+- `ordinaryImports`: the `collections.OrderedDict` / `torch._utils` traffic a
+  real checkpoint is made of
+
+`safe` means "names nothing on the known-dangerous list", not proof: the list
+is of published exploit primitives, and a novel one is not on it. A file whose
+format isn't recognised is an **error**, not a pass — treat it as unscanned.
+
+```
+Scan ~/ComfyUI/models/checkpoints/downloaded.ckpt before I load it
+```
 
 ### Task & Queue Management
 
@@ -1462,6 +1494,10 @@ extending it:
   64MB.
 - **Workflow writes are sandboxed** to ComfyUI's user directory plus whatever
   is explicitly listed in `workflowWriteDirs`, and no tool can extend that list.
+- **`comfyui_scan_model` never executes what it reads.** It walks the pickle's
+  opcodes and reports the imports; it does not unpickle. It opens model
+  extensions only, so it cannot be pointed at an arbitrary file, and it returns
+  import names rather than file contents.
 - **Nothing here spawns a process.** `child_process` is not imported anywhere
   in `src/`. Launching ComfyUI moved to the official Comfy MCP's
   `launch_comfyui`, and the launcher this server used to carry is gone rather

@@ -1,0 +1,422 @@
+/**
+ * Answering "is this model file safe to load?" before ComfyUI loads it.
+ *
+ * A `.ckpt`, `.pt`, `.pth` or `.bin` is a pickle, and `torch.load` on a pickle
+ * imports and calls whatever the file names. That has been the way to get code
+ * onto a machine through a model share since the format existed, and neither
+ * ComfyUI nor comfy-cli checks: `download_model` fetches, and the next graph
+ * that names the file loads it.
+ *
+ * `.safetensors` was designed to close this - it is a length-prefixed JSON
+ * header and raw tensor bytes, with no execution path at all - so the most
+ * useful thing this tool often does is say "there is a .safetensors of this
+ * beside it, use that instead".
+ *
+ * WHAT A CLEAN RESULT MEANS. "No known-dangerous import" is not "safe". The
+ * signature lists are the published exploit primitives, and a novel one is by
+ * definition not on them. Treat `safe` as "nothing known is wrong here",
+ * `suspicious` as "read the imports yourself before loading", and `dangerous`
+ * as settled.
+ */
+
+import { z } from "zod";
+import { open, stat } from "fs/promises";
+import { existsSync } from "fs";
+import { basename, extname, resolve } from "path";
+
+import { ToolError } from "../utils/errors.js";
+import { responseFormatField } from "../utils/response.js";
+import { looksLikePickle, scanPickle, PickleScan } from "./scan/pickle.js";
+import { listZipEntries, looksLikeZip, readZipEntry, ZipReadError } from "./scan/zip.js";
+import {
+  classifyImport,
+  danglingDangerousConstants,
+  Severity,
+} from "./scan/signatures.js";
+
+/**
+ * Extensions this tool will open.
+ *
+ * A path allowlist, not a convenience: the tool takes an absolute path from
+ * the agent and opens it, so without this it is a general local-file reader.
+ * It reports import names and never file contents, but the bound belongs here
+ * anyway - the same reason `extract_workflow` accepts only `.png`.
+ */
+const MODEL_EXTENSIONS = new Set([
+  ".ckpt",
+  ".pt",
+  ".pth",
+  ".bin",
+  ".pkl",
+  ".pickle",
+  ".safetensors",
+  ".sft",
+  ".gguf",
+]);
+
+/** How much of a raw pickle to read. The stream is at the front of the file. */
+const MAX_PICKLE_BYTES = 32 * 1024 * 1024;
+/** Bytes needed to tell the formats apart. */
+const HEAD_BYTES = 4096;
+/** Entries reported per archive; a checkpoint has one per tensor. */
+const MAX_ENTRIES_REPORTED = 20;
+/** Ordinary imports listed before the rest are counted instead. */
+const MAX_BENIGN_LISTED = 40;
+
+export const scanModelSchema = z
+  .object({
+    path: z
+      .string()
+      .describe(
+        "Absolute path to the model file to scan. Must be one of " +
+          `${[...MODEL_EXTENSIONS].join(", ")} - this tool opens local files and will not read anything else.`
+      ),
+    response_format: responseFormatField,
+  })
+  .strict();
+
+export type ScanModelInput = z.infer<typeof scanModelSchema>;
+
+export type ModelFileFormat =
+  | "safetensors"
+  | "gguf"
+  | "pickle"
+  | "torch-zip"
+  | "unrecognised";
+
+export type ScanVerdict = "safe" | "suspicious" | "dangerous";
+
+export interface ScanFinding {
+  severity: Severity;
+  /** "posix.system", or the bare module where the pairing could not be resolved. */
+  target: string;
+  reason: string;
+}
+
+export interface ScanModelResult {
+  path: string;
+  format: ModelFileFormat;
+  verdict: ScanVerdict;
+  /** One line saying what the verdict means for this file. */
+  summary: string;
+  findings: ScanFinding[];
+  /** Imports that matched nothing in either list, capped. */
+  ordinaryImports: string[];
+  ordinaryImportCount: number;
+  /** Set when the pickle walk stopped before the stream ended. */
+  incomplete?: string;
+  /** For a torch ZIP: which member carried the pickle, and what else is inside. */
+  pickleEntry?: string;
+  entryCount?: number;
+  /** Present when a .safetensors of the same name sits beside a pickle. */
+  saferAlternative?: string;
+}
+
+export class ModelFileError extends ToolError {}
+
+/** A `.safetensors` beside `foo.ckpt` makes the whole question go away. */
+function saferAlternativeFor(path: string): string | undefined {
+  const withoutExtension = path.slice(0, path.length - extname(path).length);
+  for (const candidate of [`${withoutExtension}.safetensors`, `${withoutExtension}.sft`]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Is this a safetensors file?
+ *
+ * The format opens with a little-endian u64 header length followed by that
+ * many bytes of JSON. Checking that the JSON parses is what separates it from
+ * a file that merely starts with eight plausible bytes.
+ */
+function isSafetensors(head: Buffer, fileSize: number): boolean {
+  if (head.length < 8) return false;
+  const headerLength = Number(head.readBigUInt64LE(0));
+  if (headerLength <= 0 || headerLength + 8 > fileSize) return false;
+  if (head[8] !== 0x7b) return false; // '{'
+  return true;
+}
+
+function isGguf(head: Buffer): boolean {
+  return head.length >= 4 && head.subarray(0, 4).toString("latin1") === "GGUF";
+}
+
+/** Turn a walked pickle into findings. */
+function findingsFor(scan: PickleScan): {
+  findings: ScanFinding[];
+  ordinary: string[];
+  ordinaryCount: number;
+} {
+  const findings: ScanFinding[] = [];
+  const seen = new Set<string>();
+  const ordinary: string[] = [];
+
+  for (const imported of scan.imports) {
+    const target = `${imported.module}.${imported.name}`;
+    if (seen.has(target)) continue;
+    seen.add(target);
+
+    const verdict = classifyImport(imported.module, imported.name);
+    if (verdict) {
+      findings.push({ severity: verdict.severity, target, reason: verdict.reason });
+    } else {
+      ordinary.push(target);
+    }
+  }
+
+  // The backstop for a stream that deliberately breaks STACK_GLOBAL's pairing:
+  // the module name is still in the file as a string constant.
+  const alreadyFlagged = new Set(findings.map((f) => f.target.split(".")[0]));
+  for (const module of danglingDangerousConstants(scan.constants)) {
+    if (alreadyFlagged.has(module)) continue;
+    findings.push({
+      severity: "dangerous",
+      target: module,
+      reason:
+        `the name '${module}' appears as a string constant without a resolvable import. ` +
+        "A pickle that assembles its imports on the stack to hide them is doing so on purpose",
+    });
+  }
+
+  findings.sort((a, b) =>
+    a.severity === b.severity ? 0 : a.severity === "dangerous" ? -1 : 1
+  );
+
+  return {
+    findings,
+    ordinary: ordinary.slice(0, MAX_BENIGN_LISTED),
+    ordinaryCount: ordinary.length,
+  };
+}
+
+function verdictFor(findings: ScanFinding[]): ScanVerdict {
+  if (findings.some((f) => f.severity === "dangerous")) return "dangerous";
+  if (findings.length) return "suspicious";
+  return "safe";
+}
+
+function summaryFor(
+  result: Omit<ScanModelResult, "summary">,
+  scan?: PickleScan
+): string {
+  const name = basename(result.path);
+
+  if (result.format === "safetensors") {
+    return `${name} is a safetensors file: a JSON header and raw tensor bytes, with no code path to execute. Nothing to scan.`;
+  }
+  if (result.format === "gguf") {
+    return `${name} is GGUF: a binary tensor container with no embedded code. Nothing to scan.`;
+  }
+
+  const dangerous = result.findings.filter((f) => f.severity === "dangerous");
+  const alternative = result.saferAlternative
+    ? ` A safetensors build sits beside it at ${result.saferAlternative} - load that instead.`
+    : "";
+
+  if (dangerous.length) {
+    return (
+      `${name} names ${dangerous.length} import${dangerous.length === 1 ? "" : "s"} ` +
+      `that would run code or reach the network when torch.load unpickles it. Do not load it.${alternative}`
+    );
+  }
+  if (result.findings.length) {
+    return (
+      `${name} names imports that are unusual in a tensor file but not proof of anything - ` +
+      `read them before loading.${alternative}`
+    );
+  }
+
+  const incomplete = scan?.truncated
+    ? ` The walk did not reach the end of the stream (${scan.stoppedBecause}), so this covers only what was read.`
+    : "";
+  return (
+    `${name} names nothing on the known-dangerous list. That is not the same as safe: ` +
+    `the list is of published exploit primitives, and a novel one is not on it.${incomplete}${alternative}`
+  );
+}
+
+export async function scanModel(input: ScanModelInput): Promise<ScanModelResult> {
+  const path = resolve(input.path);
+  const extension = extname(path).toLowerCase();
+
+  if (!MODEL_EXTENSIONS.has(extension)) {
+    throw new ModelFileError(
+      `Refusing to open ${extension || "a file with no extension"}: this tool reads model files only.`,
+      `Accepted extensions: ${[...MODEL_EXTENSIONS].join(", ")}.`
+    );
+  }
+  if (!existsSync(path)) {
+    throw new ModelFileError(
+      `No such file: ${path}`,
+      "The official Comfy MCP's search_models lists what is installed and where."
+    );
+  }
+
+  const { size } = await stat(path);
+  const handle = await open(path, "r");
+  try {
+    const head = Buffer.alloc(Math.min(HEAD_BYTES, size));
+    if (head.length) await handle.read(head, 0, head.length, 0);
+
+    const saferAlternative = saferAlternativeFor(path);
+
+    if (isSafetensors(head, size)) {
+      const base = {
+        path,
+        format: "safetensors" as const,
+        verdict: "safe" as const,
+        findings: [],
+        ordinaryImports: [],
+        ordinaryImportCount: 0,
+      };
+      return { ...base, summary: summaryFor(base) };
+    }
+
+    if (isGguf(head)) {
+      const base = {
+        path,
+        format: "gguf" as const,
+        verdict: "safe" as const,
+        findings: [],
+        ordinaryImports: [],
+        ordinaryImportCount: 0,
+      };
+      return { ...base, summary: summaryFor(base) };
+    }
+
+    if (looksLikeZip(head)) {
+      let entries;
+      try {
+        entries = await listZipEntries(handle, size);
+      } catch (error) {
+        throw new ModelFileError(
+          `${basename(path)} starts like a ZIP but its directory could not be read: ` +
+            `${error instanceof Error ? error.message : String(error)}`,
+          "A truncated or partially downloaded checkpoint reads this way. Re-download it and scan again."
+        );
+      }
+
+      // torch.save names it "<prefix>/data.pkl"; a plain zipfile may not
+      // nest it at all.
+      const pickleEntry = entries.find(
+        (e) => e.name === "data.pkl" || e.name.endsWith("/data.pkl")
+      );
+      if (!pickleEntry) {
+        const base = {
+          path,
+          format: "torch-zip" as const,
+          verdict: "safe" as const,
+          findings: [],
+          ordinaryImports: [],
+          ordinaryImportCount: 0,
+          entryCount: entries.length,
+        };
+        return {
+          ...base,
+          saferAlternative,
+          summary:
+            `${basename(path)} is a ZIP of ${entries.length} members with no data.pkl, so nothing ` +
+            `here unpickles. Members: ${entries
+              .slice(0, MAX_ENTRIES_REPORTED)
+              .map((e) => e.name)
+              .join(", ")}.`,
+        };
+      }
+
+      let pickleBytes: Buffer;
+      try {
+        pickleBytes = await readZipEntry(handle, pickleEntry, MAX_PICKLE_BYTES);
+      } catch (error) {
+        throw new ModelFileError(
+          `Could not read ${pickleEntry.name}: ${
+            error instanceof ZipReadError ? error.message : String(error)
+          }`,
+          "Scanning cannot say anything about this file. Treat it as unscanned rather than clean."
+        );
+      }
+
+      const scan = scanPickle(pickleBytes);
+      const { findings, ordinary, ordinaryCount } = findingsFor(scan);
+      const base = {
+        path,
+        format: "torch-zip" as const,
+        verdict: verdictFor(findings),
+        findings,
+        ordinaryImports: ordinary,
+        ordinaryImportCount: ordinaryCount,
+        incomplete: scan.truncated ? scan.stoppedBecause : undefined,
+        pickleEntry: pickleEntry.name,
+        entryCount: entries.length,
+        saferAlternative,
+      };
+      return { ...base, summary: summaryFor(base, scan) };
+    }
+
+    if (looksLikePickle(head)) {
+      const length = Math.min(size, MAX_PICKLE_BYTES);
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, 0);
+
+      const scan = scanPickle(buffer);
+      const { findings, ordinary, ordinaryCount } = findingsFor(scan);
+      const base = {
+        path,
+        format: "pickle" as const,
+        verdict: verdictFor(findings),
+        findings,
+        ordinaryImports: ordinary,
+        ordinaryImportCount: ordinaryCount,
+        incomplete: scan.truncated ? scan.stoppedBecause : undefined,
+        saferAlternative,
+      };
+      return { ...base, summary: summaryFor(base, scan) };
+    }
+
+    throw new ModelFileError(
+      `${basename(path)} is not a format this scanner recognises - not safetensors, GGUF, a ZIP, or a pickle stream.`,
+      "Treat it as unscanned rather than clean. A partially downloaded file is the usual cause."
+    );
+  } finally {
+    await handle.close();
+  }
+}
+
+export function renderScanModel(result: ScanModelResult): string {
+  const badge =
+    result.verdict === "dangerous"
+      ? "DANGEROUS"
+      : result.verdict === "suspicious"
+        ? "SUSPICIOUS"
+        : "no known-dangerous imports";
+
+  const lines = [
+    `# Scan: ${basename(result.path)}`,
+    "",
+    `**${badge}** — ${result.format}`,
+    "",
+    result.summary,
+  ];
+
+  if (result.findings.length) {
+    lines.push("", "## Findings", "");
+    for (const finding of result.findings) {
+      lines.push(`- **${finding.target}** (${finding.severity}) — ${finding.reason}`);
+    }
+  }
+
+  if (result.ordinaryImportCount) {
+    const shown = result.ordinaryImports.join(", ");
+    const rest =
+      result.ordinaryImportCount > result.ordinaryImports.length
+        ? ` (+${result.ordinaryImportCount - result.ordinaryImports.length} more)`
+        : "";
+    lines.push("", `Ordinary imports: ${shown}${rest}`);
+  }
+
+  if (result.incomplete) {
+    lines.push("", `Walk stopped early: ${result.incomplete}. Findings cover only what was read.`);
+  }
+
+  return lines.join("\n");
+}

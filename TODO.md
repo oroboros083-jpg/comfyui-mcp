@@ -8,7 +8,12 @@
       once per section. The HF card renders first wherever a model has both.
 - [ ] add support for fetching from civitai/civitaired with metadata
       preservation
-- [ ] add support for checking pickletensors for known hacks
+- [x] add support for checking pickletensors for known hacks —
+      `comfyui_scan_model` walks the opcodes of a `.ckpt`/`.pt`/`.bin` without
+      unpickling and reports what `torch.load` would import, handling raw
+      pickles, the ZIP `torch.save` writes (including ZIP64), and safetensors
+      / GGUF as nothing-to-scan. See "Changing the Model Scanner" in
+      CLAUDE.md before touching the opcode table or the signature lists.
 - [ ] run /doctor
 - [ ] run /code-review ultracode
 - [ ] update readme
