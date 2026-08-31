@@ -70,6 +70,9 @@ Where the two servers overlap, this is why to use which:
 - Their set_workflow_slot writes a workflow in place with NO version check, so
   it will not detect a concurrent edit and leaves an open tab stale. Prefer
   comfyui_write_workflow for anything a human might also be editing.
+- Their download_model fetches without looking inside, and a .ckpt/.pt/.bin is
+  a pickle that torch.load executes. Run comfyui_scan_model on one before
+  anything loads it; nothing else in either server checks.
 
 Sharing one ComfyUI with other agents and with a human:
 

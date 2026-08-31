@@ -46,6 +46,7 @@
     - [Template System](#template-system)
     - [Workflow Composition Tools](#workflow-composition-tools)
     - [Safe Workflow-File Editing](#safe-workflow-file-editing)
+    - [Checkpoint Safety Scanning](#checkpoint-safety-scanning)
     - [Responses Sized for a Model](#responses-sized-for-a-model)
   - [Quick Start Guide](#quick-start-guide)
     - [Step 1: Install ComfyUI](#step-1-install-comfyui)
@@ -136,6 +137,7 @@
     - [ComfyUI not detected](#comfyui-not-detected)
     - [Models not found](#models-not-found)
     - [Generation fails](#generation-fails)
+    - [I downloaded a `.ckpt` and I'm not sure about it](#i-downloaded-a-ckpt-and-im-not-sure-about-it)
     - [Workflow edits keep reverting](#workflow-edits-keep-reverting)
   - [Contributing](#contributing)
   - [License](#license)
@@ -184,7 +186,8 @@ I want to generate images using ComfyUI. Please help me set up the ComfyUI MCP s
 
 This is a fork of the original repo owned by Shawn R that adds security
 improvements (SSRF-guarded URL fetching, sandboxed workflow writes, size and
-extension limits on local file reads) along with response-size discipline and
+extension limits on local file reads, and a pickle scanner for checkpoints)
+along with response-size discipline and
 a companion ComfyUI custom node. This MCP server acts as a bridge between AI
 assistants and ComfyUI, the powerful node-based interface for Stable Diffusion
 and other generative AI models. It allows Claude and other MCP-compatible AI
@@ -196,9 +199,11 @@ assistants to:
 - **Create videos** using AnimateDiff, Stable Video Diffusion, Wan, LTX-Video, Mochi, Cosmos and Hunyuan Video
 - **Generate audio** using Stable Audio, ACE-Step and other audio models
 - **Edit workflow files** without clobbering what you have open in a browser tab
-- **Manage your queue** - view, cancel, and interrupt jobs
+- **Manage your queue** - view, cancel, and interrupt jobs, including work
+  submitted from a browser tab or another MCP server
 - **Remember what worked** across sessions, in a local notes database
-- **Help you set up** - install ComfyUI, launch it, find model downloads
+- **Check a checkpoint before loading it** - a `.ckpt` is a pickle, and
+  `torch.load` runs what it names
 
 ## Key Features
 
@@ -213,6 +218,7 @@ Even if ComfyUI isn't installed or running, the server provides tools to:
 - Read prompting guides for all 26 architectures (`comfyui_get_prompting_guide`)
 - Search the Danbooru tag vocabulary (`comfyui_search_tags`, `comfyui_related_tags`)
 - Plan a draft-then-final iteration loop (`comfyui_plan_iteration`)
+- Check whether a downloaded checkpoint is safe to load (`comfyui_scan_model`)
 - Search your saved workflows and save notes (`comfyui_search_user_snippets`,
   `comfyui_save_note`)
 
@@ -222,10 +228,18 @@ official Comfy MCP's job (`install_comfyui`, `search_models`,
 so and name what fixes it rather than failing blankly.
 
 ### Workflow-First Architecture
-All generation happens through `comfyui_run_workflow`, giving you full control over the ComfyUI workflow. The server provides comprehensive tools for:
-- **Templates**: Pre-built workflows for common tasks
-- **Node composition**: Build custom workflows node by node
-- **Validation**: Check workflows before running
+All generation happens through `comfyui_run_workflow`, which takes the graph
+as an object rather than a path — so a workflow can be assembled, run and
+adjusted without ever touching disk. Around it:
+- **Starting points**: `comfyui_recommend_workflow` matches a model filename to
+  a graph shape and the settings that model wants
+- **Node composition**: `comfyui_build_node` fills an instance from the live
+  catalog, so a graph can be built one node at a time
+- **Your own library**: `comfyui_save_user_snippet` and friends keep the
+  workflows that worked
+
+Validating a workflow file is the official server's `validate_workflow`, which
+takes a path — so write the file first.
 
 ### 77 Example Workflows
 Library of example workflows from the [official ComfyUI documentation](https://comfyanonymous.github.io/ComfyUI_examples/), split into individually discoverable entries:
@@ -300,6 +314,19 @@ which ships in this repo. See [Optional:
 ComfyUI-TabBridge](#optional-comfyui-tabbridge). Without it, writes still work
 — they just can't see or steer tabs.
 
+### Checkpoint Safety Scanning
+A `.ckpt`, `.pt` or `.bin` is a Python pickle, and `torch.load` imports and
+calls whatever the file names — that is the format, not a bug, and it is the
+reason `.safetensors` exists. Neither ComfyUI nor `download_model` looks
+inside, so a model from a community share is loaded unchecked.
+
+`comfyui_scan_model` walks the pickle's opcodes without unpickling and reports
+what loading it would import, telling `posix.system` apart from
+`collections.OrderedDict`. It reads the ZIP `torch.save` writes through the
+central directory, so a 7GB checkpoint costs one small read. Where a
+`.safetensors` build sits beside the file it names that too, since loading it
+instead removes the question.
+
 ### Responses Sized for a Model
 Every listing is paginated, capped, and returns compact JSON by default,
 because a tool response is context the reader pays for on every call.
@@ -352,6 +379,11 @@ You need at least one checkpoint model. Here are popular options:
 
 Or ask your assistant: the official Comfy MCP's `search_models` and
 `download_model` find a model and fetch it into the right folder.
+
+Every file above is `.safetensors`, which is the right default: it has no code
+path to execute. If you end up with a `.ckpt` or `.pt` from a community share,
+run `comfyui_scan_model` on it before loading — those are pickles, and
+`torch.load` runs what they name.
 
 ### Step 3: Configure Your AI Assistant
 
@@ -1609,6 +1641,12 @@ npm run inspector
 3. Verify the model exists with the official Comfy MCP's `search_models`
 4. Check `comfyui_recommend_workflow` — a checkpoint model in a UNET graph produces noise rather than an error
 5. Try simpler parameters (smaller size, fewer steps)
+
+### I downloaded a `.ckpt` and I'm not sure about it
+Run `comfyui_scan_model` on the path before anything loads it. It reads the
+pickle's opcodes without unpickling and reports what `torch.load` would import.
+If a `.safetensors` build of the same model exists, the scan names it — take
+that one instead and the question goes away.
 
 ### Workflow edits keep reverting
 That's ComfyUI's `Comfy.Workflow.AutoSave` writing a stale tab back over your

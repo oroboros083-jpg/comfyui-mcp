@@ -7,7 +7,16 @@
       the renderer supplies the host and can name the `civitai.red` mirror
       once per section. The HF card renders first wherever a model has both.
 - [ ] add support for fetching from civitai/civitaired with metadata
-      preservation
+      preservation. NOT attempted: this one needs live network to design
+      against, not just to test. The open questions are what "metadata
+      preservation" writes and where (trigger words, base model and version id
+      belong somewhere ComfyUI or a later session can find them, and nothing
+      here has a place for that yet), and whether a download tool belongs in a
+      companion server at all when `download_model` exists - the honest
+      argument for it is that comfy-cli's is Hugging Face-shaped and Civitai's
+      version/file model does not map onto it. `comfyui_scan_model` is the
+      natural finisher for whatever this becomes: fetch, then scan before
+      anything loads it.
 - [x] add support for checking pickletensors for known hacks —
       `comfyui_scan_model` walks the opcodes of a `.ckpt`/`.pt`/`.bin` without
       unpickling and reports what `torch.load` would import, handling raw
@@ -16,11 +25,17 @@
       CLAUDE.md before touching the opcode table or the signature lists.
 - [ ] run /doctor
 - [ ] run /code-review ultracode
-- [ ] update readme
+- [x] update readme — Docker gone and From Source made the only install path,
+      the launcher env vars removed, the empty "Discovery Tools" section
+      filled with `comfyui_scan_model`, and three stale claims fixed: it
+      offered to "install ComfyUI, launch it, find model downloads" (none of
+      which it does), listed workflow validation as a feature (the official
+      server's), and pointed the TOC at a "Docker Build" section. Counts
+      re-checked against the code: 77 examples, 26 architectures, 26 guides.
 
 ## Verify the coexistence work against a live ComfyUI (PR #9)
 
-Merged unverified against a real instance. The 386 unit tests all run against
+Merged unverified against a real instance. The unit tests all run against
 stubs, and none of the cases below can be reached that way - each one needs a
 running ComfyUI, and the last two need a browser tab and the official Comfy
 MCP mounted alongside. Until these pass, the write refusal and the ownership
@@ -78,6 +93,23 @@ ComfyUI".
       for the dropped `restart_comfyui`, with no tool behind it - went too.
       `src/` no longer imports `child_process` anywhere, which is a stronger
       security note than the one it replaces.
+
+- [ ] **Six example workflows are unreachable.** The SVD, Cosmos, Wan 2.1 and
+      Wan 2.2 entries in `examples/video.ts` publish their graph as
+      `jsonUrls` with `imageUrls: []`, and both live consumers -
+      `handlers/resources.ts` and `recommend.ts` - only ever try
+      `imageUrls[0]`. So `comfyui://examples/wan-21` throws "No workflow
+      images available" and `recommend_workflow` returns no
+      `exampleWorkflow` for any of them. `fetchJsonWorkflow` in
+      `examples/workflow-fetch.ts` is the function that would fetch them and
+      is currently called by nothing.
+
+      Not wired up yet because it needs one fact I could not check offline:
+      whether those docs `.json` files are API format (what `/prompt` and
+      `run_workflow` accept) or the UI graph. `apiFormatOf` prefers `prompt`
+      over `workflow` for exactly this reason, and a UI graph handed back
+      through `exampleWorkflow` - whose own doc says it is runnable - would be
+      worse than the current error. Fetch one, look, then wire it.
 
 ## Scope and context efficiency
 
