@@ -36,6 +36,8 @@ export interface Config {
    * Stable across reconnects on purpose. ComfyUIClient used to mint a fresh
    * randomUUID() per construction, which meant a reconnect silently disowned
    * every job the previous connection had submitted.
+   *
+   * The DEFAULT is not stable across process restarts - see defaultAgentId().
    */
   agentId: string;
 }
@@ -46,6 +48,19 @@ export interface Config {
  * Readable rather than a uuid because it is shown to a human in queue
  * listings and write conflicts, where "which of my agents is that" has to be
  * answerable at a glance. Set COMFYUI_MCP_AGENT_ID to name them yourself.
+ *
+ * The pid makes this per PROCESS, not per install, and that is the trade-off
+ * to know about. Restart the server and its own still-queued jobs come back
+ * `mine: false`, so a default comfyui_cancel_job leaves them alone and
+ * comfyui_interrupt gates on them (observed live: after a restart,
+ * mine=0 foreign=2 over the same agent's own work).
+ *
+ * It is kept anyway because the failure runs the safe way. Dropping the pid
+ * would make two servers running side by side on one machine share an
+ * identity, and each would then read the other's render as its own - which is
+ * the interrupt gate not firing when it should, rather than firing when it
+ * need not. An operator who wants an identity that survives a restart sets
+ * COMFYUI_MCP_AGENT_ID, which is what it is for.
  */
 function defaultAgentId(): string {
   return `${hostname()}/${process.pid}`;

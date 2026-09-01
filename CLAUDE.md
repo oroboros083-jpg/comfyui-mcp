@@ -447,6 +447,14 @@ ComfyUI already answers "whose job is this": `/prompt` takes a `client_id` and
 because a fresh uuid per connection silently disowned every job the previous
 one submitted.
 
+The default is **not** stable across process restarts, and the pid is why.
+Restart the server and its own queued jobs read back as `mine: false`, so a
+default `cancel_job` leaves them alone and `interrupt` gates on them. That
+direction is the safe one - dropping the pid would let two servers side by
+side on one machine share an identity and each read the other's render as its
+own - but an operator who wants identity to survive a restart has to set
+`COMFYUI_MCP_AGENT_ID`.
+
 Destructive queue tools scope to that identity by default: `cancel_job`
 without a `promptId` cancels only this agent's pending jobs (`scope: "all"` is
 the explicit opt-in), and `interrupt` refuses when the running job belongs to
