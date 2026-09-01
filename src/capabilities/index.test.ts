@@ -5,7 +5,6 @@ import {
   detectCapabilities,
   getCapabilitySummary,
   primaryArchitectureOf,
-  promptingAdviceFor,
 } from "./index.js";
 import type { ObjectInfo } from "../client/comfyui.js";
 import { ARCHITECTURES } from "../architectures/registry.js";
@@ -89,8 +88,6 @@ test("nothing detected is reported as nothing, not as SD 1.5", () => {
   const caps = detectCapabilities(withNodes("KSampler", "SaveImage"));
 
   assert.equal(primaryArchitectureOf(caps), undefined);
-  assert.match(promptingAdviceFor(caps), /No model architecture detected/);
-  assert.equal(/sd 1\.5|sd15/i.test(promptingAdviceFor(caps)), false);
 });
 
 test("a detected architecture is named by its guide key, not its id", () => {
@@ -111,7 +108,6 @@ test("a detected architecture is named by its guide key, not its id", () => {
 
   assert.equal(primary?.id, "wan");
   assert.equal(primary?.guide, "wan");
-  assert.match(promptingAdviceFor(caps), /get_prompting_guide\('wan'\)/);
 });
 
 test("prompting advice never names a guide that does not exist", () => {

@@ -223,37 +223,6 @@ export function primaryArchitectureOf(
   return primaryArchitecture(architecturesOf(capabilities));
 }
 
-/**
- * The prompting steer for an install, as one line.
- *
- * Replaces two separately-maintained if/else ladders that between them knew
- * four architectures and sent everything else to the SD 1.5 guide. When
- * several architectures are installed it names the others too, so picking a
- * single "primary" cannot hide them.
- */
-export function promptingAdviceFor(capabilities: Capabilities): string {
-  const detected = architecturesOf(capabilities);
-  const primary = primaryArchitecture(detected);
-
-  if (!primary) {
-    return "No model architecture detected. The official Comfy MCP's `search_models` lists what is installed.";
-  }
-
-  const guide = primary.guide
-    ? `Call comfyui_get_prompting_guide('${primary.guide}').`
-    : `No dedicated prompting guide for ${primary.displayName} yet.`;
-
-  const others = detected
-    .filter((spec) => spec.id !== primary.id)
-    .map((spec) => spec.displayName);
-
-  const alsoPresent = others.length
-    ? ` Also installed: ${others.join(", ")} - call comfyui_recommend_workflow with a specific model filename for per-model settings.`
-    : "";
-
-  return `Primary model type: ${primary.displayName}. ${primary.advice} ${guide}${alsoPresent}`;
-}
-
 export function getCapabilitySummary(capabilities: Capabilities): string {
   const features: string[] = [];
 

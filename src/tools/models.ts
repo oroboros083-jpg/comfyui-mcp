@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { ComfyUIClient, ObjectInfo, comboOptions } from "../client/comfyui.js";
 import {
-  paginate,
   paginationFields,
   responseFormatField,
   jsonText,
@@ -9,9 +8,6 @@ import {
 } from "../utils/response.js";
 import { renderListing, renderGroups } from "../utils/render.js";
 import { ToolError } from "../utils/errors.js";
-
-/** How many category counts to report alongside a node listing. */
-const TOP_CATEGORIES = 20;
 
 /**
  * A ComfyUI output slot is usually a type name ("IMAGE"), but a node may
@@ -55,38 +51,6 @@ export type ListModelsInput = z.infer<typeof listModelsSchema>;
 export type ListModelsResult = PageEnvelope & {
   models: Record<string, string[]>;
 };
-
-export async function listModels(
-  client: ComfyUIClient,
-  input: ListModelsInput
-): Promise<ListModelsResult> {
-  const models = await client.getModels();
-  const search = input.search?.toLowerCase();
-  const match = (name: string) => !search || name.toLowerCase().includes(search);
-
-  // Flatten to (type, filename) pairs so paging is over models rather than
-  // over categories - one category can hold hundreds of LoRAs on its own.
-  const flat: Array<{ type: string; name: string }> = [];
-  for (const [type, names] of Object.entries(models)) {
-    if (input.type !== "all" && type !== input.type) continue;
-    for (const name of names) {
-      if (match(name)) flat.push({ type, name });
-    }
-  }
-
-  const page = paginate(flat, input.limit, input.offset);
-
-  const { items, ...envelope } = page;
-
-  // Regroup the page by type: the agent reads "checkpoints: [...]" more
-  // easily than a flat list of pairs.
-  const grouped: Record<string, string[]> = {};
-  for (const { type, name } of items) {
-    (grouped[type] ??= []).push(name);
-  }
-
-  return { ...envelope, models: grouped };
-}
 
 export function renderModels(result: ListModelsResult, input: ListModelsInput): string {
   const scope = input.type === "all" ? "" : ` (${input.type})`;
@@ -135,105 +99,6 @@ export type ListNodesResult = PageEnvelope & {
   nodes: Array<NodeRow | string>;
   hint?: string;
 };
-
-/**
- * List node types, filtered and paged.
- *
- * A modded ComfyUI install carries 2000+ node types; returning them all with
- * descriptions is ~440KB, which is more than most context windows. So this is
- * paginated and defaults to a summary projection, and callers that want one
- * node's detail use get_node_info instead.
- */
-export async function listNodes(
-  client: ComfyUIClient,
-  input: ListNodesInput
-): Promise<ListNodesResult> {
-  const objectInfo = await client.getObjectInfo();
-
-  let nodes = Object.entries(objectInfo).map(([name, info]) => ({
-    name,
-    displayName: info.display_name || name,
-    category: info.category || "uncategorized",
-    description: info.description || "",
-  }));
-
-  if (input.category) {
-    const categoryLower = input.category.toLowerCase();
-    nodes = nodes.filter((n) => n.category.toLowerCase().includes(categoryLower));
-  }
-
-  if (input.search) {
-    const searchLower = input.search.toLowerCase();
-    nodes = nodes.filter(
-      (n) =>
-        n.name.toLowerCase().includes(searchLower) ||
-        n.displayName.toLowerCase().includes(searchLower) ||
-        n.description.toLowerCase().includes(searchLower)
-    );
-  }
-
-  nodes.sort((a, b) => a.name.localeCompare(b.name));
-
-  // Category counts describe the whole filtered set, not just this page, so
-  // an agent can pick a category to drill into without paging through first.
-  // Only the largest are listed: a modded install has ~400 categories, and
-  // the full map costs several times more than the page of nodes it labels.
-  const allCounts: Record<string, number> = {};
-  for (const node of nodes) {
-    allCounts[node.category] = (allCounts[node.category] || 0) + 1;
-  }
-  const ranked = Object.entries(allCounts).sort((a, b) => b[1] - a[1]);
-  const topCategories = Object.fromEntries(ranked.slice(0, TOP_CATEGORIES));
-
-  const page = paginate(nodes, input.limit, input.offset);
-
-  const project = (n: (typeof nodes)[number]) => {
-    if (input.detail === "names") return n.name;
-    if (input.detail === "full") return n;
-    return { name: n.name, displayName: n.displayName, category: n.category };
-  };
-
-  const { items, ...envelope } = page;
-
-  return {
-    ...envelope,
-    categoryCount: ranked.length,
-    topCategories,
-    nodes: items.map(project),
-    ...(page.has_more
-      ? {
-          hint: `${page.total - (page.offset + page.count)} more nodes. Narrow with 'search'/'category', or page with offset: ${page.next_offset}.`,
-        }
-      : {}),
-  };
-}
-
-/** Markdown line for one listed node, at whichever detail it was projected to. */
-function nodeRow(node: NodeRow | string): string {
-  if (typeof node === "string") return `- \`${node}\``;
-  const label = node.displayName && node.displayName !== node.name ? ` - ${node.displayName}` : "";
-  const category = node.category ? ` _(${node.category})_` : "";
-  const description = node.description ? `\n  ${node.description}` : "";
-  return `- \`${node.name}\`${label}${category}${description}`;
-}
-
-export function renderNodes(result: ListNodesResult, input: ListNodesInput): string {
-  const filters = [
-    input.search ? `search '${input.search}'` : null,
-    input.category ? `category '${input.category}'` : null,
-  ].filter(Boolean);
-
-  return renderListing({
-    title: filters.length ? `Nodes matching ${filters.join(" and ")}` : "Available Nodes",
-    facets: { categories: result.categoryCount, ...result.topCategories },
-    rows: result.nodes.map(nodeRow),
-    page: result,
-    empty: filters.length
-      ? `No nodes matching ${filters.join(" and ")}. Try a shorter search term.`
-      : "ComfyUI reported no node types, which usually means it is still starting up.",
-    next: "Call the official Comfy MCP's nodes tool with a node name for its inputs and outputs.",
-  });
-}
 
 // === Node Info Tool ===
 
@@ -565,127 +430,6 @@ export class NoTypeFilterError extends ToolError {
       "e.g. { outputType: 'IMAGE' } for nodes that produce an image."
     );
   }
-}
-
-export async function findNodesByType(
-  client: ComfyUIClient,
-  input: FindNodesByTypeInput
-): Promise<FindNodesResult> {
-  if (!input.inputType && !input.outputType) throw new NoTypeFilterError();
-
-  const objectInfo = await client.getObjectInfo();
-  const inputTypeUpper = input.inputType?.toUpperCase();
-  const outputTypeUpper = input.outputType?.toUpperCase();
-
-  const matches: Array<{
-    name: string;
-    displayName: string;
-    category: string;
-    matchedInputs?: string[];
-    matchedOutputs?: string[];
-  }> = [];
-
-  for (const [nodeName, nodeInfo] of Object.entries(objectInfo)) {
-    let matchedInputs: string[] = [];
-    let matchedOutputs: string[] = [];
-
-    // Check inputs
-    if (inputTypeUpper) {
-      const allInputs = {
-        ...nodeInfo.input.required,
-        ...nodeInfo.input.optional,
-      };
-
-      for (const [inputName, spec] of Object.entries(allInputs)) {
-        if (Array.isArray(spec) && spec.length > 0) {
-          const inputType = Array.isArray(spec[0]) ? "COMBO" : String(spec[0]).toUpperCase();
-          if (inputType === inputTypeUpper) {
-            matchedInputs.push(inputName);
-          }
-        }
-      }
-    }
-
-    // Check outputs. An output slot is normally a type name, but a COMBO
-    // output is declared as its array of options - calling .toUpperCase() on
-    // that array throws and used to take the whole tool down.
-    if (outputTypeUpper) {
-      const outputs = Array.isArray(nodeInfo.output) ? nodeInfo.output : [];
-      outputs.forEach((outType, i) => {
-        if (outputTypeName(outType) === outputTypeUpper) {
-          matchedOutputs.push(nodeInfo.output_name[i] || outputTypeName(outType));
-        }
-      });
-    }
-
-    // Include node if it matches the criteria
-    const matchesInput = !inputTypeUpper || matchedInputs.length > 0;
-    const matchesOutput = !outputTypeUpper || matchedOutputs.length > 0;
-
-    if (matchesInput && matchesOutput) {
-      const entry: (typeof matches)[0] = {
-        name: nodeName,
-        displayName: nodeInfo.display_name,
-        category: nodeInfo.category,
-      };
-      if (matchedInputs.length > 0) entry.matchedInputs = matchedInputs;
-      if (matchedOutputs.length > 0) entry.matchedOutputs = matchedOutputs;
-      matches.push(entry);
-    }
-  }
-
-  matches.sort((a, b) => a.name.localeCompare(b.name));
-
-  // Category counts cover every match, not just this page, so the agent can
-  // narrow by category without paging through the whole set first.
-  const allCounts: Record<string, number> = {};
-  for (const node of matches) {
-    allCounts[node.category] = (allCounts[node.category] || 0) + 1;
-  }
-  const ranked = Object.entries(allCounts).sort((a, b) => b[1] - a[1]);
-
-  const page = paginate(matches, input.limit, input.offset);
-
-  const { items, ...envelope } = page;
-
-  return {
-    query: {
-      inputType: input.inputType || null,
-      outputType: input.outputType || null,
-    },
-    ...envelope,
-    categoryCount: ranked.length,
-    topCategories: Object.fromEntries(ranked.slice(0, TOP_CATEGORIES)),
-    nodes: items,
-  };
-}
-
-export function renderFoundNodes(result: FindNodesResult): string {
-  const { inputType, outputType } = result.query;
-  const criteria = [
-    inputType ? `accept **${inputType}**` : null,
-    outputType ? `produce **${outputType}**` : null,
-  ]
-    .filter(Boolean)
-    .join(" and ");
-
-  return renderListing({
-    title: "Nodes by Type",
-    lead: `Nodes that ${criteria}.`,
-    facets: { categories: result.categoryCount, ...result.topCategories },
-    rows: result.nodes.map((n) => {
-      const io = [
-        n.matchedInputs?.length ? `in: ${n.matchedInputs.join(", ")}` : null,
-        n.matchedOutputs?.length ? `out: ${n.matchedOutputs.join(", ")}` : null,
-      ]
-        .filter(Boolean)
-        .join("; ");
-      return `- \`${n.name}\` _(${n.category})_${io ? ` - ${io}` : ""}`;
-    }),
-    page: result,
-    empty: `No node ${criteria.replace(/\*\*/g, "'")}. Check the type name with the official Comfy MCP's nodes tool on a node you know uses it.`,
-    next: "Call comfyui_build_node to generate JSON for one of these.",
-  });
 }
 
 // === Build Node Tool ===

@@ -454,42 +454,6 @@ export function saveNote(topic: string, content: string, tags: string[] = []): N
   };
 }
 
-export function updateNote(id: number, updates: { topic?: string; content?: string; tags?: string[] }): Note | null {
-  const database = getDatabase();
-  const now = new Date().toISOString();
-
-  const setClauses: string[] = ["updated_at = ?"];
-  const values: (string | number | null)[] = [now];
-
-  if (updates.topic !== undefined) {
-    setClauses.push("topic = ?");
-    values.push(updates.topic);
-  }
-  if (updates.content !== undefined) {
-    setClauses.push("content = ?");
-    values.push(updates.content);
-  }
-  if (updates.tags !== undefined) {
-    setClauses.push("tags = ?");
-    values.push(updates.tags.length > 0 ? JSON.stringify(updates.tags) : null);
-  }
-
-  values.push(id);
-
-  const stmt = database.prepare(`UPDATE notes SET ${setClauses.join(", ")} WHERE id = ?`);
-  const result = stmt.run(...values);
-
-  if (result.changes === 0) return null;
-  return getNoteById(id);
-}
-
-export function getNoteById(id: number): Note | null {
-  const database = getDatabase();
-  const stmt = database.prepare("SELECT * FROM notes WHERE id = ?");
-  const row = stmt.get(id) as NoteRow | undefined;
-  return row ? rowToNote(row) : null;
-}
-
 /** One page of notes, with the real total rather than a capped one. */
 export interface NotePage {
   notes: Note[];
@@ -855,17 +819,4 @@ export function getWorkflowBase(path: string): WorkflowBase | null {
     readAt: row.read_at,
     agentId: row.agent_id,
   };
-}
-
-/**
- * Drop a recorded base, so the next write to this path is treated as unbased.
- *
- * NOT what a successful write calls. A write RE-BASES - it records the version
- * it just produced - because clearing here would leave the agent's own next
- * write with no base and refuse it. This exists for the deliberate reset:
- * tests, and forgetting a path whose file has been deleted out from under us.
- */
-export function clearWorkflowBase(path: string): void {
-  const database = getDatabase();
-  database.prepare("DELETE FROM workflow_bases WHERE path = ?").run(path);
 }

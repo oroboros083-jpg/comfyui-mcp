@@ -368,48 +368,6 @@ export async function ensureConnected(): Promise<ConnectionHandles> {
   }
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// How long to watch for ComfyUI to actually go offline after accepting a
-// restart. It exits without answering the request, so the disappearance is the
-// only confirmation the restart took effect.
-const RESTART_SHUTDOWN_WINDOW_MS = 20_000;
-const RESTART_POLL_INTERVAL_MS = 2000;
-
-/**
- * Watch the current URL until it stops answering. Returns false if ComfyUI
- * never went away, which means the restart didn't take (or it came back faster
- * than we could observe).
- */
-export async function waitForShutdown(): Promise<boolean> {
-  const deadline = Date.now() + RESTART_SHUTDOWN_WINDOW_MS;
-  while (Date.now() < deadline) {
-    if (!(await probeCurrentClient())) return true;
-    await sleep(500);
-  }
-  return false;
-}
-
-/**
- * Poll until ComfyUI answers again, rediscovering each time - a restarted
- * instance may come back on a different port.
- */
-export async function waitForRestart(timeoutMs: number): Promise<ConnectionRefresh> {
-  const deadline = Date.now() + timeoutMs;
-  let last: ConnectionRefresh = {
-    connected: false,
-    error: unreachableError(),
-  };
-
-  while (Date.now() < deadline) {
-    last = await refreshConnection();
-    if (last.connected) return last;
-    await sleep(RESTART_POLL_INTERVAL_MS);
-  }
-
-  return last;
-}
-
 /**
  * Force a full rediscovery and capability refresh, ignoring the health cache.
  * Backs both `reconnect` and `get_status`, which exist to answer "is this

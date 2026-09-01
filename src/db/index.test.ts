@@ -149,9 +149,3 @@ test("agentId is optional", () => {
   db.recordWorkflowBase("workflows/e.json", "ve");
   assert.equal(db.getWorkflowBase("workflows/e.json")?.agentId, null);
 });
-
-test("clearing a base makes the path unbased again", () => {
-  db.recordWorkflowBase("workflows/f.json", "vf");
-  db.clearWorkflowBase("workflows/f.json");
-  assert.equal(db.getWorkflowBase("workflows/f.json"), null);
-});
