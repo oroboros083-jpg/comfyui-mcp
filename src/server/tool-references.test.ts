@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
@@ -65,7 +66,7 @@ test("no source file mentions a comfyui_ tool that is not registered", () => {
   // point, and reading them from source means a stale dist cannot mask a
   // dangling reference (which is exactly how a deleted module's test kept
   // "passing" during this prune).
-  const root = new URL("../../src", import.meta.url).pathname;
+  const root = fileURLToPath(new URL("../../src", import.meta.url));
   const offenders: string[] = [];
 
   for (const file of sourceFiles(root)) {
@@ -111,7 +112,7 @@ test("the README does not send a reader to a comfyui_ tool that was removed", ()
   // references after that sweep. Same defect, wider blast radius: the doc is
   // read before any tool is called.
   const registered = registeredToolNames();
-  const readme = new URL("../../README.md", import.meta.url).pathname;
+  const readme = fileURLToPath(new URL("../../README.md", import.meta.url));
   const text = withoutAllowedBlocks(readFileSync(readme, "utf-8"));
 
   const offenders = [...new Set(text.match(/(?<!\/)\bcomfyui_[a-z_]+/g) ?? [])]
