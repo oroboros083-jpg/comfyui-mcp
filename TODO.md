@@ -36,41 +36,60 @@
 
 ## Verify the coexistence work against a live ComfyUI (PR #9)
 
-Merged unverified against a real instance. The unit tests all run against
-stubs, and none of the cases below can be reached that way - each one needs a
-running ComfyUI, and the last two need a browser tab and the official Comfy
-MCP mounted alongside. Until these pass, the write refusal and the ownership
-scoping are designed-and-tested but not *observed*.
+All eight done on 2026-09-01, against ComfyUI 0.33.0 / comfy-cli 1.19.0 on
+127.0.0.1:8000, driving two server processes over stdio with distinct
+`COMFYUI_MCP_AGENT_ID`s, plus a real browser tab and the official Comfy MCP.
+Three bugs and two false documented claims came out of it; each has its own
+commit.
 
-Background on what each case is protecting is in CLAUDE.md - "Coexisting With
-the Official Comfy MCP", "Writing a Workflow File Safely", "Sharing One
-ComfyUI".
-
-- [ ] **Ownership both ways.** Two instances with different
-      `COMFYUI_MCP_AGENT_ID`, submit from each, confirm `comfyui_get_queue`
-      marks `mine` correctly from both sides and the `mine`/`foreign` counts
-      add up.
-- [ ] **Default cancel spares foreign jobs.** With both agents' work queued,
-      `comfyui_cancel_job` (no promptId) from one leaves the other's jobs
-      alone and reports `left_alone`.
-- [ ] **Foreign interrupt is gated.** While agent B's job runs, agent A's
-      `comfyui_interrupt` refuses and names B; `confirm_foreign: true` goes
-      through.
-- [ ] **Lost update, human edition.** `comfyui_read_workflow`, edit the same
-      file in a ComfyUI browser tab, then `comfyui_write_workflow` - confirm
-      it refuses with a diff naming the tab's change, and that `force: true`
-      goes through. This is the one the whole feature exists for.
-- [ ] **Unbased write refuses.** `comfyui_write_workflow` to an existing file
-      never read in this session refuses and names `comfyui_read_workflow`.
-- [ ] **The third writer.** `comfyui_read_workflow`, then the official MCP's
-      `set_workflow_slot(stdout=False)` on the same file, then our write -
-      confirm we detect a writer we do not control.
-- [ ] **Official's jobs are visible to us.** Submit via the official server,
-      confirm it appears in `comfyui_get_queue` as `mine: false` (it will not
-      appear in our job manager, which is expected - correlate by promptId).
-- [ ] **agentId does not disturb in-flight work.** Confirm a job submitted
-      before an agentId change is still trackable afterwards (we key on
-      promptId, but this has never been exercised live).
+- [x] **Ownership both ways.** A submits 2, B submits 3: A reports
+      mine=2/foreign=3, B reports mine=3/foreign=2, both sum to the queue, and
+      every job's `mine` is exactly inverted between the two views.
+- [x] **Default cancel spares foreign jobs.** `cancel_job` from A with both
+      agents' work queued: `cancelled: 2, left_alone: 2`, B's running job and
+      both its pending jobs untouched.
+- [x] **Foreign interrupt is gated.** A's `interrupt` on B's running job is
+      refused and names `verify-agent-B` and `confirm_foreign`;
+      `confirm_foreign: true` returns `interrupted: "foreign"`. B interrupting
+      its own job needs no confirmation (`interrupted: "mine"`).
+- [x] **Lost update, human edition.** Note node edited in a real ComfyUI tab
+      with autosave still pending, so disk held the stale baseline at the
+      moment of the call: `write_workflow`'s own flush pulled the tab's
+      unsaved text onto disk, the diff saw it, and the write was refused.
+      Without that flush the agent would have compared against the stale base,
+      found no change, and destroyed the edit. `force: true` then wrote and
+      the tab reloaded ("was updated on disk and reloaded (1 nodes)").
+- [x] **Unbased write refuses.** Refused with "has not been read in this
+      session" and names `comfyui_read_workflow`; `force: true` gets past it;
+      a successful write re-bases, so the follow-up write needs no force.
+      **Bug found:** `workflow_bases` was keyed by path alone on the premise
+      that the db is per-instance. It is not - it defaults to
+      `~/.comfyui-mcp/data.db` for every server on the machine - so two agents
+      shared one row and each silently re-based the other. Fixed by keying on
+      `(path, agent_id)`.
+- [x] **The third writer.** The official server's
+      `set_workflow_slot(stdout=False)` on a gallery template between our read
+      and our write is detected and refused. **Bug found:** the refusal
+      explained itself with "no changes", because `diffWorkflows` read
+      top-level `nodes` only and that template keeps its whole pipeline inside
+      a subgraph. Now walks `definitions.subgraphs` too.
+      **Also found:** the "Last written via this server by:" line read its
+      name from the caller's own base row, so it named whoever was being
+      refused. Now a separate `workflow_writers` record.
+- [x] **Official's jobs are visible to us.** Their submission appears in
+      `comfyui_get_queue` as `mine: false` under comfy-cli's own per-run uuid,
+      correlatable by promptId. **Claim corrected:** the reverse is *also*
+      true now. comfy-cli 1.19.0 falls back to ComfyUI's `/history`, so their
+      `job(status)`, `fetch_outputs` and `job(queue)` all resolve a prompt_id
+      we submitted with no state file on disk. What they still cannot report
+      is a `client_id`, which is what the ownership scoping needs.
+- [x] **agentId does not disturb in-flight work.** Across a restart under a
+      new id, `get_task` and `get_task_result` still resolve the job by id and
+      by name. **Consequence documented:** the queue view then calls it
+      foreign (`mine: false`, `clientId: agent-before-rename`) and a default
+      `cancel_job` leaves it alone. The default id is `host/pid`, so this
+      happens on any plain restart - safe direction, now said out loud in
+      `config.ts` and CLAUDE.md.
 
 ## Repo housekeeping
 
