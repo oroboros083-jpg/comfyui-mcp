@@ -17,7 +17,7 @@
 import { z } from "zod";
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname } from "node:path";
-import sharp from "sharp";
+import sharp, { type Metadata } from "sharp";
 
 import { ComfyUIClient } from "../client/comfyui.js";
 import { ToolError } from "../utils/errors.js";
@@ -228,7 +228,7 @@ export async function uploadImage(
   // Decoding also validates: a PDF or a truncated download reaching ComfyUI
   // comes back as a 500 from deep inside PIL, which names neither the file
   // nor the problem.
-  let metadata: sharp.Metadata;
+  let metadata: Metadata;
   try {
     metadata = await sharp(bytes).metadata();
   } catch (cause) {
