@@ -58,12 +58,13 @@ Where the two servers overlap, this is why to use which:
   a file path only. It is also the only way to read a node's TEXT output, via
   collectText with node ids - a captioner, a text encoder, an LLM node.
 - Tracking a run submitted HERE: use comfyui_get_task / comfyui_get_task_result.
-  Their job(...) and fetch_outputs read comfy-cli's own on-disk state files,
-  which exist only for runs comfy-cli itself submitted, so they cannot see
-  these at all.
-- What is actually running on the instance: use comfyui_get_queue. It reads
-  ComfyUI's /queue and sees every job whoever submitted it; their
-  job(action="queue") lists only comfy-cli's own.
+  Their job(...) and fetch_outputs will resolve the prompt_id - they fall back
+  to ComfyUI's /history - but they have no record of the run: no name, no
+  progress, and workflow_path and updated_at come back null.
+- Who owns what on the instance: use comfyui_get_queue. It is the only queue
+  view that reports each job's client_id, which is what tells your jobs from a
+  human's browser tab or another agent's; their job(action="queue") reports no
+  submitter.
 - Feeding a generated image back in as input: use comfyui_upload_image with
   from_output. Their upload_file takes local paths and cannot reach ComfyUI's
   output directory, least of all on a remote instance.

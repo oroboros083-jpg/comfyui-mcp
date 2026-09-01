@@ -102,8 +102,9 @@ export function registerGenerationTools(
       "Use this rather than the official Comfy MCP's `run_workflow` when the graph is in hand rather " +
       "than in a file - theirs takes a path only. It also takes 'collectText' with node ids, which is " +
       "the only way to read a node's TEXT output (a captioner, a text encoder); their `fetch_outputs` " +
-      "returns files. Runs submitted here are NOT visible to their `job(...)` or `fetch_outputs`, " +
-      "which read comfy-cli's own state files - track them with comfyui_get_task.\n\n" +
+      "returns files. Track a run started here with comfyui_get_task: their `job(...)` will resolve " +
+      "the prompt_id from ComfyUI's history, but has no record of the run itself - no name, no " +
+      "progress, and a null workflow_path.\n\n" +
       "Start from comfyui_recommend_workflow (which matches a model to a graph shape) or from a saved " +
       "snippet via comfyui_get_user_snippet, rather than assembling a workflow by hand.",
     schema: runWorkflowSchema,

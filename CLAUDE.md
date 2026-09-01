@@ -341,13 +341,23 @@ thing said once at handshake.
 
 Four facts about that server worth knowing before designing against it:
 
-- **It cannot see runs this server submits.** `fetch_outputs` says so:
-  "the run that submitted the job wrote a state file on THIS machine... Only a
-  `prompt_id` this machine never submitted has no such state file
-  (`download_job_not_found`)", and `jobs ls` merges those same files. So the
-  two servers **cannot** split submit-from-track: whoever submits must also
-  track and collect. That is why the whole run subsystem stays here, and why
-  `get_image` is not a duplicate of `fetch_outputs`.
+- **It CAN see runs this server submits, but not who submitted them.**
+  `fetch_outputs`' docstring still says otherwise - "Only a `prompt_id` this
+  machine never submitted has no such state file (`download_job_not_found`)" -
+  and that was true once. Checked live against comfy-cli 1.19.0 on
+  2026-09-01, it is not: with no state file on disk for our `prompt_id`,
+  `job(action="status")` returned full status and outputs, `fetch_outputs`
+  returned the output URL, and `job(action="queue")` listed our running and
+  pending jobs with queue positions. It falls back to ComfyUI's own `/history`
+  and `/queue`. Rows with no state file are marked by `workflow_path: null`
+  and `updated_at: null`.
+
+  What it cannot see is **ownership**. Neither verb reports a `client_id`, so
+  nothing there can answer "whose job is this" - which is what
+  `comfyui_cancel_job`'s scoping and `comfyui_interrupt`'s foreign-job gate
+  are built on. Nor does it carry a run's name, its progress, or the job
+  record `comfyui_get_task` tracks. Re-check this before leaning on it: it is
+  a comfy-cli version fact, not a design guarantee.
 - **It has no workflow versioning.** No hash, etag, mtime check, or
   lost-update protection anywhere. `set_workflow_slot(stdout=False)` writes in
   place unconditionally, so it is a third unprotected writer into the same
@@ -360,10 +370,11 @@ Four facts about that server worth knowing before designing against it:
   output directory - which is what `upload_image`'s `from_output` copies from,
   server-side.
 
-**The queue tools are deliberately kept.** Their `job(action="queue")` is
-`comfy jobs ls`, comfy-cli's record of its own submissions. `comfyui_get_queue`
-reads ComfyUI's real `/queue` and sees every job whoever sent it, which makes
-it the only cross-server view of what is actually running.
+**The queue tools are deliberately kept.** Their `job(action="queue")` also
+reaches ComfyUI's real queue (see above), so the argument is not that it
+cannot see the jobs. It is that it does not say who owns them:
+`comfyui_get_queue` is the only view carrying `client_id`, and it is
+paginated rather than returning the whole of history alongside the queue.
 
 **Nothing may name a tool that does not exist.**
 `server/tool-references.test.ts` fails on any `comfyui_` name in any source

@@ -253,8 +253,9 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
       "If it was recorded as failed, asks ComfyUI whether it actually finished before reporting the " +
       "failure, because a dropped socket or a restarted server marks a job failed while ComfyUI goes " +
       "on to complete it.\n\n" +
-      "Note the official Comfy MCP's `fetch_outputs` cannot serve these: it reads comfy-cli's own job " +
-      "state files, which exist only for runs comfy-cli itself submitted.",
+      "The official Comfy MCP's `fetch_outputs` will also return this prompt's files - it falls back " +
+      "to ComfyUI's history - but only the files. The run's name, its status history and its text " +
+      "outputs exist only here.",
     schema: taskRefSchema,
     requiresConnection: false,
     annotations: {
