@@ -138,6 +138,24 @@ function initializeSchema(database: Database.Database): void {
     );
   `);
   migrateWorkflowBasesToPerAgentKey(database);
+
+  // Who last wrote each workflow file THROUGH this server.
+  //
+  // Distinct from workflow_bases, which is per agent and says what an agent
+  // last read. This is one global row per path, so a refused write can name
+  // the agent whose change it would have destroyed - the question a conflict
+  // actually raises is "who else is editing this", and only a shared row can
+  // answer it. It covers agents on this machine only: a human in a browser
+  // tab or the official Comfy MCP writes without passing through here, and a
+  // conflict with no row is reported without naming anyone rather than
+  // guessing.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_writers (
+      path TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      written_at TEXT NOT NULL
+    );
+  `);
 }
 
 /**
@@ -841,6 +859,34 @@ export function recordWorkflowBase(
       read_at = excluded.read_at
   `);
   stmt.run(path, agentId ?? "", version, new Date().toISOString());
+}
+
+export interface WorkflowWriter {
+  agentId: string;
+  writtenAt: string;
+}
+
+/** Record that this agent wrote `path`, for a later conflict to name. */
+export function recordWorkflowWriter(path: string, agentId: string): void {
+  const database = getDatabase();
+  database
+    .prepare(
+      `INSERT INTO workflow_writers (path, agent_id, written_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(path) DO UPDATE SET
+         agent_id = excluded.agent_id,
+         written_at = excluded.written_at`
+    )
+    .run(path, agentId, new Date().toISOString());
+}
+
+/** Who last wrote `path` through this server, or null if nobody has. */
+export function getWorkflowWriter(path: string): WorkflowWriter | null {
+  const database = getDatabase();
+  const row = database
+    .prepare("SELECT agent_id, written_at FROM workflow_writers WHERE path = ?")
+    .get(path) as { agent_id: string; written_at: string } | undefined;
+  return row ? { agentId: row.agent_id, writtenAt: row.written_at } : null;
 }
 
 /**

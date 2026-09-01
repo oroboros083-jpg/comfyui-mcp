@@ -25,7 +25,12 @@ import {
 } from "../../tools/describe.js";
 import { runWorkflowAsync } from "../../tools/generate-async.js";
 import { workflowVersion, decideWrite } from "../../tools/workflow-version.js";
-import { recordWorkflowBase, getWorkflowBase } from "../../db/index.js";
+import {
+  recordWorkflowBase,
+  getWorkflowBase,
+  recordWorkflowWriter,
+  getWorkflowWriter,
+} from "../../db/index.js";
 import { WorkflowConflictError } from "../../utils/errors.js";
 import {
   listOpenWorkflowsSchema,
@@ -437,6 +442,12 @@ export function registerGenerationTools(
 
       const theirs = existing === null ? null : workflowVersion(existing);
       const recorded = getWorkflowBase(input.path, c.config.agentId);
+      // Who else touched it. `recorded` cannot answer this: it is keyed by
+      // this agent, so its agent_id is always the caller - the line built on
+      // it named whoever was being refused, as the writer they had lost to.
+      const lastWriter = getWorkflowWriter(input.path);
+      const other =
+        lastWriter && lastWriter.agentId !== c.config.agentId ? lastWriter : null;
       const expected = input.expected_version ?? recorded?.version ?? null;
       const verdict = decideWrite({
         exists: existing !== null,
@@ -451,7 +462,9 @@ export function registerGenerationTools(
             ? `"${input.path}" changed since you read it, so this write was refused ` +
               `rather than overwriting that change.` +
               (diff?.any ? `\n\nWhat changed on disk:\n${diff.summary}` : "") +
-              (recorded?.agentId ? `\n\nLast written via this server by: ${recorded.agentId}` : "")
+              (other
+                ? `\n\nLast written via this server by: ${other.agentId} (${other.writtenAt})`
+                : "")
             : `"${input.path}" already exists and has not been read in this session, ` +
               `so there is no known state to compare against and this write was refused.`,
           verdict.reason === "changed"
@@ -489,6 +502,7 @@ export function registerGenerationTools(
       //    follow-up edit.
       const newVersion = workflowVersion(input.workflow);
       recordWorkflowBase(input.path, newVersion, c.config.agentId);
+      recordWorkflowWriter(input.path, c.config.agentId);
 
       // `human_edits_detected` reports a diff that SURVIVED the safety check,
       // which now means one of two things: the write was forced over a

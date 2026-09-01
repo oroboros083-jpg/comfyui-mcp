@@ -179,3 +179,30 @@ test("the unset agent id is its own key, not a wildcard", () => {
   assert.equal(db.getWorkflowBase("workflows/unset.json")?.version, "vAnon2", "the anonymous row upserts rather than duplicating");
   assert.equal(db.getWorkflowBase("workflows/unset.json", "agent-A")?.version, "vNamed", "and does not disturb a named agent's row");
 });
+
+// ---------------------------------------------------------------------------
+// Last writer - who a refused write lost to
+// ---------------------------------------------------------------------------
+
+test("a path with no writer names nobody", () => {
+  assert.equal(db.getWorkflowWriter("workflows/untouched.json"), null);
+});
+
+test("the writer record is global, not per agent", () => {
+  // The point of the table: workflow_bases is keyed by agent and so always
+  // reports the caller back at itself. A conflict has to name someone ELSE.
+  db.recordWorkflowWriter("workflows/contested.json", "agent-A");
+  db.recordWorkflowWriter("workflows/contested.json", "agent-B");
+
+  const writer = db.getWorkflowWriter("workflows/contested.json");
+  assert.equal(writer?.agentId, "agent-B", "the newest writer wins");
+  assert.ok(writer?.writtenAt, "writtenAt is stamped");
+});
+
+test("the writer and the base are independent records", () => {
+  db.recordWorkflowBase("workflows/both.json", "v1", "agent-A");
+  db.recordWorkflowWriter("workflows/both.json", "agent-B");
+
+  assert.equal(db.getWorkflowBase("workflows/both.json", "agent-A")?.version, "v1");
+  assert.equal(db.getWorkflowWriter("workflows/both.json")?.agentId, "agent-B");
+});
