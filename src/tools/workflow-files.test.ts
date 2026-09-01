@@ -4,7 +4,11 @@ import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse, basename } from "node:path";
 
-import { resolveGrantedPath, WriteNotPermittedError } from "./workflow-files.js";
+import {
+  resolveGrantedPath,
+  WriteNotPermittedError,
+  diffWorkflows,
+} from "./workflow-files.js";
 
 /** The filesystem root on this platform: "C:\\" on Windows, "/" elsewhere. */
 const ROOT = parse(process.cwd()).root;
@@ -57,4 +61,114 @@ test("only .json is written, whatever the grant says", async () => {
     (err: unknown) =>
       err instanceof WriteNotPermittedError && /only write \.json/.test(err.message)
   );
+});
+
+// ---------------------------------------------------------------------------
+// Diffing across subgraphs
+//
+// An official gallery template is typically ONE subgraph instance at the top
+// level with the whole pipeline inside it, so a diff that reads `nodes` alone
+// sees three decorative nodes and reports "no changes" however much of the
+// graph was rewritten.
+// ---------------------------------------------------------------------------
+
+/** A workflow shaped like a modern template: everything inside a subgraph. */
+function subgraphWorkflow(prompt: string, steps: number) {
+  return {
+    nodes: [
+      { id: 9, type: "SaveImage", widgets_values: ["out"] },
+      { id: 57, type: "8f0e-uuid", widgets_values: [] },
+    ],
+    definitions: {
+      subgraphs: [
+        {
+          id: "8f0e-uuid",
+          name: "Text to Image",
+          nodes: [
+            { id: 27, type: "CLIPTextEncode", widgets_values: [prompt] },
+            { id: 3, type: "KSampler", widgets_values: [0, "randomize", steps] },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+test("a widget edit inside a subgraph is seen", () => {
+  const diff = diffWorkflows(
+    subgraphWorkflow("theirs prompt", 12),
+    subgraphWorkflow("yours prompt", 8)
+  );
+
+  assert.equal(diff.any, true, "the change is detected at all");
+  assert.equal(diff.widgetChanges.length, 2);
+  assert.deepEqual(
+    diff.widgetChanges.map((w) => [w.type, w.index, w.yours, w.theirs]),
+    [
+      ["CLIPTextEncode", 0, "yours prompt", "theirs prompt"],
+      ["KSampler", 2, 8, 12],
+    ]
+  );
+});
+
+test("a subgraph node's summary line names the subgraph a human sees", () => {
+  const diff = diffWorkflows(
+    subgraphWorkflow("theirs prompt", 8),
+    subgraphWorkflow("yours prompt", 8)
+  );
+
+  // The definition uuid appears nowhere in the UI, so the name is what makes
+  // the line findable on the canvas.
+  assert.match(diff.summary, /\[Text to Image\] CLIPTextEncode \(id 27\)/);
+  assert.equal(diff.widgetChanges[0]?.subgraph, "Text to Image");
+});
+
+test("a top-level node is not labelled with a subgraph", () => {
+  const theirs = subgraphWorkflow("p", 8);
+  const yours = subgraphWorkflow("p", 8);
+  yours.nodes[0].widgets_values = ["different"];
+
+  const diff = diffWorkflows(theirs, yours);
+  assert.equal(diff.widgetChanges.length, 1);
+  assert.equal(diff.widgetChanges[0]?.subgraph, undefined);
+  assert.match(diff.summary, /WIDGET {7}SaveImage \(id 9\)/);
+});
+
+test("an interior node id cannot collide with a top-level one", () => {
+  // Both graphs have a node 9: SaveImage at the top and, here, a Note inside
+  // the subgraph. Keyed by bare id, one would shadow the other and the diff
+  // would compare unrelated nodes.
+  const withInner = (text: string) => {
+    const w = subgraphWorkflow("p", 8) as ReturnType<typeof subgraphWorkflow> & {
+      definitions: { subgraphs: Array<{ nodes: unknown[] }> };
+    };
+    w.definitions.subgraphs[0].nodes.push({ id: 9, type: "Note", widgets_values: [text] });
+    return w;
+  };
+
+  const diff = diffWorkflows(withInner("theirs note"), withInner("yours note"));
+  assert.equal(diff.widgetChanges.length, 1, "only the Note differs");
+  assert.equal(diff.widgetChanges[0]?.type, "Note");
+  assert.equal(diff.onlyInTheirs.length, 0, "and nothing looks missing");
+  assert.equal(diff.onlyInYours.length, 0);
+});
+
+test("a node added inside a subgraph is reported", () => {
+  const theirs = subgraphWorkflow("p", 8) as ReturnType<typeof subgraphWorkflow> & {
+    definitions: { subgraphs: Array<{ nodes: unknown[] }> };
+  };
+  theirs.definitions.subgraphs[0].nodes.push({ id: 41, type: "LoraLoader", widgets_values: [] });
+
+  const diff = diffWorkflows(theirs, subgraphWorkflow("p", 8));
+  assert.equal(diff.onlyInTheirs.length, 1);
+  assert.equal(diff.onlyInTheirs[0]?.type, "LoraLoader");
+  assert.match(diff.summary, /THEIRS ONLY {2}\[Text to Image\] LoraLoader/);
+});
+
+test("a workflow with no subgraphs still diffs as before", () => {
+  const plain = (text: string) => ({ nodes: [{ id: 1, type: "Note", widgets_values: [text] }] });
+  const diff = diffWorkflows(plain("theirs"), plain("yours"));
+  assert.equal(diff.widgetChanges.length, 1);
+  assert.equal(diff.widgetChanges[0]?.subgraph, undefined);
+  assert.equal(diffWorkflows(plain("same"), plain("same")).any, false);
 });

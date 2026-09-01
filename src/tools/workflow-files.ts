@@ -202,22 +202,71 @@ interface WorkflowNodeLike {
  */
 export interface WorkflowDiff {
   any: boolean;
-  onlyInTheirs: Array<{ id: unknown; type?: string }>;
-  onlyInYours: Array<{ id: unknown; type?: string }>;
+  onlyInTheirs: Array<{ id: unknown; type?: string; subgraph?: string }>;
+  onlyInYours: Array<{ id: unknown; type?: string; subgraph?: string }>;
   widgetChanges: Array<{
     id: unknown;
     type?: string;
+    subgraph?: string;
     index: number;
     yours: unknown;
     theirs: unknown;
   }>;
-  linkChanges: Array<{ id: unknown; type?: string }>;
+  linkChanges: Array<{ id: unknown; type?: string; subgraph?: string }>;
   summary: string;
 }
 
 function shorten(v: unknown, limit = 70): string {
   const s = JSON.stringify(v) ?? String(v);
   return s.length <= limit ? s : `${s.slice(0, limit - 3)}...`;
+}
+
+/** A node plus where it lives, so the summary can say which subgraph it is in. */
+interface PlacedNode {
+  node: WorkflowNodeLike;
+  subgraph?: string;
+}
+
+/**
+ * Every node in the file, top level and subgraph interiors alike.
+ *
+ * Reading `nodes` alone was blind to the whole modern template format: a
+ * ComfyUI subgraph keeps its interior under `definitions.subgraphs[].nodes`,
+ * and an official gallery template is typically ONE subgraph instance at the
+ * top level with the entire pipeline inside it. So the official Comfy MCP
+ * editing a prompt or a step count through `set_workflow_slot` changed
+ * nothing this diff could see, and the write was refused - correctly, the
+ * refusal goes on the content hash - with "no changes" as its explanation, at
+ * the exact moment the reader is deciding whether to force past it.
+ *
+ * Keyed `<subgraph id>/<node id>`, the same shape comfy-cli addresses these
+ * by, so an interior node cannot collide with a top-level one. Definitions
+ * live in one flat list at the root even when subgraphs nest, so this needs
+ * no recursion.
+ */
+function nodesOf(w: unknown): Map<string, PlacedNode> {
+  const out = new Map<string, PlacedNode>();
+  for (const n of (w as { nodes?: WorkflowNodeLike[] })?.nodes ?? []) {
+    out.set(String(n.id), { node: n });
+  }
+
+  const subgraphs =
+    (
+      w as {
+        definitions?: {
+          subgraphs?: Array<{ id?: string; name?: string; nodes?: WorkflowNodeLike[] }>;
+        };
+      }
+    )?.definitions?.subgraphs ?? [];
+  for (const sub of subgraphs) {
+    // The name is what a human recognises; the id is the fallback when a
+    // subgraph has none.
+    const label = sub.name ?? String(sub.id ?? "subgraph");
+    for (const n of sub.nodes ?? []) {
+      out.set(`${sub.id}/${n.id}`, { node: n, subgraph: label });
+    }
+  }
+  return out;
 }
 
 /**
@@ -230,10 +279,6 @@ function shorten(v: unknown, limit = 70): string {
  * widget values count.
  */
 export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDiff {
-  const nodesOf = (w: unknown): Map<unknown, WorkflowNodeLike> => {
-    const list = (w as { nodes?: WorkflowNodeLike[] })?.nodes ?? [];
-    return new Map(list.map((n) => [n.id, n]));
-  };
   const cur = nodesOf(current);
   const cand = nodesOf(candidate);
 
@@ -246,18 +291,33 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
   // usually one they ADDED, but a node in yours and not theirs is just as
   // often one your generator is adding as one they deleted. The presence
   // claim is observable; the intent behind it is not.
-  for (const [id, n] of cur) if (!cand.has(id)) onlyInTheirs.push({ id, type: n.type });
-  for (const [id, n] of cand) if (!cur.has(id)) onlyInYours.push({ id, type: n.type });
+  const place = (p: PlacedNode) => (p.subgraph ? { subgraph: p.subgraph } : {});
 
-  for (const [id, c] of cur) {
-    const g = cand.get(id);
-    if (!g || c.type !== g.type) continue;
+  for (const [key, p] of cur)
+    if (!cand.has(key)) onlyInTheirs.push({ id: p.node.id, type: p.node.type, ...place(p) });
+  for (const [key, p] of cand)
+    if (!cur.has(key)) onlyInYours.push({ id: p.node.id, type: p.node.type, ...place(p) });
+
+  for (const [key, placed] of cur) {
+    const other = cand.get(key);
+    if (!other) continue;
+    const c = placed.node;
+    const g = other.node;
+    if (c.type !== g.type) continue;
+    const id = c.id;
     const cv = c.widgets_values ?? [];
     const gv = g.widgets_values ?? [];
     const len = Math.max(cv.length, gv.length);
     for (let i = 0; i < len; i++) {
       if (JSON.stringify(cv[i]) !== JSON.stringify(gv[i])) {
-        widgetChanges.push({ id, type: c.type, index: i, yours: gv[i], theirs: cv[i] });
+        widgetChanges.push({
+          id,
+          type: c.type,
+          ...place(placed),
+          index: i,
+          yours: gv[i],
+          theirs: cv[i],
+        });
       }
     }
     // Only real wires. ComfyUI's saved format lists every widget as an input
@@ -270,18 +330,26 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
           .map((i) => [i.name, i.link])
           .sort()
       );
-    if (wires(c) !== wires(g)) linkChanges.push({ id, type: c.type });
+    if (wires(c) !== wires(g))
+      linkChanges.push({ id, type: c.type, ...place(placed) });
   }
 
+  // A node inside a subgraph is named by the subgraph a human sees on the
+  // canvas, not by the definition uuid, which appears nowhere in the UI.
+  const where = (n: { subgraph?: string }) => (n.subgraph ? `[${n.subgraph}] ` : "");
+
   const lines: string[] = [];
-  for (const n of onlyInTheirs) lines.push(`  THEIRS ONLY  ${n.type} (id ${n.id})`);
-  for (const n of onlyInYours) lines.push(`  YOURS ONLY   ${n.type} (id ${n.id})`);
+  for (const n of onlyInTheirs)
+    lines.push(`  THEIRS ONLY  ${where(n)}${n.type} (id ${n.id})`);
+  for (const n of onlyInYours)
+    lines.push(`  YOURS ONLY   ${where(n)}${n.type} (id ${n.id})`);
   for (const w of widgetChanges)
     lines.push(
-      `  WIDGET       ${w.type} (id ${w.id}) [${w.index}]: ` +
+      `  WIDGET       ${where(w)}${w.type} (id ${w.id}) [${w.index}]: ` +
         `yours ${shorten(w.yours)} | theirs ${shorten(w.theirs)}`
     );
-  for (const l of linkChanges) lines.push(`  REWIRED      ${l.type} (id ${l.id})`);
+  for (const l of linkChanges)
+    lines.push(`  REWIRED      ${where(l)}${l.type} (id ${l.id})`);
 
   const any =
     onlyInTheirs.length + onlyInYours.length + widgetChanges.length + linkChanges.length >

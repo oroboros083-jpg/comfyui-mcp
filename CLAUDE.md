@@ -405,7 +405,7 @@ Known gap: when the official server writes a workflow in place, the human's tab
 is stale and nothing here covers telling it to reload without a read+write
 cycle.
 
-Three rules to keep:
+Four rules to keep:
 
 - **A successful write re-bases** to what it just wrote. Clearing the record
   instead would leave the agent's own next write unbased and refuse it.
@@ -413,6 +413,13 @@ Three rules to keep:
   first, which replaces prompts and seeds with placeholders - so a human
   retyping the prompt, the likeliest edit worth saving, hashes as no change.
   A test pins the difference in both directions.
+- **`diffWorkflows` must walk `definitions.subgraphs`, not just `nodes`.**
+  An official gallery template is typically ONE subgraph instance at the top
+  level with the whole pipeline inside it, so a diff reading `nodes` alone
+  sees a Note and a SaveImage and reports "no changes" however much was
+  rewritten. The refusal itself is safe either way - it goes on the content
+  hash - but the diff is what the reader uses to decide whether to force.
+
 - **The base state is per agent**, keyed by `(path, agent_id)`. Two agents
   keep two bases for one file, which is what lost-update detection wants:
   each asks only "did it change since *I* read it". The key must stay
