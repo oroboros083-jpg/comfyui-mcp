@@ -120,22 +120,21 @@ test("search pages in SQL too", () => {
 
 test("a base round-trips", () => {
   db.recordWorkflowBase("workflows/a.json", "v1", "agent-1");
-  const base = db.getWorkflowBase("workflows/a.json");
+  const base = db.getWorkflowBase("workflows/a.json", "agent-1");
   assert.equal(base?.version, "v1");
   assert.equal(base?.agentId, "agent-1");
   assert.ok(base?.readAt, "readAt is stamped");
 });
 
 test("an unread path has no base", () => {
-  assert.equal(db.getWorkflowBase("workflows/never-read.json"), null);
+  assert.equal(db.getWorkflowBase("workflows/never-read.json", "agent-1"), null);
 });
 
-test("re-recording a path replaces the base rather than duplicating it", () => {
+test("re-recording a path replaces that agent's base rather than duplicating it", () => {
   db.recordWorkflowBase("workflows/b.json", "v1", "agent-1");
-  db.recordWorkflowBase("workflows/b.json", "v2", "agent-2");
-  const base = db.getWorkflowBase("workflows/b.json");
+  db.recordWorkflowBase("workflows/b.json", "v2", "agent-1");
+  const base = db.getWorkflowBase("workflows/b.json", "agent-1");
   assert.equal(base?.version, "v2", "the newest read wins");
-  assert.equal(base?.agentId, "agent-2");
 });
 
 test("bases are per path, not global", () => {
@@ -148,4 +147,35 @@ test("bases are per path, not global", () => {
 test("agentId is optional", () => {
   db.recordWorkflowBase("workflows/e.json", "ve");
   assert.equal(db.getWorkflowBase("workflows/e.json")?.agentId, null);
+});
+
+// The default db is ~/.comfyui-mcp/data.db, which every server on the machine
+// opens. Keyed by path alone, agent B's read re-based agent A, and A's next
+// write then compared against B's version and sailed through - the exact lost
+// update the three-way check exists to catch.
+test("two agents keep separate bases for one path", () => {
+  db.recordWorkflowBase("workflows/shared.json", "vA", "agent-A");
+  db.recordWorkflowBase("workflows/shared.json", "vB", "agent-B");
+
+  assert.equal(db.getWorkflowBase("workflows/shared.json", "agent-A")?.version, "vA");
+  assert.equal(db.getWorkflowBase("workflows/shared.json", "agent-B")?.version, "vB");
+});
+
+test("an agent that never read a path has no base, whoever else has", () => {
+  db.recordWorkflowBase("workflows/theirs.json", "vB", "agent-B");
+  assert.equal(
+    db.getWorkflowBase("workflows/theirs.json", "agent-A"),
+    null,
+    "another agent's base is not evidence about what changed under us"
+  );
+});
+
+test("the unset agent id is its own key, not a wildcard", () => {
+  db.recordWorkflowBase("workflows/unset.json", "vNamed", "agent-A");
+  assert.equal(db.getWorkflowBase("workflows/unset.json"), null);
+
+  db.recordWorkflowBase("workflows/unset.json", "vAnon");
+  db.recordWorkflowBase("workflows/unset.json", "vAnon2");
+  assert.equal(db.getWorkflowBase("workflows/unset.json")?.version, "vAnon2", "the anonymous row upserts rather than duplicating");
+  assert.equal(db.getWorkflowBase("workflows/unset.json", "agent-A")?.version, "vNamed", "and does not disturb a named agent's row");
 });

@@ -116,17 +116,57 @@ function initializeSchema(database: Database.Database): void {
   // next to the workflow - these directories are the human's, and we add
   // nothing to them.
   //
-  // Keyed by path alone. The row is this instance's own view, and the db is
-  // per-instance (COMFYUI_MCP_DB_PATH), so two agents keep two bases for the
-  // same file - which is what lost-update detection wants: each asks only
-  // "did it change since *I* read it".
+  // Keyed by (path, agent_id), because the db is NOT per-instance: it defaults
+  // to ~/.comfyui-mcp/data.db, which every server on the machine opens unless
+  // the operator sets COMFYUI_MCP_DB_PATH. Keyed by path alone, two agents
+  // shared one row - so agent B's write silently re-based agent A, and A's
+  // next write sailed through comparing against B's version. That is the exact
+  // lost update the three-way check exists to catch, and it went undetected in
+  // the default configuration. Each agent must ask only "did it change since
+  // *I* read it", which needs its own row whatever db it is in.
+  //
+  // agent_id is NOT NULL with '' standing in for "unset", because NULL is not
+  // a key in SQLite: two NULL agent rows for one path both satisfy a composite
+  // PRIMARY KEY and the upsert would duplicate instead of replacing.
   database.exec(`
     CREATE TABLE IF NOT EXISTS workflow_bases (
-      path TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      agent_id TEXT NOT NULL DEFAULT '',
       version TEXT NOT NULL,
       read_at TEXT NOT NULL,
-      agent_id TEXT
+      PRIMARY KEY (path, agent_id)
     );
+  `);
+  migrateWorkflowBasesToPerAgentKey(database);
+}
+
+/**
+ * Move a pre-existing `workflow_bases` off its path-only PRIMARY KEY.
+ *
+ * Rows are preserved: path was unique before, so (path, agent_id) cannot
+ * collide. A row that predates agent ids gets '' and behaves as the base of
+ * whichever agent has no id configured - the same agent that wrote it.
+ */
+function migrateWorkflowBasesToPerAgentKey(database: Database.Database): void {
+  const sql = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'workflow_bases'")
+    .get() as { sql: string } | undefined;
+  if (!sql || sql.sql.includes("PRIMARY KEY (path, agent_id)")) return;
+
+  database.exec(`
+    BEGIN;
+    CREATE TABLE workflow_bases_new (
+      path TEXT NOT NULL,
+      agent_id TEXT NOT NULL DEFAULT '',
+      version TEXT NOT NULL,
+      read_at TEXT NOT NULL,
+      PRIMARY KEY (path, agent_id)
+    );
+    INSERT INTO workflow_bases_new (path, agent_id, version, read_at)
+      SELECT path, COALESCE(agent_id, ''), version, read_at FROM workflow_bases;
+    DROP TABLE workflow_bases;
+    ALTER TABLE workflow_bases_new RENAME TO workflow_bases;
+    COMMIT;
   `);
 }
 
@@ -794,29 +834,38 @@ export function recordWorkflowBase(
 ): void {
   const database = getDatabase();
   const stmt = database.prepare(`
-    INSERT INTO workflow_bases (path, version, read_at, agent_id)
+    INSERT INTO workflow_bases (path, agent_id, version, read_at)
     VALUES (?, ?, ?, ?)
-    ON CONFLICT(path) DO UPDATE SET
+    ON CONFLICT(path, agent_id) DO UPDATE SET
       version = excluded.version,
-      read_at = excluded.read_at,
-      agent_id = excluded.agent_id
+      read_at = excluded.read_at
   `);
-  stmt.run(path, version, new Date().toISOString(), agentId ?? null);
+  stmt.run(path, agentId ?? "", version, new Date().toISOString());
 }
 
-/** The recorded base for a path, or null if this agent has never read it. */
-export function getWorkflowBase(path: string): WorkflowBase | null {
+/**
+ * The base this agent recorded for a path, or null if THIS agent has never
+ * read it. Another agent's base for the same path is not an answer here: it
+ * says what they were looking at, which is no evidence about what has changed
+ * under us.
+ */
+export function getWorkflowBase(
+  path: string,
+  agentId?: string
+): WorkflowBase | null {
   const database = getDatabase();
   const row = database
-    .prepare("SELECT path, version, read_at, agent_id FROM workflow_bases WHERE path = ?")
-    .get(path) as
-    | { path: string; version: string; read_at: string; agent_id: string | null }
+    .prepare(
+      "SELECT path, version, read_at, agent_id FROM workflow_bases WHERE path = ? AND agent_id = ?"
+    )
+    .get(path, agentId ?? "") as
+    | { path: string; version: string; read_at: string; agent_id: string }
     | undefined;
   if (!row) return null;
   return {
     path: row.path,
     version: row.version,
     readAt: row.read_at,
-    agentId: row.agent_id,
+    agentId: row.agent_id === "" ? null : row.agent_id,
   };
 }

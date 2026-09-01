@@ -436,7 +436,7 @@ export function registerGenerationTools(
       }
 
       const theirs = existing === null ? null : workflowVersion(existing);
-      const recorded = getWorkflowBase(input.path);
+      const recorded = getWorkflowBase(input.path, c.config.agentId);
       const expected = input.expected_version ?? recorded?.version ?? null;
       const verdict = decideWrite({
         exists: existing !== null,

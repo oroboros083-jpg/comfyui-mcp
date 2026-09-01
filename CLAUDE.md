@@ -413,9 +413,13 @@ Three rules to keep:
   first, which replaces prompts and seeds with placeholders - so a human
   retyping the prompt, the likeliest edit worth saving, hashes as no change.
   A test pins the difference in both directions.
-- **The base state is per instance**, keyed by path in that instance's own
-  db. Two agents keep two bases for one file, which is what lost-update
-  detection wants: each asks only "did it change since *I* read it".
+- **The base state is per agent**, keyed by `(path, agent_id)`. Two agents
+  keep two bases for one file, which is what lost-update detection wants:
+  each asks only "did it change since *I* read it". The key must stay
+  composite even though the db looks per-instance - it defaults to
+  `~/.comfyui-mcp/data.db`, which every server on the machine opens unless
+  `COMFYUI_MCP_DB_PATH` is set, so on a path-only key one agent's read
+  silently re-based another's and the next write sailed through.
 
 ### Sharing One ComfyUI
 
