@@ -7,18 +7,20 @@ if it stays undone, not about how hard it is.
 
 ## P1 — a user hits this today
 
-- [ ] **Nine example workflows are unreachable.** Six of them - Stable Video
-      Diffusion, SVD XT, Text-to-Video (SDXL + SVD), Nvidia Cosmos, Wan 2.1
-      and Wan 2.2 in `examples/video.ts` - publish their graph as `jsonUrls`
-      with `imageUrls: []`. Both live consumers only ever try `imageUrls[0]`
+- [ ] **Ten example workflows are unreachable, from two different causes.**
+      Counted 2026-09-02 by parsing all 77 entries in `examples/*.ts`; 67 are
+      fine. Verified by parse and grep, not by running the resource.
+
+      **Six are fixable in code.** Stable Video Diffusion, SVD XT,
+      Text-to-Video (SDXL + SVD), Nvidia Cosmos, Wan 2.1 and Wan 2.2 in
+      `examples/video.ts` publish their graph as `jsonUrls` with
+      `imageUrls: []`. Both live consumers only ever try `imageUrls[0]`
       (`handlers/resources.ts:210`, `recommend.ts:641`), so
       `comfyui://examples/wan-21` throws "No workflow images available"
       (`handlers/resources.ts:202`) and `recommend_workflow` returns no
       `exampleWorkflow` for any of them. `fetchJsonWorkflow` in
       `examples/workflow-fetch.ts:208` is the function that would fetch them;
       it is exported from `examples/index.ts` and called by nothing.
-
-      Verified 2026-09-02 by grep, not by running the resource.
 
       Not wired up yet because it needs one fact that cannot be checked
       offline: whether those docs `.json` files are API format (what `/prompt`
@@ -27,17 +29,22 @@ if it stays undone, not about how hard it is.
       back through `exampleWorkflow` - whose own doc says it is runnable -
       would be worse than the current error. Fetch one, look, then wire it.
 
-      **Three more have no path at all:** Mochi, LTX-Video and Hunyuan Video
-      have `imageUrls: []` with no `jsonUrls`, so there is nothing to fetch
-      even after the above lands. Either find their workflow source or drop
-      the entries - a listing that names a workflow no tool can produce is
-      worse than a shorter listing.
+      **Four need a second container format.** Mochi, LTX-Video and Hunyuan
+      Video (`examples/video.ts`) carry their workflows in WebP, and Audio
+      Generation (`examples/audio.ts`) in FLAC - each entry says so in a
+      trailing comment. The source is not missing; the extractor cannot read
+      it. `extractWorkflowFromPng` checks the 8-byte PNG signature and walks
+      `tEXt`/`iTXt` chunks only (`workflow-fetch.ts:42-103`), so both formats
+      return null. ComfyUI does embed the same JSON in WebP EXIF and FLAC
+      Vorbis comments, so this is reachable work, not a dead end - but it is
+      a real parser each, not a wiring change.
+
+      Either write those two parsers or drop the four entries. A listing
+      naming a workflow no tool can produce is worse than a shorter listing.
 
 - [ ] **Run `/code-review ultracode` over the repo.** User-triggered and
       billed; Claude cannot launch it. Ranked P1 because PR #9's live pass
       turned up three real bugs, and nothing has swept the tree since.
-
-- [ ] **Run `/doctor`.** User-triggered, one command, nothing depends on it.
 
 ## P2 — worth doing, no one is blocked
 
