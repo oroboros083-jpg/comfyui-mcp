@@ -1,7 +1,4 @@
 import { z } from "zod";
-import { ExampleWorkflow } from "./types.js";
-import { EXAMPLE_WORKFLOWS } from "./data.js";
-import { fetchExampleWorkflow, apiFormatOf } from "./workflow-fetch.js";
 import { BUILTIN_TEMPLATES } from "../../workflows/builder.js";
 import { architectureById, isUnetShape } from "../../architectures/registry.js";
 import { listTemplates as dbListTemplates } from "../../db/index.js";
@@ -461,15 +458,6 @@ export const recommendWorkflowSchema = z.object({
     .optional()
     .default("txt2img")
     .describe("What type of generation task"),
-  include_workflow: z
-    .boolean()
-    .optional()
-    .default(false)
-    .describe(
-      "Also fetch and return the full example workflow JSON. Off by default: the graph is large, " +
-        "and fetching it costs a network round trip to the documentation image that most calls do " +
-        "not need. Ask for it once you have decided this is the workflow you want."
-    ),
 }).strict();
 
 export type RecommendWorkflowInput = z.infer<typeof recommendWorkflowSchema>;
@@ -491,12 +479,6 @@ export interface WorkflowRecommendation {
   promptingGuide: string;
   notes: string;
   alternativeWorkflows?: string[];
-  /** The actual workflow JSON from examples, ready to use with run_workflow */
-  exampleWorkflow?: Record<string, unknown>;
-  /** An example exists but was not fetched; pass include_workflow to get it. */
-  exampleAvailable?: boolean;
-  /** Source of the example workflow */
-  exampleSource?: string;
   /**
    * Whether this model file is a draft tool or a finishing one, and where to
    * get the two-stage plan. Named here because this is the moment the caller
@@ -628,35 +610,6 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
     }
   }
 
-  // Try to fetch the actual example workflow.
-  //
-  // Gated, and off by default. This is a network round trip to a docs image
-  // plus a full graph in the response, on a tool whose usual question is
-  // "which workflow and what settings" - answerable without either. When it is
-  // skipped the caller still learns an example EXISTS, and can ask again with
-  // include_workflow to get it.
-  const example = findExampleByName(workflowName);
-  if (example && example.imageUrls.length > 0 && !input.include_workflow) {
-    recommendation.exampleAvailable = true;
-    recommendation.exampleSource = example.imageUrls[0];
-  } else if (example && example.imageUrls.length > 0) {
-    try {
-      const workflowResult = await fetchExampleWorkflow(example.imageUrls[0]);
-      // The docs PNGs embed both graphs: "prompt" is the API format /prompt
-      // accepts, "workflow" is the UI one. Taking `.workflow` handed back a
-      // graph ComfyUI rejects, under a field whose own doc comment and
-      // rendered text both say to pass it straight to run_workflow.
-      // handlers/resources.ts prefers prompt for the same reason.
-      const apiWorkflow = apiFormatOf(workflowResult);
-      if (apiWorkflow) {
-        recommendation.exampleWorkflow = apiWorkflow as Record<string, unknown>;
-        recommendation.exampleSource = example.imageUrls[0];
-      }
-    } catch {
-      // Workflow fetch failed, continue without it
-    }
-  }
-
   // Search for matching templates (builtin and custom)
   const matchingTemplates: WorkflowRecommendation["matchingTemplates"] = [];
 
@@ -703,18 +656,6 @@ export async function recommendWorkflow(input: RecommendWorkflowInput): Promise<
   }
 
   return recommendation;
-}
-
-/**
- * Find an example workflow by name (case-insensitive partial match)
- */
-function findExampleByName(name: string): ExampleWorkflow | undefined {
-  const nameLower = name.toLowerCase();
-  return EXAMPLE_WORKFLOWS.find(ex =>
-    ex.name.toLowerCase() === nameLower ||
-    ex.name.toLowerCase().includes(nameLower) ||
-    nameLower.includes(ex.name.toLowerCase())
-  );
 }
 
 /**
@@ -766,28 +707,23 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
     }
   }
 
-  // Show if example workflow was loaded
-  if (rec.exampleAvailable && !rec.exampleWorkflow) {
-    output += `\n## Example Workflow\n`;
-    output += `An example exists (${rec.exampleSource}). Call again with include_workflow: true to fetch its JSON.\n`;
-  }
-
-  if (rec.exampleWorkflow) {
-    output += `\n## Example Workflow\n`;
-    output += `**Loaded from**: ${rec.exampleSource || "embedded example"}\n`;
-    output += `The workflow JSON is included in the \`exampleWorkflow\` field and can be passed directly to \`comfyui_run_workflow\`.\n`;
-    output += `Modify the prompt and settings as needed before running.\n`;
-  } else {
-    output += `\n## Next Steps\n`;
-    output += `1. Call \`comfyui_recommend_workflow("${rec.matchedWorkflow}")\` to get the workflow JSON\n`;
-    // Points back at the Prompting section rather than naming a guide after
-    // modelType. That was a four-value union when this line was written and
-    // is now any registry id, most of which have no guide - so it told wan,
-    // hidream, lumina, chroma and six others to call a guide that errors.
-    // Referring rather than repeating: the same sentence is already above.
-    output += `2. Follow the prompting guidance above\n`;
-    output += `3. Use \`comfyui_run_workflow\` with the workflow\n`;
-  }
+  output += `
+## Next Steps
+`;
+  // A starter graph comes from comfyui_get_user_snippet for a built-in or
+  // saved template, or from the official Comfy MCP's gallery. This server no
+  // longer bundles its own example workflows.
+  output += `1. Build the graph from a template above, or search the Comfy gallery
+`;
+  // Points back at the Prompting section rather than naming a guide after
+  // modelType. That was a four-value union when this line was written and
+  // is now any registry id, most of which have no guide - so it told wan,
+  // hidream, lumina, chroma and six others to call a guide that errors.
+  // Referring rather than repeating: the same sentence is already above.
+  output += `2. Follow the prompting guidance above
+`;
+  output += `3. Use \`comfyui_run_workflow\` with the workflow
+`;
 
   return output;
 }

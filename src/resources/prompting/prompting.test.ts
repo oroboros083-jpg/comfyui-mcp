@@ -13,7 +13,6 @@ import {
 } from "./index.js";
 import { ARCHITECTURES, architectureFor } from "../../architectures/registry.js";
 import { CHARACTER_LIMIT } from "../../constants.js";
-import { EXAMPLE_WORKFLOWS } from "../../tools/examples/data.js";
 import { SPATIAL_CONTROL_NOTE } from "./guides/vocabulary.js";
 
 // --- coverage -------------------------------------------------------------
@@ -447,52 +446,9 @@ test("guide counts used by evals/library.xml", () => {
     6,
     stale("the Anima prompt structure")
   );
-
-  // One question crosses the two data sets: of the "neither" guides, only
-  // those whose name is also an example-workflow category count, and the
-  // answer is the total size of those categories.
-  const perCategory = new Map<string, number>();
-  for (const example of EXAMPLE_WORKFLOWS) {
-    perCategory.set(example.category, (perCategory.get(example.category) ?? 0) + 1);
-  }
-  const shared = neither.filter((k) => perCategory.has(k));
-  assert.deepEqual(shared.sort(), ["flux", "omnigen", "qwen"], stale("that overlap"));
-  assert.equal(
-    shared.reduce((n, k) => n + perCategory.get(k)!, 0),
-    15,
-    stale("the example counts in those categories")
-  );
 });
 
 // --- spatial control ------------------------------------------------------
-
-test("the regional example is findable from the symptom, not just the cure", () => {
-  // The whole deliverable. An agent watching two subjects merge does not know
-  // to search for "ConditioningSetArea" - that IS the answer it is hunting
-  // for. Since list_examples was dropped, this description is what reaches a
-  // reader through the resource listing, so the symptoms have to be in it.
-  const area = EXAMPLE_WORKFLOWS.find((e) => e.name === "Area Composition")!;
-  const text = `${area.description} ${area.notes ?? ""}`.toLowerCase();
-
-  for (const symptom of ["merg", "swap", "left", "place"]) {
-    assert.ok(text.includes(symptom), `Area Composition never mentions '${symptom}'`);
-  }
-
-  // And the nodes, so a reader knows nothing needs installing.
-  assert.deepEqual(area.requiredNodes, [
-    "ConditioningSetArea",
-    "ConditioningSetAreaPercentage",
-    "ConditioningCombine",
-  ]);
-});
-
-test("the example says where regional conditioning stops working", () => {
-  // Advice that omits "and this breaks at CFG 1" sends someone to spend an
-  // afternoon on a Turbo model wondering why the regions do nothing.
-  const area = EXAMPLE_WORKFLOWS.find((e) => e.name === "Area Composition")!;
-  assert.match(area.notes!, /CFG 1/);
-  assert.match(area.notes!, /seam/i);
-});
 
 test("the spatial note says wording cannot fix placement", () => {
   // The misconception it exists to correct. Two guides instruct "describe
@@ -528,9 +484,17 @@ test("the spatial note reaches the guides where area conditioning works", () => 
 });
 
 test("the note routes only at surfaces that still exist", () => {
-  // list_examples and get_example_workflow were dropped. Naming either here
-  // would be a dead pointer at the moment it is needed - and would fail
-  // server/tool-references.test.ts, which is the belt to this braces.
+  // list_examples and get_example_workflow were dropped, and so was the whole
+  // bundled example catalogue behind comfyui://examples/*. Naming any of them
+  // here would be a dead pointer at the moment it is needed - and the tool
+  // names would fail server/tool-references.test.ts, which is the belt to
+  // this braces. The resource URIs have no such guard, hence this test.
   assert.ok(!/comfyui_list_examples|comfyui_get_example_workflow/.test(SPATIAL_CONTROL_NOTE));
-  assert.match(SPATIAL_CONTROL_NOTE, /comfyui:\/\/examples\/area-composition/);
+  assert.ok(
+    !/comfyui:\/\/examples\//.test(SPATIAL_CONTROL_NOTE),
+    "names a comfyui://examples/* resource, which no longer exists"
+  );
+  // It still has to say what to actually do, or it is only a warning.
+  assert.match(SPATIAL_CONTROL_NOTE, /ConditioningSetArea/);
+  assert.match(SPATIAL_CONTROL_NOTE, /ConditioningCombine/);
 });

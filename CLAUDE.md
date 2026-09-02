@@ -534,8 +534,33 @@ their `hasSD15`/`hasSDXL`/`hasSD3`/`hasFlux`/`hasCascade` booleans are public
 in `get_capabilities` output. New architectures do not get a boolean; they
 appear in `detectedArchitectures`.
 
-### Adding a New Example Workflow
-Add entry to the appropriate category file in `tools/examples/` (e.g., `flux.ts`, `sdxl.ts`, `video.ts`) with the image URL containing embedded workflow metadata. Then export it from `tools/examples/data.ts`.
+### Where Starter Workflows Come From
+
+There is no bundled example catalogue, and adding one back is not a small
+change - it is a reversal. This server carried 77 hand-transcribed entries
+from `comfyanonymous.github.io/ComfyUI_examples`, the legacy examples site.
+They are gone. Starter graphs now come from three places, none of them here:
+
+- **`BUILTIN_TEMPLATES`** (`workflows/builder.ts`) - graphs this server
+  constructs from the live `object_info`, so they name models the instance
+  actually has. Six of them.
+- **The user's own saved snippets** - `comfyui_save_user_snippet` and the
+  custom templates in SQLite. A workflow that already worked here beats a
+  documentation example.
+- **The official Comfy template gallery** - the official Comfy MCP's
+  `search_templates` / `fetch_template`, ~613 templates that track ComfyUI's
+  own releases.
+
+The argument for dropping the catalogue was not that the graphs had rotted -
+137 of its 138 URLs still resolved when it was removed. It is that the models
+and techniques it covered are off the Pareto frontier with no sign of
+returning, and that for everything still current the gallery ships a
+maintained equivalent. A second, hand-updated copy is a liability.
+
+So `comfyui_recommend_workflow` answers "which shape, what settings, which
+prompting guide" and does NOT return a graph. `comfyui://examples/*` no
+longer exists. If a caller needs a runnable starting point, name one of the
+three sources above.
 
 ## Response Conventions
 

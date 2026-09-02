@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   getTemplate,
   TemplateNotFoundError,
-  TemplateIsExampleError,
 } from "./templates.js";
 import { ToolError } from "../../utils/errors.js";
 import type { ComfyUIClient } from "../../client/comfyui.js";
@@ -52,20 +51,6 @@ test("an unknown template id is a failure, not a success carrying an error", asy
     (err: unknown) =>
       err instanceof TemplateNotFoundError &&
       /comfyui_search_user_snippets/.test(err.hint ?? "")
-  );
-});
-
-test("an example workflow id says which tool actually serves it", async () => {
-  // The id form here matches how getTemplate slugifies EXAMPLE_WORKFLOWS names.
-  const { EXAMPLE_WORKFLOWS } = await import("./data.js");
-  const first = EXAMPLE_WORKFLOWS[0];
-  const slug = first.name.toLowerCase().replace(/[^a-z0-9]+/g, "_");
-
-  await assert.rejects(
-    () => getTemplate(client(), { templateId: slug }),
-    (err: unknown) =>
-      err instanceof TemplateIsExampleError &&
-      /comfyui_recommend_workflow/.test(err.hint ?? "")
   );
 });
 

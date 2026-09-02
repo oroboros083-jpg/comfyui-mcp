@@ -7,10 +7,12 @@
  * validates against installed nodes.
  *
  * The documentation-example browsing tools and the model download URLs used to
- * live here. Both are gone: the Comfy template gallery (official's
- * `search_templates`) covers browsing starter workflows, and `download_model`
- * covers fetching a model. The EXAMPLE_WORKFLOWS data stays as the corpus
- * behind comfyui_recommend_workflow.
+ * live here, and so did the bundled example catalogue behind them. All gone:
+ * the Comfy template gallery (official's `search_templates`) covers browsing
+ * starter workflows, `download_model` covers fetching a model, and starter
+ * graphs now come from BUILTIN_TEMPLATES, the user's own saved snippets, or
+ * that gallery. comfyui_recommend_workflow answers "which shape and what
+ * settings" and no longer carries a graph of its own.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

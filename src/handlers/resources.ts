@@ -10,7 +10,6 @@ import {
   formatPromptingGuide,
   getComprehensiveGuide,
 } from "../resources/prompting-guide.js";
-import { EXAMPLE_WORKFLOWS, fetchExampleWorkflow } from "../tools/examples/index.js";
 import { getCapabilitySummary } from "../capabilities/index.js";
 import { jsonText, capText } from "../utils/response.js";
 import { ToolError } from "../utils/errors.js";
@@ -80,20 +79,6 @@ export function getStaticResources(): Resource[] {
       description: guide.description,
       mimeType: "text/markdown",
     });
-  }
-
-  // Example workflows
-  for (const example of EXAMPLE_WORKFLOWS) {
-    if (example.imageUrls.length > 0) {
-      const slug = example.name.toLowerCase().replace(/\s+/g, "-").replace(/[()]/g, "");
-      resources.push({
-        uri: `comfyui://examples/${slug}`,
-        name: `example-${slug}`,
-        title: `Example: ${example.name}`,
-        description: `${example.description} (Category: ${example.category})`,
-        mimeType: "application/json",
-      });
-    }
   }
 
   return resources;
@@ -184,52 +169,6 @@ export async function readResource(
     );
   }
 
-  // Example workflows
-  if (uri.startsWith("comfyui://examples/")) {
-    const slug = uri.split("/").pop()!;
-    const example = EXAMPLE_WORKFLOWS.find(
-      (e) =>
-        e.name.toLowerCase().replace(/\s+/g, "-").replace(/[()]/g, "") === slug
-    );
-
-    if (!example) {
-      throw new ToolError(
-        `Example not found: ${slug}`,
-        "comfyui_recommend_workflow matches a model to a starter graph; the official Comfy MCP's `search_templates` browses the Comfy gallery."
-      );
-    }
-
-    if (example.imageUrls.length === 0) {
-      throw new ToolError(
-        `No workflow images available for: ${example.name}`,
-        "This example is documentation-only. comfyui_search_user_snippets may have a runnable equivalent."
-      );
-    }
-
-    // Fetch the workflow from the first image
-    const result = await fetchExampleWorkflow(example.imageUrls[0]);
-    if (!result.success || !result.prompt) {
-      throw new ToolError(
-        `Failed to extract workflow: ${result.error}`,
-        "The documentation image may have moved or been re-encoded. comfyui_extract_workflow reports the same failure with more detail for a PNG you have locally."
-      );
-    }
-
-    return jsonResource(
-      uri,
-      {
-        name: example.name,
-        description: example.description,
-        category: example.category,
-        pageUrl: example.pageUrl,
-        requiredNodes: example.requiredNodes,
-        requiredModels: example.requiredModels,
-        workflow: result.prompt,
-      },
-      "Read this example through its resource URI instead."
-    );
-  }
-
   // Dynamic resources (require connection)
   if (uri.startsWith("comfyui://models/")) {
     if (!ctx.client) {
@@ -307,6 +246,6 @@ export async function readResource(
 
   throw new ToolError(
     `Resource not found: ${uri}`,
-    "Resource URIs are comfyui://capabilities, comfyui://models/<type>, comfyui://guides/<architecture> and comfyui://examples/<slug>."
+    "Resource URIs are comfyui://capabilities, comfyui://models/<type> and comfyui://guides/<architecture>."
   );
 }
