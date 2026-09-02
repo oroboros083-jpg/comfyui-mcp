@@ -20,109 +20,6 @@ With the Official Comfy MCP" below.
 
 ## Architecture
 
-```
-src/
-├── index.ts                 # Entry point: start()
-├── config.ts                # Configuration management
-├── constants.ts             # Shared limits (CHARACTER_LIMIT, page sizes)
-├── context.ts               # Server context (shared state)
-├── server/
-│   ├── bootstrap.ts        # start(profile): the wiring both entries share
-│   ├── instructions.ts     # Handshake text: canonical flows, the Comfy seam
-│   ├── connection.ts       # Discovery, health cache, restart watches
-│   ├── register.ts         # defineTool: prefix, annotations, conn gate
-│   └── tools/              # Tool registration, one file per domain
-│       ├── setup.ts        # status (incl. architectures), reconnect
-│       ├── discovery.ts    # build_node
-│       ├── generation.ts   # run workflows, images, workflow files
-│       ├── tasks.ts        # queue and task tracking
-│       ├── library.ts      # examples, templates, prompting guides
-│       └── workspace.ts    # notes, preferences, svg, fonts
-├── client/
-│   ├── comfyui.ts          # REST API client for ComfyUI
-│   └── websocket.ts        # WebSocket client for progress tracking
-├── discovery/
-│   └── index.ts            # Auto-discovery of ComfyUI instances
-├── capabilities/
-│   └── index.ts            # Capability detection from object_info
-├── workflows/
-│   └── builder.ts          # Dynamic workflow generation
-├── tools/
-│   ├── workflow-version.ts # Content hash + the write-conflict policy
-│   ├── generate.ts         # Workflow/image schemas, get_image
-│   ├── generate-async.ts   # Submit a workflow and track it to completion
-│   ├── outputs.ts          # Collect a finished prompt's images, and its text by node id
-│   ├── iteration.ts        # Draft-then-final planning; what a seed carries over
-│   ├── describe.ts         # Image -> tags/prose, orchestration and rendering
-│   ├── describe/
-│   │   └── backends.ts     # One row per tagger/captioner; node-type candidates
-│   ├── upload.ts           # Put an image into ComfyUI's input dir for LoadImage
-│   ├── models.ts           # Model/node listing and building
-│   ├── queue.ts            # Queue management tools
-│   ├── install.ts          # Install detection + get_status
-│   ├── scan-model.ts       # Is this checkpoint safe to torch.load?
-│   ├── scan/
-│   │   ├── pickle.ts       # Opcode walker; never unpickles
-│   │   ├── zip.ts          # Reads one member of a torch.save archive
-│   │   └── signatures.ts   # Dangerous / suspicious / expected imports
-│   ├── tags.ts             # Danbooru tag search + co-occurrence lookup
-│   ├── svg.ts              # SVG rendering to PNG
-│   ├── fonts.ts            # Font download and management
-│   └── examples/           # Example workflows and templates
-│       ├── index.ts        # Main exports
-│       ├── data.ts         # Aggregated example data
-│       ├── types.ts        # Type definitions
-│       ├── workflow-fetch.ts # Pull a graph out of a docs PNG or .json
-│       ├── templates.ts    # Template system (search/get/save)
-│       ├── recommend.ts    # Workflow recommendations
-│       ├── basics.ts       # Basic workflow examples
-│       ├── flux.ts         # Flux model examples
-│       ├── sdxl.ts         # SDXL examples
-│       ├── sd3.ts          # SD3 examples
-│       ├── controlnet.ts   # ControlNet examples
-│       ├── video.ts        # Video generation examples
-│       ├── audio.ts        # Audio generation examples
-│       ├── hunyuan.ts      # Hunyuan examples
-│       ├── next-gen.ts     # Next-gen model examples
-│       └── 3d.ts           # 3D generation examples
-├── jobs/
-│   ├── manager.ts          # Async job tracking
-│   └── notifications.ts    # MCP notification handling
-├── db/
-│   └── index.ts            # SQLite database for notes/templates
-├── handlers/
-│   ├── resources.ts        # MCP resource handlers
-│   └── prompts.ts          # MCP prompt handlers
-├── resources/
-│   ├── prompting-guide.ts  # Public entry point; re-exports prompting/
-│   └── prompting/          # One guide per architecture, split by family
-│       ├── types.ts        # Guide shape: structure, specialTags, starters, models
-│       ├── render.ts       # Section rendering (progressive disclosure)
-│       ├── index.ts        # Aggregation, lookup, the index table
-│       └── guides/         # stable-diffusion, flux, anime, dit, video, audio
-│           └── vocabulary.ts  # Shared Danbooru tags + ComfyUI prompt syntax
-├── analysis/
-│   ├── outputs.ts          # User output history analysis
-│   └── hash.ts             # Workflow hashing
-├── architectures/
-│   └── registry.ts         # ARCHITECTURES: detection, shape, guide, advice
-└── utils/
-    ├── image.ts            # Image processing utilities
-    ├── errors.ts           # ToolError: failures that carry their remedy
-    ├── response.ts         # Pagination, compact JSON, truncation, formats
-    ├── render.ts           # Shared markdown rendering for listings
-    └── logging.ts          # MCP logging utilities
-
-evals/                       # Q/A suites for whether a model can use the tools
-├── README.md
-└── library.xml              # Stable; needs no running ComfyUI
-
-comfyui-tabbridge/           # Companion ComfyUI custom node (Python, adds no nodes)
-├── README.md               # Includes how to link it into custom_nodes
-├── tab_bridge.py           # Serves /tabs/state, /tabs/flush, /tabs/reload
-└── web/js/tab_bridge.js    # Frontend half; reports open tabs to the server
-```
-
 ### Optional: ComfyUI-Autocomplete-Plus
 
 `tools/tags.ts` backs `comfyui_search_tags` and `comfyui_related_tags`. Its
@@ -204,18 +101,6 @@ Parses `/object_info` response to detect:
 - Flux workflow for Flux models (UNETLoader + DualCLIPLoader)
 - Single-encoder workflow for Anima/Qwen (UNETLoader + one CLIPLoader + VAELoader)
 
-## Commands
-
-```bash
-npm install          # Install dependencies
-npm run link:tabbridge  # Link the companion custom node into ComfyUI (once per clone)
-npm run build        # Compile TypeScript
-npm test             # Build, then run the test suite
-npm start            # Run the server
-npm run dev          # Watch mode for development
-npm run inspector    # Test with MCP Inspector
-```
-
 ## Testing
 
 Unit tests use the Node built-in runner (`node:test`) — no test framework
@@ -271,19 +156,6 @@ everything else waits for review.
   is easy to identify and roll back.
 - **Do not batch unrelated work into one commit.** A commit that mixes a bug
   fix with a refactor cannot be reverted without losing the fix.
-
-## Key Files to Understand
-
-1. **src/server/tools/** - Tool definitions, one module per domain
-2. **src/server/register.ts** - How a tool becomes an MCP tool
-3. **src/server/connection.ts** - Discovery and reconnection behaviour
-4. **src/utils/response.ts** - Pagination, compact JSON, truncation
-5. **src/client/comfyui.ts** - All ComfyUI API interactions
-6. **src/capabilities/index.ts** - How features are detected
-7. **src/workflows/builder.ts** - How workflows are dynamically built
-8. **src/tools/examples/index.ts** - Example workflows, templates, recommendations
-9. **src/jobs/manager.ts** - Async job tracking for workflow execution
-10. **src/db/index.ts** - SQLite database for notes and custom templates
 
 ## Common Tasks
 
@@ -712,15 +584,6 @@ helpers in `utils/response.ts` exist to prevent that — use them.
 
 Measure before and after when changing a response shape — against a live
 ComfyUI where the tool needs one. Put the numbers in the commit message.
-
-## Environment
-
-- Node.js 24+ (Active LTS)
-- TypeScript with ESM modules
-- Zod for schema validation
-- ws package for WebSocket
-- sharp for image processing and SVG rendering
-- better-sqlite3 for persistent storage (notes, templates)
 
 ## Notes
 
