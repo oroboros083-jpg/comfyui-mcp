@@ -41,7 +41,6 @@
     - [Self-Configuring](#self-configuring)
     - [Works Without ComfyUI Running](#works-without-comfyui-running)
     - [Workflow-First Architecture](#workflow-first-architecture)
-    - [24 Example Workflows](#24-example-workflows)
     - [26 Model Architectures, 26 Prompting Guides](#26-model-architectures-26-prompting-guides)
     - [Template System](#template-system)
     - [Workflow Composition Tools](#workflow-composition-tools)
@@ -241,24 +240,6 @@ adjusted without ever touching disk. Around it:
 Validating a workflow file is the official server's `validate_workflow`, which
 takes a path — so write the file first.
 
-### 24 Example Workflows
-Example workflows from the [official ComfyUI documentation](https://comfyanonymous.github.io/ComfyUI_examples/), split into individually discoverable entries.
-
-This list is deliberately short. It used to carry 77 entries, but the official
-Comfy template gallery — which the official Comfy MCP serves through
-`search_templates` / `fetch_template` — now ships its own templates for Flux,
-SDXL, SD3.5, Qwen, HiDream, Chroma, Lumina, Omnigen, Wan, LTX, Hunyuan Video,
-ACE-Step and the common techniques (LoRA, inpaint, outpaint, upscale,
-img2img, ControlNet). Carrying a second, hand-transcribed copy of those helped
-nobody. What is left is what the gallery does *not* cover:
-
-| Category | Count | Category | Count |
-|---|---|---|---|
-| `stable_cascade` | 5 | `controlnet` (T2I-Adapter, GLIGEN) | 2 |
-| `advanced` | 3 | `hunyuan` (image, not video) | 2 |
-| `unclip` | 3 | `hypernetworks` / `embeddings` / `lcm` | 1 each |
-| `video` (Mochi, Cosmos ×2) | 3 | `turbo` / `aura_flow` / `edit` | 1 each |
-
 ### 26 Model Architectures, 26 Prompting Guides
 Architecture detection, prompting advice, and workflow-shape selection are
 driven by one registry, so all of it agrees:
@@ -290,9 +271,8 @@ scene descriptions and that quality tags were unnecessary, which is close to
 the opposite of what those models want.
 
 ### Template System
-Three sources of workflow templates:
+Two sources of workflow templates:
 - **Built-in templates**: Standard txt2img for SD1.5, SDXL, Flux, Qwen and Anima
-- **Example workflows**: 24 from official ComfyUI docs, kept because the official template gallery has no equivalent
 - **Custom templates**: Save and reuse your successful workflows, stored in a local SQLite database
 
 ### Workflow Composition Tools
@@ -649,7 +629,7 @@ Everything in this section works with ComfyUI stopped, except
 `comfyui_get_user_snippet`, which validates against the nodes actually installed.
 
 #### `comfyui_search_user_snippets`
-Search for workflow templates across built-in, example, and custom sources.
+Search for workflow templates across built-in and custom sources.
 Paginated. Results carry only enough to pick one — call
 [`comfyui_get_user_snippet`](#comfyui_get_user_snippet) with an id for parameters,
 settings and runnable JSON.
@@ -661,7 +641,6 @@ settings and runnable JSON.
 | `category` | `string?` | Filter by category |
 | `query` | `string?` | Free text search |
 | `includeBuiltIn` | `boolean?` | Include built-in templates (default: true) |
-| `includeExamples` | `boolean?` | Include example workflows (default: true) |
 | `includeCustom` | `boolean?` | Include saved custom templates (default: true) |
 | + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
 
@@ -704,8 +683,8 @@ Save this workflow as "portrait_lighting_studio"
 ```
 
 #### `comfyui_delete_user_snippet`
-Delete a custom saved template. Built-in templates and documentation examples
-cannot be deleted and will report so.
+Delete a custom saved template. Built-in templates cannot be deleted and
+will report so.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -1380,7 +1359,6 @@ that support them.
 |-----|----------|
 | `comfyui://guides/prompting/all` | The complete prompting guide |
 | `comfyui://guides/prompting/<architecture>` | One architecture's guide, for each of the 26 |
-| `comfyui://examples/<slug>` | One documentation example workflow, one entry per example that has a source image |
 | `comfyui://models/checkpoints` | Installed checkpoints |
 | `comfyui://models/loras` | Installed LoRAs |
 | `comfyui://models/all` | All installed models by type |

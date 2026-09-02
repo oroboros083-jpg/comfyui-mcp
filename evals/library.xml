@@ -7,65 +7,26 @@
   stable across machines and does not depend on ComfyUI running or on which
   models happen to be installed. Run this suite anywhere.
 
-  Answers were verified against src/tools/examples/data.ts and
-  src/resources/prompting/ at the time of writing. Adding or removing an
-  example workflow, or adding a prompting guide, will invalidate the counting
-  questions - re-derive them rather than guessing.
+  Answers were verified against src/resources/prompting/ at the time of
+  writing. Adding a prompting guide will invalidate the counting questions -
+  re-derive them rather than guessing.
+
+  Nine questions here once counted the bundled example workflows. That
+  catalogue is gone - starter graphs come from the official Comfy template
+  gallery and from the user's own saved snippets - so those questions went
+  with it rather than being re-pointed at data that no longer exists.
 
   The guide counts are pinned by a unit test in
   src/resources/prompting/prompting.test.ts, so `npm test` fails before this
   file goes stale again.
 -->
 <evaluation>
-  <qa_pair>
-    <question>Among ComfyUI's bundled example workflows, find the category that contains the most examples. Every example in that category requires the same two checkpoint files. Give the exact filename of the one that is not the Stage C model.</question>
-    <answer>stable_cascade_stage_b.safetensors</answer>
-  </qa_pair>
-
-  <qa_pair>
-    <question>Look across every bundled example workflow and count how many of them list each required node type. One node type is required by more examples than any other. How many examples require it?</question>
-    <answer>5</answer>
-  </qa_pair>
-
-  <qa_pair>
-    <question>Two bundled example workflows tie for requiring the largest number of model files, and they sit in two different categories. How many model files does each of them require?</question>
-    <answer>5</answer>
-  </qa_pair>
-
-  <qa_pair>
-    <question>Exactly one bundled prompting guide shares its name with an example-workflow category. Name that guide, and say how many example workflows its category contains.</question>
-    <answer>hunyuan, 2</answer>
-  </qa_pair>
-
-  <qa_pair>
-    <question>Exactly one bundled example workflow belongs to the edit category. What is the exact filename of the checkpoint it requires?</question>
-    <answer>cosxl_edit.safetensors</answer>
-  </qa_pair>
-
-  <qa_pair>
-    <question>Of all the bundled example workflows, how many list no required model downloads at all?</question>
-    <answer>4</answer>
-  </qa_pair>
-
-  <qa_pair>
-    <question>Three bundled example workflows require the unCLIPCheckpointLoader node. All three list the same single checkpoint. What is it called?</question>
-    <answer>SD 2.1 unCLIP</answer>
-  </qa_pair>
 
   <qa_pair>
     <question>How many of the bundled model-specific prompting guides describe families that support prompt weights such as (keyword:1.2)?</question>
     <answer>9</answer>
   </qa_pair>
 
-  <qa_pair>
-    <question>How many example-workflow categories contain exactly one example each?</question>
-    <answer>6</answer>
-  </qa_pair>
-
-  <qa_pair>
-    <question>Exactly one bundled example workflow requires a VAE whose filename begins with "wan_2.1", and it is not a Wan workflow. What is that example called?</question>
-    <answer>Nvidia Cosmos Predict2</answer>
-  </qa_pair>
   <qa_pair>
     <question>The bundled prompting guide for the Anima model family defines a prompt structure as an ordered list of slots. Fetch only that structure section. How many slots does it define?</question>
     <answer>6</answer>

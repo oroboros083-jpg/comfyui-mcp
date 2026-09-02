@@ -1,22 +1,19 @@
 /**
- * Getting a runnable graph out of how ComfyUI publishes one.
+ * Reading the workflow ComfyUI embeds in a PNG it saved.
  *
- * The docs distribute workflows two ways: embedded in a PNG's text chunks, and
- * as a plain .json file. Both spellings land here, so the callers that want a
- * graph - the `comfyui://examples/*` resources, `recommend_workflow`, and
- * `extract_workflow` for a PNG the user has locally - do not each reimplement
- * the parsing.
+ * ComfyUI writes the graph into the file's text chunks, so a PNG a user
+ * already has is a runnable workflow. `extract_workflow` is the one caller.
  *
- * This module used to be `list-examples.ts` and carried the `list_examples`
- * and `get_example_workflow` tools alongside. Both were dropped in favour of
- * the Comfy template gallery; what is left is the fetching, which the rest of
- * the server still needs.
+ * This module has shed two jobs. It was `list-examples.ts`, carrying the
+ * `list_examples` and `get_example_workflow` tools, which went in favour of
+ * the Comfy template gallery. It then carried the URL fetchers for the
+ * bundled example catalogue, which went when that catalogue did. What is
+ * left is the parser, which stands on its own.
  */
 
-import { safeFetch } from "../../utils/safe-fetch.js";
 
 // Refuse to even attempt parsing implausibly large "PNG" data. Without
-// this, a URL-fetching caller (extract_workflow, fetchExampleWorkflow) that
+// this, a URL-fetching caller (extract_workflow) that
 // hits a malicious/misbehaving server with a huge response body would carry
 // that entire body through TextDecoder + JSON.parse below.
 const MAX_PNG_SIZE = 50 * 1024 * 1024; // 50MB - generous for a real PNG
@@ -148,85 +145,4 @@ export async function extractWorkflowFromPng(
   }
 
   return Object.keys(result).length > 0 ? result : null;
-}
-
-/**
- * Fetch an example workflow image and extract the embedded workflow
- */
-/**
- * The API-format graph out of a fetched example, which is what /prompt
- * accepts and what run_workflow needs.
- *
- * The docs PNGs embed both: "prompt" is API format, "workflow" is the UI
- * graph ComfyUI rejects. Shared because recommend_workflow picked the UI one
- * while its own field doc and rendered text told the caller to run it.
- */
-export function apiFormatOf(result: {
-  workflow?: Record<string, unknown>;
-  prompt?: Record<string, unknown>;
-}): Record<string, unknown> | undefined {
-  return result.prompt ?? result.workflow;
-}
-
-export async function fetchExampleWorkflow(
-  imageUrl: string
-): Promise<{
-  success: boolean;
-  workflow?: Record<string, unknown>;
-  prompt?: Record<string, unknown>;
-  error?: string;
-}> {
-  try {
-    const response = await safeFetch(imageUrl);
-    if (!response.ok) {
-      return { success: false, error: `Failed to fetch: ${response.statusText}` };
-    }
-
-    const imageData = await response.arrayBuffer();
-    const extracted = await extractWorkflowFromPng(imageData);
-
-    if (!extracted) {
-      return { success: false, error: "No workflow data found in image" };
-    }
-
-    return {
-      success: true,
-      workflow: extracted.workflow,
-      prompt: extracted.prompt,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: `Error: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-}
-
-/**
- * Fetch a JSON workflow file directly
- */
-export async function fetchJsonWorkflow(
-  jsonUrl: string
-): Promise<{
-  success: boolean;
-  workflow?: Record<string, unknown>;
-  error?: string;
-}> {
-  try {
-    const response = await safeFetch(jsonUrl);
-    if (!response.ok) {
-      return { success: false, error: `Failed to fetch: ${response.statusText}` };
-    }
-
-    const workflow = await response.json() as Record<string, unknown>;
-    return {
-      success: true,
-      workflow,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: `Error: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
 }

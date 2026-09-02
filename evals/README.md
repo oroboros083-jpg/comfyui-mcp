@@ -40,9 +40,9 @@ Each question must be:
 - **Stable** — the answer does not change on its own.
 
 Derive every answer before writing it down. The counting questions in
-`library.xml` were computed against `src/tools/examples/data.ts` and
-`src/resources/prompting-guide.ts`; adding an example workflow invalidates
-them, so recompute rather than adjusting by hand.
+`library.xml` were computed against `src/resources/prompting-guide.ts`;
+adding a prompting guide invalidates them, so recompute rather than adjusting
+by hand.
 
 ## Running
 

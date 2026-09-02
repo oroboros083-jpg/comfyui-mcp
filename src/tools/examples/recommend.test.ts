@@ -6,10 +6,8 @@ import {
   formatWorkflowRecommendation,
   type WorkflowRecommendation,
 } from "./recommend.js";
-import { apiFormatOf } from "./workflow-fetch.js";
 import { PROMPTING_GUIDES } from "../../resources/prompting-guide.js";
 
-/** Recommend without letting the docs-PNG fetch reach the network. */
 async function recommend(modelName: string): Promise<WorkflowRecommendation> {
   return recommendWorkflow({ modelName } as Parameters<typeof recommendWorkflow>[0]);
 }
@@ -61,7 +59,7 @@ test("the next steps never name a prompting guide that does not exist", async ()
 
   for (const name of guideless) {
     const rec = await recommend(name);
-    const output = formatWorkflowRecommendation({ ...rec, exampleWorkflow: undefined });
+    const output = formatWorkflowRecommendation(rec);
 
     const named = [...output.matchAll(/comfyui_get_prompting_guide\('?"?([a-z0-9]+)'?"?\)/gi)];
     assert.ok(named.length > 0, `${name}: no guide named at all`);
@@ -77,7 +75,7 @@ test("the next steps never name a prompting guide that does not exist", async ()
 
 test("a model with its own guide still points at that guide", async () => {
   const rec = await recommend("flux1-dev.safetensors");
-  const output = formatWorkflowRecommendation({ ...rec, exampleWorkflow: undefined });
+  const output = formatWorkflowRecommendation(rec);
 
   assert.ok(output.includes("comfyui_get_prompting_guide('flux')"), output);
 });
@@ -86,22 +84,9 @@ test("the rendered next steps agree with the computed guide line", async () => {
   // Two copies of the same answer drifted apart; the rendered one now reuses
   // the computed sentence rather than re-deriving it from modelType.
   const rec = await recommend("wan2.1_t2v_14B.safetensors");
-  const output = formatWorkflowRecommendation({ ...rec, exampleWorkflow: undefined });
+  const output = formatWorkflowRecommendation(rec);
 
   assert.ok(output.includes(rec.promptingGuide), output);
-});
-
-test("an example workflow is offered in the format run_workflow accepts", () => {
-  // The docs PNGs embed both graphs: "prompt" is the API format /prompt
-  // accepts, "workflow" is the UI graph it rejects. recommend_workflow took
-  // .workflow while its own field doc and rendered text both said the value
-  // could go straight to run_workflow.
-  const api = { "1": { class_type: "KSampler", inputs: {} } };
-  const ui = { nodes: [{ id: 1, type: "KSampler" }], links: [] };
-
-  assert.deepEqual(apiFormatOf({ prompt: api, workflow: ui }), api, "prefers API format");
-  assert.deepEqual(apiFormatOf({ workflow: ui }), ui, "falls back when that is all there is");
-  assert.equal(apiFormatOf({}), undefined);
 });
 
 /** Same, but for a task other than the default txt2img. */

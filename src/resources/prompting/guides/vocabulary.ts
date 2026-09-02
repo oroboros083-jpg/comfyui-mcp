@@ -299,17 +299,19 @@ export const DANBOORU_VOCABULARY: TagVocabulary = {
  * cannot work for placement and sends the reader in a circle.
  *
  * The remedy is a different graph, not different words - and building that
- * graph is ComfyUI's job, not this server's. So this points at ComfyUI's own
- * documented example rather than at a tool here.
+ * graph is ComfyUI's job, not this server's. So this names the core nodes and
+ * sends the reader to the official gallery, rather than at a tool here. It
+ * used to point at comfyui://examples/area-composition; that resource went
+ * with the bundled example catalogue.
  */
 export const SPATIAL_CONTROL_NOTE =
   "Placement is a graph problem, not a wording problem. Text conditioning is applied across " +
   "the whole latent, so a prompt has no way to say 'here' - which is why two subjects merge, " +
   "why the red cube comes out blue, and why prompt weights do not help ((red cube:1.3) scales " +
-  "that token everywhere). Bind text to a region instead: the bundled 'Area Composition' " +
-  "example does it with core nodes (ConditioningSetArea / ConditioningSetAreaPercentage / " +
-  "ConditioningCombine), and 'Noisy Latent Composition' is the alternative when hard-edged " +
-  "areas leave seams. Both are readable as MCP resources - comfyui://examples/area-composition " +
-  "and comfyui://examples/noisy-latent-composition - and the official Comfy MCP's template " +
-  "gallery carries runnable equivalents. Caveat: regional conditioning rides on CFG, so it " +
-  "works best on SD1.5/SDXL and poorly at CFG 1 (Flux, and any distilled draft model).";
+  "that token everywhere). Bind text to a region instead: encode each region's text " +
+  "separately, set an area on each, then combine - ConditioningSetArea or " +
+  "ConditioningSetAreaPercentage into ConditioningCombine, all core nodes. Compositing " +
+  "latents while they are still noisy is the alternative when hard-edged areas leave seams. " +
+  "The official Comfy MCP's template gallery carries runnable graphs for both; search it for " +
+  "'Area Composition'. Caveat: regional conditioning rides on CFG, so it works best on " +
+  "SD1.5/SDXL and poorly at CFG 1 (Flux, and any distilled draft model).";

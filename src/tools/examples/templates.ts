@@ -1,8 +1,6 @@
 // === Template Search System ===
 
 import { z } from "zod";
-import { ExampleWorkflow, ModelDownload } from "./types.js";
-import { EXAMPLE_WORKFLOWS } from "./data.js";
 import {
   paginate,
   paginationFields,
@@ -54,11 +52,6 @@ export const searchTemplatesSchema = z.object({
     .optional()
     .default(true)
     .describe("Include built-in workflow templates"),
-  includeExamples: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe("Include example workflows from ComfyUI docs"),
   includeCustom: z
     .boolean()
     .optional()
@@ -76,7 +69,7 @@ export type SearchTemplatesInput = z.infer<typeof searchTemplatesSchema>;
  * for the id actually chosen.
  */
 export interface TemplateSearchRow {
-  source: "builtin" | "example" | "custom";
+  source: "builtin" | "custom";
   id: string;
   name: string;
   description: string;
@@ -95,7 +88,7 @@ export type SearchTemplatesResult = PageEnvelope & {
 };
 
 interface TemplateMatch {
-  source: "builtin" | "example" | "custom";
+  source: "builtin" | "custom";
   id: string;
   name: string;
   description: string;
@@ -105,7 +98,6 @@ interface TemplateMatch {
   parameters?: WorkflowTemplate["parameters"] | Array<{ name: string; type: string; required: boolean; default?: unknown; description: string }>;
   defaultSettings?: WorkflowTemplate["defaultSettings"] | Record<string, unknown>;
   requiredNodes?: string[];
-  requiredModels?: ModelDownload[];
   fetchCommand?: string;
   useCount?: number;
   tags?: string[];
@@ -128,55 +120,6 @@ function matchesTemplateFilters(template: WorkflowTemplate, input: SearchTemplat
       template.description.toLowerCase().includes(queryLower) ||
       template.id.toLowerCase().includes(queryLower);
     if (!matches) return false;
-  }
-  return true;
-}
-
-function matchesExampleFilters(example: ExampleWorkflow, input: SearchTemplatesInput): boolean {
-  if (input.category && !example.category.toLowerCase().includes(input.category.toLowerCase())) {
-    return false;
-  }
-  if (input.query) {
-    const queryLower = input.query.toLowerCase();
-    const matches =
-      example.name.toLowerCase().includes(queryLower) ||
-      example.description.toLowerCase().includes(queryLower) ||
-      example.category.toLowerCase().includes(queryLower);
-    if (!matches) return false;
-  }
-  // Model type filtering for examples - infer from category/name
-  if (input.modelType && input.modelType !== "any") {
-    const nameLower = example.name.toLowerCase();
-    const categoryLower = example.category.toLowerCase();
-    if (input.modelType === "flux" && !nameLower.includes("flux") && !categoryLower.includes("flux")) {
-      return false;
-    }
-    if (input.modelType === "sdxl" && !nameLower.includes("sdxl") && !categoryLower.includes("sdxl")) {
-      return false;
-    }
-    if (input.modelType === "sd3" && !nameLower.includes("sd3") && !categoryLower.includes("sd3")) {
-      return false;
-    }
-  }
-  // Task type filtering for examples - infer from category/name
-  if (input.taskType && input.taskType !== "any") {
-    const nameLower = example.name.toLowerCase();
-    const categoryLower = example.category.toLowerCase();
-    if (input.taskType === "inpaint" && !nameLower.includes("inpaint") && !categoryLower.includes("inpaint")) {
-      return false;
-    }
-    if (input.taskType === "img2img" && !nameLower.includes("img2img") && !nameLower.includes("image-to-image")) {
-      return false;
-    }
-    if (input.taskType === "controlnet" && !nameLower.includes("controlnet") && !categoryLower.includes("controlnet")) {
-      return false;
-    }
-    if (input.taskType === "upscale" && !nameLower.includes("upscale") && !categoryLower.includes("upscale")) {
-      return false;
-    }
-    if (input.taskType === "video" && !nameLower.includes("video") && !categoryLower.includes("video")) {
-      return false;
-    }
   }
   return true;
 }
@@ -261,24 +204,6 @@ export function searchTemplates(input: SearchTemplatesInput): SearchTemplatesRes
     }
   }
 
-  // Search example workflows
-  if (input.includeExamples !== false) {
-    for (const example of EXAMPLE_WORKFLOWS) {
-      if (matchesExampleFilters(example, input)) {
-        results.push({
-          source: "example",
-          id: example.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
-          name: example.name,
-          description: example.description,
-          category: example.category,
-          requiredNodes: example.requiredNodes,
-          requiredModels: example.requiredModels,
-          fetchCommand: `comfyui_recommend_workflow({ name: "${example.name}" })`,
-        });
-      }
-    }
-  }
-
   const page = paginate(results, input.limit ?? DEFAULT_PAGE_SIZE, input.offset ?? 0);
 
   // A search result only has to carry enough to pick one. The full parameter
@@ -294,9 +219,6 @@ export function searchTemplates(input: SearchTemplatesInput): SearchTemplatesRes
     ...(r.taskType ? { taskType: r.taskType } : {}),
     category: r.category,
     ...(r.parameters?.length ? { parameterCount: r.parameters.length } : {}),
-    ...(r.requiredModels?.length
-      ? { requiredModelCount: r.requiredModels.length }
-      : {}),
     ...(r.useCount !== undefined ? { useCount: r.useCount } : {}),
   }));
 
@@ -364,17 +286,7 @@ export interface GetTemplateResult {
   usage: string;
 }
 
-/** Raised when the id names an example workflow rather than a template. */
-export class TemplateIsExampleError extends ToolError {
-  constructor(templateId: string, exampleName: string) {
-    super(
-      `'${templateId}' is an example workflow, not a template`,
-      `Call comfyui_recommend_workflow({ name: "${exampleName}" }) instead.`
-    );
-  }
-}
-
-/** Raised when nothing - built-in, custom or example - answers to the id. */
+/** Raised when nothing - built-in or custom - answers to the id. */
 export class TemplateNotFoundError extends ToolError {
   constructor(templateId: string) {
     super(
@@ -453,12 +365,6 @@ export async function getTemplate(
       usage: "Pass the 'workflow' object to comfyui_run_workflow() to execute it",
     };
   }
-
-  // Check if it's an example workflow name instead
-  const example = EXAMPLE_WORKFLOWS.find(
-    (e) => e.name.toLowerCase().replace(/[^a-z0-9]+/g, "_") === input.templateId
-  );
-  if (example) throw new TemplateIsExampleError(input.templateId, example.name);
 
   throw new TemplateNotFoundError(input.templateId);
 }

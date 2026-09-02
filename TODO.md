@@ -7,40 +7,22 @@ if it stays undone, not about how hard it is.
 
 ## P1 — a user hits this today
 
-- [ ] **Two example workflows are still unreachable.** Was ten; pruning the
-      catalogue from 77 to 24 (the official gallery already ships templates
-      for everything dropped) took the other eight with it. Counted
-      2026-09-02 against the pruned set.
-
-      **`Nvidia Cosmos` publishes JSON only.** It carries `jsonUrls` with
-      `imageUrls: []`, and both live consumers only ever try `imageUrls[0]`
-      (`handlers/resources.ts:210`, `recommend.ts:641`), so
-      `comfyui://examples/nvidia-cosmos` throws "No workflow images
-      available" (`handlers/resources.ts:202`) and `recommend_workflow`
-      returns no `exampleWorkflow` for it. `fetchJsonWorkflow`
-      (`examples/workflow-fetch.ts:208`) would fetch it and is called by
-      nothing.
-
-      Still blocked on one fact: whether that docs `.json` is API format
-      (what `/prompt` and `run_workflow` accept) or the UI graph.
-      `apiFormatOf` prefers `prompt` over `workflow` for exactly this reason,
-      and a UI graph handed back through `exampleWorkflow` - whose own doc
-      says it is runnable - would be worse than the current error. Fetch it,
-      look, then wire it. One file to check now, not six.
-
-      **`Mochi Video` carries its workflow in WebP.** The entry says so in a
-      trailing comment. `extractWorkflowFromPng` checks the 8-byte PNG
-      signature and walks `tEXt`/`iTXt` chunks only
-      (`workflow-fetch.ts:42-103`), so it returns null. ComfyUI embeds the
-      same JSON in WebP EXIF, so this is a real parser, not a wiring change -
-      and it is now wanted for exactly one entry. Weigh that against dropping
-      Mochi too.
-
 - [ ] **Run `/code-review ultracode` over the repo.** User-triggered and
       billed; Claude cannot launch it. Ranked P1 because PR #9's live pass
       turned up three real bugs, and nothing has swept the tree since.
 
 ## P2 — worth doing, no one is blocked
+
+- [ ] **`src/tools/examples/` no longer holds any examples.** Dropping the
+      bundled catalogue left the directory with `recommend.ts`,
+      `templates.ts` and `workflow-fetch.ts` - workflow recommendation,
+      the template system, and the PNG metadata parser. Nothing in it is an
+      example. `server/tools/library.ts` already registers these as the
+      "library" tools, so `src/tools/library/` is the name that matches.
+
+      Mechanical rename plus imports in six files. Not done in the same
+      change as the deletion, to keep that diff reviewable.
+
 
 - [ ] **Expand the model scanner's scope.** Today `comfyui_scan_model` walks
       pickle opcodes only. Wanted: known cheaply-checkable exploits for the
