@@ -7,40 +7,34 @@ if it stays undone, not about how hard it is.
 
 ## P1 — a user hits this today
 
-- [ ] **Ten example workflows are unreachable, from two different causes.**
-      Counted 2026-09-02 by parsing all 77 entries in `examples/*.ts`; 67 are
-      fine. Verified by parse and grep, not by running the resource.
+- [ ] **Two example workflows are still unreachable.** Was ten; pruning the
+      catalogue from 77 to 24 (the official gallery already ships templates
+      for everything dropped) took the other eight with it. Counted
+      2026-09-02 against the pruned set.
 
-      **Six are fixable in code.** Stable Video Diffusion, SVD XT,
-      Text-to-Video (SDXL + SVD), Nvidia Cosmos, Wan 2.1 and Wan 2.2 in
-      `examples/video.ts` publish their graph as `jsonUrls` with
-      `imageUrls: []`. Both live consumers only ever try `imageUrls[0]`
+      **`Nvidia Cosmos` publishes JSON only.** It carries `jsonUrls` with
+      `imageUrls: []`, and both live consumers only ever try `imageUrls[0]`
       (`handlers/resources.ts:210`, `recommend.ts:641`), so
-      `comfyui://examples/wan-21` throws "No workflow images available"
-      (`handlers/resources.ts:202`) and `recommend_workflow` returns no
-      `exampleWorkflow` for any of them. `fetchJsonWorkflow` in
-      `examples/workflow-fetch.ts:208` is the function that would fetch them;
-      it is exported from `examples/index.ts` and called by nothing.
+      `comfyui://examples/nvidia-cosmos` throws "No workflow images
+      available" (`handlers/resources.ts:202`) and `recommend_workflow`
+      returns no `exampleWorkflow` for it. `fetchJsonWorkflow`
+      (`examples/workflow-fetch.ts:208`) would fetch it and is called by
+      nothing.
 
-      Not wired up yet because it needs one fact that cannot be checked
-      offline: whether those docs `.json` files are API format (what `/prompt`
-      and `run_workflow` accept) or the UI graph. `apiFormatOf` prefers
-      `prompt` over `workflow` for exactly this reason, and a UI graph handed
-      back through `exampleWorkflow` - whose own doc says it is runnable -
-      would be worse than the current error. Fetch one, look, then wire it.
+      Still blocked on one fact: whether that docs `.json` is API format
+      (what `/prompt` and `run_workflow` accept) or the UI graph.
+      `apiFormatOf` prefers `prompt` over `workflow` for exactly this reason,
+      and a UI graph handed back through `exampleWorkflow` - whose own doc
+      says it is runnable - would be worse than the current error. Fetch it,
+      look, then wire it. One file to check now, not six.
 
-      **Four need a second container format.** Mochi, LTX-Video and Hunyuan
-      Video (`examples/video.ts`) carry their workflows in WebP, and Audio
-      Generation (`examples/audio.ts`) in FLAC - each entry says so in a
-      trailing comment. The source is not missing; the extractor cannot read
-      it. `extractWorkflowFromPng` checks the 8-byte PNG signature and walks
-      `tEXt`/`iTXt` chunks only (`workflow-fetch.ts:42-103`), so both formats
-      return null. ComfyUI does embed the same JSON in WebP EXIF and FLAC
-      Vorbis comments, so this is reachable work, not a dead end - but it is
-      a real parser each, not a wiring change.
-
-      Either write those two parsers or drop the four entries. A listing
-      naming a workflow no tool can produce is worse than a shorter listing.
+      **`Mochi Video` carries its workflow in WebP.** The entry says so in a
+      trailing comment. `extractWorkflowFromPng` checks the 8-byte PNG
+      signature and walks `tEXt`/`iTXt` chunks only
+      (`workflow-fetch.ts:42-103`), so it returns null. ComfyUI embeds the
+      same JSON in WebP EXIF, so this is a real parser, not a wiring change -
+      and it is now wanted for exactly one entry. Weigh that against dropping
+      Mochi too.
 
 - [ ] **Run `/code-review ultracode` over the repo.** User-triggered and
       billed; Claude cannot launch it. Ranked P1 because PR #9's live pass

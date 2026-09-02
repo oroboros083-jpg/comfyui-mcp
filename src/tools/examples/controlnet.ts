@@ -2,44 +2,6 @@ import { ExampleWorkflow } from "./types.js";
 
 export const CONTROLNET_EXAMPLES: ExampleWorkflow[] = [
   {
-    name: "ControlNet (Scribble/Lineart)",
-    description: "Generate images guided by scribbles or line drawings. Great for sketches or doodles as input.",
-    category: "controlnet",
-    pageUrl: "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/",
-    imageUrls: [
-      "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/controlnet_example.png",
-    ],
-    requiredNodes: ["ControlNetLoader", "ControlNetApply"],
-    requiredModels: [
-      {
-        type: "controlnet",
-        name: "control_v11p_sd15_scribble.pth",
-        url: "https://huggingface.co/lllyasviel/ControlNet-v1-1/tree/main",
-        destination: "ComfyUI/models/controlnet",
-      },
-    ],
-    notes: "Use rough sketches or scribbles as input. Model interprets structure and generates detailed image.",
-  },
-  {
-    name: "ControlNet (Depth)",
-    description: "Generate images guided by depth maps. Maintains 3D spatial structure of the input image.",
-    category: "controlnet",
-    pageUrl: "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/",
-    imageUrls: [
-      "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/depth_controlnet.png",
-    ],
-    requiredNodes: ["ControlNetLoader", "ControlNetApply"],
-    requiredModels: [
-      {
-        type: "controlnet",
-        name: "control_v11f1p_sd15_depth.pth",
-        url: "https://huggingface.co/lllyasviel/ControlNet-v1-1/tree/main",
-        destination: "ComfyUI/models/controlnet",
-      },
-    ],
-    notes: "Create depth map from input image using MiDaS or DepthAnything, then use as control signal.",
-  },
-  {
     name: "T2I-Adapter (Depth)",
     description: "Depth-guided generation using T2I-Adapter. More efficient than ControlNet with minimal quality loss.",
     category: "controlnet",
@@ -57,44 +19,6 @@ export const CONTROLNET_EXAMPLES: ExampleWorkflow[] = [
       },
     ],
     notes: "T2I-Adapters are faster than ControlNets with similar results. Recommended for production use.",
-  },
-  {
-    name: "ControlNet (Pose/OpenPose)",
-    description: "Generate images guided by pose skeletons. Control body positioning and gestures of characters.",
-    category: "controlnet",
-    pageUrl: "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/",
-    imageUrls: [
-      "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/2_pass_pose_worship.png",
-    ],
-    requiredNodes: ["ControlNetLoader", "ControlNetApply"],
-    requiredModels: [
-      {
-        type: "controlnet",
-        name: "control_v11p_sd15_openpose.pth",
-        url: "https://huggingface.co/lllyasviel/ControlNet-v1-1/tree/main",
-        destination: "ComfyUI/models/controlnet",
-      },
-    ],
-    notes: "Extract pose from reference image using OpenPose, then generate new image with same pose.",
-  },
-  {
-    name: "ControlNet (Multiple/Combined)",
-    description: "Combine multiple ControlNets for complex guidance. E.g., pose + scribble for character with specific appearance.",
-    category: "controlnet",
-    pageUrl: "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/",
-    imageUrls: [
-      "https://comfyanonymous.github.io/ComfyUI_examples/controlnet/mixing_controlnets.png",
-    ],
-    requiredNodes: ["ControlNetLoader", "ControlNetApply"],
-    requiredModels: [
-      {
-        type: "controlnet",
-        name: "ControlNet v1.1 models",
-        url: "https://huggingface.co/lllyasviel/ControlNet-v1-1/tree/main",
-        destination: "ComfyUI/models/controlnet",
-      },
-    ],
-    notes: "Chain multiple ControlNetApply nodes. Each adds guidance. Adjust strength per control type.",
   },
   {
     name: "GLIGEN (Text Box Positioning)",

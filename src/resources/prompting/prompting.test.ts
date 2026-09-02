@@ -448,20 +448,30 @@ test("guide counts used by evals/library.xml", () => {
     stale("the Anima prompt structure")
   );
 
-  // One question crosses the two data sets: of the "neither" guides, only
-  // those whose name is also an example-workflow category count, and the
-  // answer is the total size of those categories.
+  // One question crosses the two data sets: which guides share a name with an
+  // example-workflow category, and how large those categories are. The pair
+  // was once (neither-guides x categories), but pruning the examples down to
+  // what the official gallery does not already carry emptied that
+  // intersection - every "neither" family (flux, qwen, omnigen, zimage) is a
+  // model the gallery ships templates for. Only `hunyuan` survives on both
+  // sides, so the question is now the plain overlap.
   const perCategory = new Map<string, number>();
   for (const example of EXAMPLE_WORKFLOWS) {
     perCategory.set(example.category, (perCategory.get(example.category) ?? 0) + 1);
   }
-  const shared = neither.filter((k) => perCategory.has(k));
-  assert.deepEqual(shared.sort(), ["flux", "omnigen", "qwen"], stale("that overlap"));
+  assert.deepEqual(
+    neither.filter((k) => perCategory.has(k)),
+    [],
+    stale("the neither-guide/category overlap")
+  );
+  const shared = keys.filter((k) => perCategory.has(k));
+  assert.deepEqual(shared.sort(), ["hunyuan"], stale("that overlap"));
   assert.equal(
     shared.reduce((n, k) => n + perCategory.get(k)!, 0),
-    15,
+    2,
     stale("the example counts in those categories")
   );
+  assert.equal(EXAMPLE_WORKFLOWS.length, 24, stale("the example-workflow count"));
 });
 
 // --- spatial control ------------------------------------------------------

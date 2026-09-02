@@ -41,7 +41,7 @@
     - [Self-Configuring](#self-configuring)
     - [Works Without ComfyUI Running](#works-without-comfyui-running)
     - [Workflow-First Architecture](#workflow-first-architecture)
-    - [77 Example Workflows](#77-example-workflows)
+    - [24 Example Workflows](#24-example-workflows)
     - [26 Model Architectures, 26 Prompting Guides](#26-model-architectures-26-prompting-guides)
     - [Template System](#template-system)
     - [Workflow Composition Tools](#workflow-composition-tools)
@@ -241,17 +241,23 @@ adjusted without ever touching disk. Around it:
 Validating a workflow file is the official server's `validate_workflow`, which
 takes a path — so write the file first.
 
-### 77 Example Workflows
-Library of example workflows from the [official ComfyUI documentation](https://comfyanonymous.github.io/ComfyUI_examples/), split into individually discoverable entries:
+### 24 Example Workflows
+Example workflows from the [official ComfyUI documentation](https://comfyanonymous.github.io/ComfyUI_examples/), split into individually discoverable entries.
+
+This list is deliberately short. It used to carry 77 entries, but the official
+Comfy template gallery — which the official Comfy MCP serves through
+`search_templates` / `fetch_template` — now ships its own templates for Flux,
+SDXL, SD3.5, Qwen, HiDream, Chroma, Lumina, Omnigen, Wan, LTX, Hunyuan Video,
+ACE-Step and the common techniques (LoRA, inpaint, outpaint, upscale,
+img2img, ControlNet). Carrying a second, hand-transcribed copy of those helped
+nobody. What is left is what the gallery does *not* cover:
 
 | Category | Count | Category | Count |
 |---|---|---|---|
-| `flux` | 11 | `sd3` | 5 |
-| `video` | 10 | `stable_cascade` | 5 |
-| `controlnet` | 6 | `hidream` | 4 |
-| `inpainting` | 5 | `basics` / `sdxl` / `qwen` / `advanced` | 3 each |
-| `unclip` | 3 | `turbo` / `hunyuan` | 2 each |
-| `lora`, `hypernetworks`, `embeddings`, `upscale`, `lcm`, `aura_flow`, `chroma`, `lumina`, `edit`, `omnigen`, `audio`, `3d` | 1 each | | |
+| `stable_cascade` | 5 | `controlnet` (T2I-Adapter, GLIGEN) | 2 |
+| `advanced` | 3 | `hunyuan` (image, not video) | 2 |
+| `unclip` | 3 | `hypernetworks` / `embeddings` / `lcm` | 1 each |
+| `video` (Mochi, Cosmos ×2) | 3 | `turbo` / `aura_flow` / `edit` | 1 each |
 
 ### 26 Model Architectures, 26 Prompting Guides
 Architecture detection, prompting advice, and workflow-shape selection are
@@ -286,7 +292,7 @@ the opposite of what those models want.
 ### Template System
 Three sources of workflow templates:
 - **Built-in templates**: Standard txt2img for SD1.5, SDXL, Flux, Qwen and Anima
-- **Example workflows**: 77 from official ComfyUI docs
+- **Example workflows**: 24 from official ComfyUI docs, kept because the official template gallery has no equivalent
 - **Custom templates**: Save and reuse your successful workflows, stored in a local SQLite database
 
 ### Workflow Composition Tools
