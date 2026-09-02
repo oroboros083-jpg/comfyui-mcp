@@ -254,16 +254,23 @@ worth adding.
 
 ## Git Workflow
 
-This repo has high risk-bearing capacity. Push directly to `main`:
+Branch, open a PR, merge it back. The standing rule in `~/.claude/CLAUDE.md`
+applies here unmodified — this repo used to push straight to `main` on the
+grounds of high risk-bearing capacity, and no longer does.
 
-- **Low-risk changes** — push directly, no ceremony.
-- **Significant changes** — push directly once they pass `npm test` and have
-  no known issues.
-- **Prefer small, frequent pushes** over large batched ones, so any single
-  change is easy to identify and roll back.
+`npm test` is the green signal, and `.github/workflows/ci.yml` runs it on
+every pull request across Node 24 and 26. So a change here self-merges once
+that suite is green and nothing is left open for the user to decide;
+everything else waits for review.
 
-Do not batch unrelated work into one commit. A commit that mixes a bug fix
-with a refactor cannot be reverted without losing the fix.
+- **CI green is not evidence for a live-ComfyUI change.** The suite covers
+  pure logic only — see Testing above. If the behaviour being changed needs a
+  running instance to verify, the PR says what was run against it, and a
+  green CI does not by itself clear the change to merge.
+- **Prefer small, frequent PRs** over large batched ones, so any single change
+  is easy to identify and roll back.
+- **Do not batch unrelated work into one commit.** A commit that mixes a bug
+  fix with a refactor cannot be reverted without losing the fix.
 
 ## Key Files to Understand
 
