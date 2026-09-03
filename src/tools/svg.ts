@@ -95,9 +95,15 @@ export function sanitizeSvg(svg: string): string {
 
   // Before anything else: no internal subset means no entity to expand,
   // whatever the parser downstream is willing to resolve.
-  sanitized = sanitized.replace(DOCTYPE_PATTERN, "");
-  sanitized = sanitized.replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, "");
-  sanitized = sanitized.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
+  // Apply repeatedly so overlapping/nested payloads cannot re-form a dangerous
+  // token (for example "<script") after a single replacement pass.
+  let previous: string;
+  do {
+    previous = sanitized;
+    sanitized = sanitized.replace(DOCTYPE_PATTERN, "");
+    sanitized = sanitized.replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, "");
+    sanitized = sanitized.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
+  } while (sanitized !== previous);
 
   // The unquoted alternative matters: XML requires quotes, but the renderer
   // is fed by an HTML-tolerant parser and the pattern that required them
