@@ -14,6 +14,7 @@ items, each parked on a question rather than on effort.
 ## P1 — do next
 
 - [ ] update readme to current state
+- [ ] consider bun cutover
 
 ## P2 — model scanner scope
 
