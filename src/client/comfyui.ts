@@ -159,6 +159,14 @@ export function comboOptions(spec: unknown): string[] {
 const OBJECT_INFO_TTL_MS = 10_000;
 
 /**
+ * How long to wait for the reboot endpoint to answer.
+ *
+ * The success case is no answer at all, so this bounds only the wedged case -
+ * a ComfyUI holding the socket open and never replying.
+ */
+const RESTART_TIMEOUT_MS = 15_000;
+
+/**
  * What to do about an HTTP failure from ComfyUI, by status.
  *
  * Deliberately specific: "Failed to get queue: 404" told the agent nothing,
@@ -406,7 +414,14 @@ export class ComfyUIClient {
     for (const path of paths) {
       let response: Response;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      // Whether OUR timeout is what aborted the request. Checking this rather
+      // than `err.name === "AbortError"` alone keeps a caller-supplied or
+      // library abort from being read as a timeout of ours.
+      let timedOut = false;
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, RESTART_TIMEOUT_MS);
       try {
         response = await fetch(`${this.baseUrl}${path}`, {
           method: "POST",
@@ -415,9 +430,21 @@ export class ComfyUIClient {
           headers: this.getHeaders(),
           signal: controller.signal,
         });
-      } catch {
-        // No response because the server exited mid-request - that is the
-        // reboot taking effect. The caller confirms by watching it go down.
+      } catch (error) {
+        // A connection that dropped without a response is the reboot taking
+        // effect: the handler exits the process mid-request. Our own timeout
+        // firing is the opposite case - the socket stayed open and ComfyUI
+        // never answered - and reporting that as a successful restart sent the
+        // caller off to watch for a shutdown that was never coming.
+        if (timedOut || (error instanceof Error && error.name === "AbortError")) {
+          throw new ToolError(
+            `ComfyUI accepted the restart request at ${path} but did not answer within ` +
+              `${RESTART_TIMEOUT_MS / 1000}s, and did not exit either.`,
+            "The process is reachable but wedged, so it is unclear whether the reboot began. " +
+              "Check whether ComfyUI is still serving, restart it yourself if not, and call " +
+              "comfyui_reconnect afterwards."
+          );
+        }
         return { endpoint: path };
       } finally {
         clearTimeout(timeout);
