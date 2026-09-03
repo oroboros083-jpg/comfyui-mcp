@@ -230,17 +230,11 @@ function findingsFor(scan: PickleScan): {
   }
 
   // The backstop for a stream that deliberately breaks STACK_GLOBAL's pairing:
-  // the module name is still in the file as a string constant.
+  // the names are still in the file as string constants.
   const alreadyFlagged = new Set(findings.map((f) => f.target.split(".")[0]));
-  for (const module of danglingDangerousConstants(scan.constants)) {
-    if (alreadyFlagged.has(module)) continue;
-    findings.push({
-      severity: "dangerous",
-      target: module,
-      reason:
-        `the name '${module}' appears as a string constant without a resolvable import. ` +
-        "A pickle that assembles its imports on the stack to hide them is doing so on purpose",
-    });
+  for (const dangling of danglingDangerousConstants(scan.constants)) {
+    if (alreadyFlagged.has(dangling.target.split(".")[0])) continue;
+    findings.push({ severity: "dangerous", target: dangling.target, reason: dangling.reason });
   }
 
   findings.sort(bySeverity);

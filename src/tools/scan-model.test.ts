@@ -306,6 +306,66 @@ test("a dangerous module name left as a bare constant is still reported", async 
 
 // --- containers -----------------------------------------------------------
 
+test("a dangling builtins/eval pair is reported, module names alone are not", async () => {
+  // The backstop checked only whole-module signatures, which excluded every
+  // entry carrying `names` - so builtins.eval, the commonest primitive there
+  // is, went unseen exactly when the pairing had been broken to hide it.
+  const paired = fixture(
+    "paired.pt",
+    Buffer.concat([
+      PROTO(4),
+      shortUnicode("builtins"),
+      MEMOIZE,
+      shortUnicode("eval"),
+      MEMOIZE,
+      EMPTY_DICT,
+      STOP,
+    ])
+  );
+
+  const result = await scanModel({ path: paired, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "dangerous");
+  assert.equal(result.findings[0]!.target, "builtins.eval");
+  assert.match(result.findings[0]!.reason, /both appear as string constants/);
+});
+
+test("half of a pair is not a finding, because 'eval' is a plausible config value", async () => {
+  // A false positive here is worse than a miss: a scanner that flags ordinary
+  // checkpoints teaches its reader to skip the findings. {"mode": "eval"} is
+  // an ordinary thing for a training config to carry.
+  const path = fixture(
+    "config.pt",
+    Buffer.concat([
+      PROTO(4),
+      shortUnicode("mode"),
+      shortUnicode("eval"),
+      shortUnicode("exec"),
+      EMPTY_DICT,
+      STOP,
+    ])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "safe");
+  assert.deepEqual(result.findings, []);
+});
+
+test("a resolved import is not reported twice by the constant backstop", async () => {
+  const path = fixture(
+    "resolved.pt",
+    Buffer.concat([PROTO(4), stackGlobal("builtins", "eval"), EMPTY_TUPLE, REDUCE, STOP])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "dangerous");
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0]!.target, "builtins.eval");
+  assert.match(result.findings[0]!.reason, /evaluates code/);
+});
+
 test("safetensors is reported safe by format, with nothing scanned", async () => {
   const header = Buffer.from(JSON.stringify({ __metadata__: { format: "pt" } }), "utf-8");
   const length = Buffer.alloc(8);
