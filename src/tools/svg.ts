@@ -63,6 +63,16 @@ function decodeCharRefs(value: string): string {
   });
 }
 
+function replaceUntilStable(input: string, pattern: RegExp, replacement: string): string {
+  let previous: string;
+  let current = input;
+  do {
+    previous = current;
+    current = current.replace(pattern, replacement);
+  } while (current !== previous);
+  return current;
+}
+
 /**
  * Strip constructs that let SVG markup reach outside the document it came
  * in: <image>/<use>/<script>/<foreignObject> href targets pointing at a
@@ -96,7 +106,7 @@ export function sanitizeSvg(svg: string): string {
   // Before anything else: no internal subset means no entity to expand,
   // whatever the parser downstream is willing to resolve.
   sanitized = sanitized.replace(DOCTYPE_PATTERN, "");
-  sanitized = sanitized.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
+  sanitized = replaceUntilStable(sanitized, /<script[\s\S]*?<\/script\s*>/gi, "");
   sanitized = sanitized.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
 
   // The unquoted alternative matters: XML requires quotes, but the renderer
