@@ -81,6 +81,55 @@ import {
 const MAX_LOCAL_IMAGE_BYTES = 50 * 1024 * 1024;
 
 /**
+ * The same ceiling for a URL source.
+ *
+ * The remote branch used to read the whole body into memory with no bound at
+ * all, so a URL serving gigabytes exhausted the process - while the local
+ * branch had been careful about exactly that. `readCappedBody` streams and
+ * stops at the cap rather than buffering first and measuring afterwards,
+ * because measuring afterwards does not prevent the exhaustion.
+ */
+async function readCappedBody(
+  response: Response,
+  cap: number
+): Promise<{ bytes: Uint8Array } | { tooLarge: true; size: string }> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > cap) {
+    return { tooLarge: true, size: `${declared} bytes` };
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return { bytes: new Uint8Array(await response.arrayBuffer()) };
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      // Stop the moment the cap is passed - a server may under-declare or omit
+      // content-length entirely, so the running total is the real guard.
+      if (total > cap) {
+        await reader.cancel();
+        return { tooLarge: true, size: `over ${cap} bytes` };
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { bytes };
+}
+
+/**
  * Which ComfyUI the tag tools should ask for CSVs, or null when nothing is
  * connected - in which case they answer from the builtin vocabulary rather
  * than failing.
@@ -100,7 +149,7 @@ export function registerLibraryTools(
     description:
       "Extract the workflow JSON embedded in a ComfyUI-generated PNG. Accepts a local file path or a " +
       "URL. Returns API-format JSON ready for comfyui_run_workflow, plus any Note nodes found in the " +
-      "graph. Local files must be .png and under 50MB.\n\n" +
+      "graph. The image must be under 50MB, whether local or fetched; local files must also be .png.\n\n" +
       "Errors: reports clearly when the image carries no ComfyUI metadata (i.e. it was not generated " +
       "by ComfyUI, or was re-encoded and lost its metadata).",
     schema: z
@@ -129,7 +178,17 @@ export function registerLibraryTools(
             `Failed to fetch image: ${response.status} ${response.statusText}`
           );
         }
-        imageData = await response.arrayBuffer();
+        const body = await readCappedBody(response, MAX_LOCAL_IMAGE_BYTES);
+        if ("tooLarge" in body) {
+          return errorResult(
+            `Image too large (${body.size}, max ${MAX_LOCAL_IMAGE_BYTES}).`,
+            "Download it, downscale it, and pass the local path instead."
+          );
+        }
+        imageData = body.bytes.buffer.slice(
+          body.bytes.byteOffset,
+          body.bytes.byteOffset + body.bytes.byteLength
+        ) as ArrayBuffer;
       } else {
         if (!/\.png$/i.test(source)) {
           return errorResult(

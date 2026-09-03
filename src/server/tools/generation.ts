@@ -431,15 +431,15 @@ export function registerGenerationTools(
 
       // 2. Read back what is on disk NOW (post-flush, so a tab's unsaved
       //    edits are part of it) and decide whether this write is safe.
+      // A read that FAILS is not a read that found nothing. readWorkflowFile
+      // now throws WorkflowUnreadableError for anything but a 404, and that
+      // is deliberately not caught here: letting it out refuses the write,
+      // where swallowing it to `null` made the file look absent and handed
+      // decideWrite a `new_file` verdict - the lost-update check turning
+      // itself off exactly when ComfyUI was too unhealthy to answer.
       let diff = null;
-      let existing: unknown = null;
-      try {
-        existing = await readWorkflowFile(base, input.path, granted);
-        if (existing) diff = diffWorkflows(existing, input.workflow);
-      } catch {
-        // Unreadable: treated as absent below, which routes to the unbased
-        // refusal rather than to a silent overwrite.
-      }
+      const existing: unknown = await readWorkflowFile(base, input.path, granted);
+      if (existing) diff = diffWorkflows(existing, input.workflow);
 
       const theirs = existing === null ? null : workflowVersion(existing);
       const recorded = getWorkflowBase(input.path, c.config.agentId);

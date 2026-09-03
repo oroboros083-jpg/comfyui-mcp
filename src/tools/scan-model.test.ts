@@ -310,6 +310,63 @@ test("safetensors is reported safe by format, with nothing scanned", async () =>
   assert.match(result.summary, /no code path to execute/);
 });
 
+test("a header that does not parse is never reported safetensors-and-safe", async () => {
+  // The check used to be "byte 8 is '{'", so any file with a plausible u64
+  // length and an opening brace was classified safetensors - and because that
+  // branch returns early with verdict "safe", nothing about its contents was
+  // ever looked at. Whether such a file is also a *loadable* pickle is a
+  // separate question (see the test below); what matters here is that an
+  // unvalidated header must not produce a clean verdict.
+  const payload = Buffer.concat([
+    Buffer.from("{ not json at all >>> ", "utf-8"),
+    global_("posix", "system"),
+    REDUCE,
+    STOP,
+  ]);
+  const length = Buffer.alloc(8);
+  length.writeBigUInt64LE(BigInt(payload.length));
+  const path = fixture("wolf.ckpt", Buffer.concat([length, payload]));
+
+  // Refused as unrecognised - "treat it as unscanned rather than clean" - which
+  // is the honest answer for a file the scanner cannot parse either way.
+  await assert.rejects(
+    () => scanModel({ path, response_format: ResponseFormat.JSON }),
+    ModelFileError,
+    "unrecognised rather than silently safe"
+  );
+});
+
+test("a safetensors header must parse as an object, not merely start with a brace", async () => {
+  // An array is valid JSON and still not a safetensors header.
+  const header = Buffer.from("{[1,2,3]", "utf-8");
+  const length = Buffer.alloc(8);
+  length.writeBigUInt64LE(BigInt(header.length));
+  const path = fixture("odd.safetensors", Buffer.concat([length, header]));
+
+  await assert.rejects(
+    () => scanModel({ path, response_format: ResponseFormat.JSON }),
+    ModelFileError,
+    "unrecognised rather than silently safe"
+  );
+});
+
+test("a real pickle is still walked, not swallowed by the header check", async () => {
+  // The reassuring half of the finding: a genuine pickle stream cannot pass
+  // the safetensors test even as it stood, because its leading bytes read as
+  // an enormous u64 length that fails the `length + 8 > fileSize` bound. This
+  // pins that the fix did not move a real checkpoint onto the safetensors path.
+  const path = fixture(
+    "real.ckpt",
+    Buffer.concat([PROTO(2), global_("posix", "system"), EMPTY_TUPLE, REDUCE, STOP])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.format, "pickle");
+  assert.equal(result.verdict, "dangerous");
+  assert.ok(result.findings.some((f) => f.target === "posix.system"));
+});
+
 test("a torch ZIP is scanned through its data.pkl", async () => {
   const path = fixture(
     "model.pt",

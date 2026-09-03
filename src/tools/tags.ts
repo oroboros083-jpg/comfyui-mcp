@@ -301,9 +301,28 @@ async function fetchCsv(target: ComfyUITarget, path: string): Promise<string | n
 /** Cached per base url, since parsing the full set is not cheap. */
 const INDEX_CACHE = new Map<string, TagIndex>();
 
+/**
+ * Builds already running, shared by concurrent callers.
+ *
+ * Same shape as ComfyUIClient.getObjectInfo and for the same reason: two tools
+ * called together (search_tags and related_tags) both missed the cache and both
+ * downloaded and parsed 120k tag rows plus 400k co-occurrence pairs, doubling
+ * the one operation in this module expensive enough to be worth caching.
+ */
+const INDEX_INFLIGHT = new Map<string, Promise<TagIndex>>();
+
+/**
+ * Bumped by clearTagIndexCache so a build already in flight cannot repopulate
+ * the cache after a reconnect. Without it the index that lands is the one built
+ * against the instance that was just dropped.
+ */
+let indexEpoch = 0;
+
 /** Drop cached indexes. Called on reconnect, when the instance may have changed. */
 export function clearTagIndexCache(): void {
   INDEX_CACHE.clear();
+  INDEX_INFLIGHT.clear();
+  indexEpoch++;
 }
 
 /**
@@ -321,28 +340,50 @@ export async function getTagIndex(
   const cached = INDEX_CACHE.get(target.baseUrl);
   if (cached) return cached;
 
-  const tagCsv = await fetchCsv(target, "/autocomplete-plus/csv/danbooru/tags/base");
-  if (!tagCsv) return builtinIndex();
+  // Share one build rather than starting a second download and parse when
+  // concurrent callers both miss.
+  const existing = INDEX_INFLIGHT.get(target.baseUrl);
+  if (existing) return existing;
 
-  const tags = parseTagCsv(tagCsv)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, MAX_TAG_ROWS);
+  const epoch = indexEpoch;
+  const pending = (async () => {
+    const tagCsv = await fetchCsv(target, "/autocomplete-plus/csv/danbooru/tags/base");
+    if (!tagCsv) return builtinIndex();
 
-  if (tags.length === 0) return builtinIndex();
+    const tags = parseTagCsv(tagCsv)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, MAX_TAG_ROWS);
 
-  const pairCsv = await fetchCsv(
-    target,
-    "/autocomplete-plus/csv/danbooru/tags_cooccurrence/base"
-  );
+    if (tags.length === 0) return builtinIndex();
 
-  const index: TagIndex = {
-    source: "autocomplete-plus",
-    tags,
-    cooccurrence: pairCsv ? parseCooccurrenceCsv(pairCsv) : new Map(),
-  };
+    const pairCsv = await fetchCsv(
+      target,
+      "/autocomplete-plus/csv/danbooru/tags_cooccurrence/base"
+    );
 
-  INDEX_CACHE.set(target.baseUrl, index);
-  return index;
+    return {
+      source: "autocomplete-plus" as const,
+      tags,
+      cooccurrence: pairCsv ? parseCooccurrenceCsv(pairCsv) : new Map(),
+    };
+  })();
+  INDEX_INFLIGHT.set(target.baseUrl, pending);
+
+  try {
+    const index = await pending;
+    // Only a real autocomplete-plus index is cached; a builtin fallback stays
+    // uncached so the node appearing later is picked up on the next call. And
+    // a reconnect landing mid-build discards this one rather than storing an
+    // index describing the instance that was just dropped.
+    if (epoch === indexEpoch && index.source === "autocomplete-plus") {
+      INDEX_CACHE.set(target.baseUrl, index);
+    }
+    return index;
+  } finally {
+    if (INDEX_INFLIGHT.get(target.baseUrl) === pending) {
+      INDEX_INFLIGHT.delete(target.baseUrl);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +393,40 @@ export async function getTagIndex(
 /** Underscores and spaces are the same character to a searcher. */
 function normalise(text: string): string {
   return text.toLowerCase().replace(/[_\s]+/g, " ").trim();
+}
+
+/**
+ * Per-index derived data, built once on first use.
+ *
+ * Both of these were recomputed per call over a table that never changes for
+ * the life of an index: relatedTags rebuilt a 120k-entry Map before doing any
+ * work, and searchTags re-normalised every tag name on every query.
+ *
+ * Held in WeakMaps rather than as fields on TagIndex so the exported interface
+ * is unchanged - builtinIndex() and the test stubs construct TagIndex literals,
+ * and a new required field would break them - and so the memo is collected with
+ * the index it belongs to.
+ */
+const BY_NAME = new WeakMap<TagIndex, Map<string, TagRecord>>();
+const NORMALISED_NAMES = new WeakMap<TagIndex, string[]>();
+
+function byNameOf(index: TagIndex): Map<string, TagRecord> {
+  let map = BY_NAME.get(index);
+  if (!map) {
+    map = new Map(index.tags.map((t) => [t.tag, t]));
+    BY_NAME.set(index, map);
+  }
+  return map;
+}
+
+/** Normalised tag names, positionally aligned with `index.tags`. */
+function normalisedNamesOf(index: TagIndex): string[] {
+  let names = NORMALISED_NAMES.get(index);
+  if (!names) {
+    names = index.tags.map((t) => normalise(t.tag));
+    NORMALISED_NAMES.set(index, names);
+  }
+  return names;
 }
 
 export interface TagSearchResult {
@@ -377,12 +452,15 @@ export function searchTags(
   const needle = normalise(input.query);
 
   const scored: Array<{ record: TagRecord; rank: number }> = [];
+  // Iterated by position so a record and its normalised name cannot drift.
+  const names = normalisedNamesOf(index);
 
-  for (const record of index.tags) {
+  for (let i = 0; i < index.tags.length; i++) {
+    const record = index.tags[i]!;
     if (input.category !== "any" && record.category !== input.category) continue;
     if (record.count < input.minCount) continue;
 
-    const name = normalise(record.tag);
+    const name = names[i]!;
     let rank: number | null = null;
 
     if (name === needle) rank = 0;
@@ -432,7 +510,7 @@ export function relatedTags(
   index: TagIndex,
   input: RelatedTagsInput
 ): RelatedTagsResult {
-  const byName = new Map(index.tags.map((t) => [t.tag, t]));
+  const byName = byNameOf(index);
   const inputSet = new Set(input.tags);
 
   const totals = new Map<string, { sum: number; inputs: number }>();

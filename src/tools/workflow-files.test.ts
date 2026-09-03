@@ -7,7 +7,9 @@ import { join, parse, basename } from "node:path";
 import {
   resolveGrantedPath,
   WriteNotPermittedError,
+  WorkflowUnreadableError,
   diffWorkflows,
+  readWorkflowFile,
 } from "./workflow-files.js";
 
 /** The filesystem root on this platform: "C:\\" on Windows, "/" elsewhere. */
@@ -171,4 +173,82 @@ test("a workflow with no subgraphs still diffs as before", () => {
   assert.equal(diff.widgetChanges.length, 1);
   assert.equal(diff.widgetChanges[0]?.subgraph, undefined);
   assert.equal(diffWorkflows(plain("same"), plain("same")).any, false);
+});
+
+test("a node whose type changed is reported, not silently skipped", () => {
+  // The comparison used to `continue` on a type mismatch. The id is in both
+  // maps, so neither "only in" list caught it either, and a graph where a
+  // sampler had been swapped and every widget value rewritten diffed as
+  // "no changes" - to the reader deciding whether to force past a refusal.
+  const diff = diffWorkflows(
+    { nodes: [{ id: 1, type: "KSampler", widgets_values: [42, "x"] }] },
+    { nodes: [{ id: 1, type: "KSamplerAdvanced", widgets_values: [999, "y"] }] }
+  );
+
+  assert.equal(diff.any, true);
+  assert.equal(diff.typeChanges.length, 1);
+  assert.equal(diff.typeChanges[0]?.theirs, "KSampler");
+  assert.equal(diff.typeChanges[0]?.yours, "KSamplerAdvanced");
+  assert.match(diff.summary, /RETYPED/);
+  // Widget slots are not comparable across two node types, so they stay out.
+  assert.equal(diff.widgetChanges.length, 0);
+});
+
+test("a retyped node inside a subgraph names the subgraph", () => {
+  const at = (type: string) => ({
+    nodes: [],
+    definitions: {
+      subgraphs: [{ id: "sg-1", name: "Sampling", nodes: [{ id: 7, type }] }],
+    },
+  });
+  const diff = diffWorkflows(at("KSampler"), at("KSamplerAdvanced"));
+
+  assert.equal(diff.typeChanges[0]?.subgraph, "Sampling");
+  assert.match(diff.summary, /\[Sampling\]/);
+});
+
+test("an unchanged graph reports no type changes", () => {
+  const same = { nodes: [{ id: 1, type: "KSampler", widgets_values: [42] }] };
+  assert.deepEqual(diffWorkflows(same, same).typeChanges, []);
+});
+
+test("a non-404 failure is unreadable, not absent", async () => {
+  // `null` means "not there", and "not there" is the one answer that lets a
+  // write through with no base. A 500 or a 503 says nothing about whether the
+  // file exists, so answering null to those turned the lost-update check off
+  // exactly when ComfyUI was too unhealthy to answer.
+  const original = globalThis.fetch;
+  try {
+    for (const status of [500, 503, 401]) {
+      globalThis.fetch = (async () =>
+        new Response("upstream is unwell", { status })) as typeof fetch;
+
+      await assert.rejects(
+        () => readWorkflowFile({ baseUrl: "http://x" }, "flow.json", []),
+        WorkflowUnreadableError,
+        `HTTP ${status} must refuse rather than read as absent`
+      );
+    }
+
+    // A genuine 404 still means absent, so creating a new file keeps working.
+    globalThis.fetch = (async () => new Response("", { status: 404 })) as typeof fetch;
+    assert.equal(await readWorkflowFile({ baseUrl: "http://x" }, "flow.json", []), null);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("a 200 carrying something that is not JSON is unreadable", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () =>
+      new Response("<html>login</html>", { status: 200 })) as typeof fetch;
+
+    await assert.rejects(
+      () => readWorkflowFile({ baseUrl: "http://x" }, "flow.json", []),
+      WorkflowUnreadableError
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
 });

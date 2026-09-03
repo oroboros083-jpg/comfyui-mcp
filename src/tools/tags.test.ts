@@ -9,6 +9,8 @@ import {
   searchTags,
   relatedTags,
   renderTagSearch,
+  getTagIndex,
+  clearTagIndexCache,
   type TagIndex,
   type SearchTagsInput,
   type RelatedTagsInput,
@@ -251,4 +253,75 @@ test("related tags on the builtin source report the gap rather than empty", () =
 
   assert.equal(result.related.length, 0);
   assert.match(result.note!, /ComfyUI-Autocomplete-Plus/);
+});
+
+// --- index building -------------------------------------------------------
+
+test("concurrent callers share one index build", async () => {
+  // search_tags and related_tags issued together both missed the cache and both
+  // downloaded and parsed 120k tag rows plus 400k pairs. Same fix as
+  // ComfyUIClient.getObjectInfo: one in-flight build, shared.
+  clearTagIndexCache();
+  const original = globalThis.fetch;
+  let fetches = 0;
+  try {
+    globalThis.fetch = (async (url: string) => {
+      fetches++;
+      const body = String(url).includes("cooccurrence") ? PAIR_CSV : TAG_CSV;
+      return new Response(body, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const target = { baseUrl: "http://one" };
+    const [a, b, c] = await Promise.all([
+      getTagIndex(target),
+      getTagIndex(target),
+      getTagIndex(target),
+    ]);
+
+    assert.equal(fetches, 2, "one tag CSV and one pair CSV, not three of each");
+    assert.equal(a, b, "the same index object is handed to every caller");
+    assert.equal(b, c);
+    assert.equal(a.source, "autocomplete-plus");
+
+    // And it is cached afterwards, so a later call costs nothing.
+    await getTagIndex(target);
+    assert.equal(fetches, 2, "served from cache");
+  } finally {
+    globalThis.fetch = original;
+    clearTagIndexCache();
+  }
+});
+
+test("a builtin fallback is not cached, so a node installed later is picked up", async () => {
+  clearTagIndexCache();
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response("", { status: 404 })) as unknown as typeof fetch;
+    const target = { baseUrl: "http://later" };
+    assert.equal((await getTagIndex(target)).source, "builtin");
+
+    globalThis.fetch = (async (url: string) =>
+      new Response(
+        String(url).includes("cooccurrence") ? PAIR_CSV : TAG_CSV,
+        { status: 200 }
+      )) as unknown as typeof fetch;
+    assert.equal((await getTagIndex(target)).source, "autocomplete-plus");
+  } finally {
+    globalThis.fetch = original;
+    clearTagIndexCache();
+  }
+});
+
+test("repeated queries against one index are stable under memoisation", () => {
+  // relatedTags rebuilt a 120k-entry Map per call and searchTags re-normalised
+  // every tag name per query; both are now derived once and cached per index.
+  const index = stubIndex();
+  const search = { query: "looking", category: "any", minCount: 0, limit: 25, offset: 0 } as never;
+  const first = searchTags(index, search);
+  assert.deepEqual(searchTags(index, search), first, "second query agrees with the first");
+
+  const related = { tags: ["1girl"], category: "any", limit: 25, offset: 0 } as never;
+  const firstRelated = relatedTags(index, related);
+  assert.deepEqual(relatedTags(index, related), firstRelated);
+  assert.ok(firstRelated.related.length > 0, "the stub does produce results");
 });
