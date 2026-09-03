@@ -239,7 +239,7 @@ export const MODEL_PATTERNS: ModelPattern[] = [
     defaultSteps: 30,
     defaultCfg: 5,
     defaultResolution: { width: 832, height: 480 },
-    notes: "Wan video generation model. See Wan 2.1 or Wan 2.2 examples for proper workflow.",
+    notes: "Wan video generation model. Search the official Comfy MCP's template gallery for a Wan 2.1 or Wan 2.2 graph.",
   },
   // Hunyuan DiT
   {
@@ -371,7 +371,7 @@ export const MODEL_PATTERNS: ModelPattern[] = [
     defaultSteps: 100,
     defaultCfg: 7,
     defaultResolution: { width: 0, height: 0 },
-    notes: "Audio generation model. See audio examples for proper workflow.",
+    notes: "Audio generation model. Search the official Comfy MCP's template gallery for an audio graph.",
   },
   // SVD / Stable Video Diffusion
   {
