@@ -137,6 +137,15 @@ const ORDINARY_PICKLE = Buffer.concat([
   STOP,
 ]);
 
+/** The other half: a pickle that names posix.system and calls it. */
+const DANGEROUS_PICKLE = Buffer.concat([
+  PROTO(2),
+  global_("posix", "system"),
+  EMPTY_TUPLE,
+  REDUCE,
+  STOP,
+]);
+
 // --- the opcode walker ----------------------------------------------------
 
 test("a plain GLOBAL is read as an import", () => {
@@ -404,13 +413,86 @@ test("a deflated data.pkl is inflated before scanning", async () => {
   assert.equal(result.verdict, "dangerous");
 });
 
-test("a ZIP with no data.pkl has nothing to unpickle", async () => {
+test("a ZIP with no pickle at all has nothing to unpickle", async () => {
   const path = fixture("weights.bin", zipWith([{ name: "config.json", data: Buffer.from("{}") }]));
 
   const result = await scanModel({ path, response_format: ResponseFormat.JSON });
 
   assert.equal(result.verdict, "safe");
-  assert.match(result.summary, /no data\.pkl/);
+  assert.match(result.summary, /no pickle in it/);
+});
+
+test("a pickle member not named data.pkl is still walked", async () => {
+  // The member lookup was `data.pkl` or `*/data.pkl` exactly, and anything
+  // else answered "no data.pkl, so nothing here unpickles" - while .pkl is
+  // itself an extension this tool opens, so `evil.pkl` inside a ZIP was a
+  // clean verdict over a live payload.
+  const path = fixture(
+    "trojan.bin",
+    zipWith([
+      { name: "config.json", data: Buffer.from("{}") },
+      { name: "evil.pkl", data: DANGEROUS_PICKLE },
+    ])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "dangerous");
+  assert.equal(result.pickleEntry, "evil.pkl");
+  assert.ok(result.findings.some((f) => f.target === "posix.system"));
+});
+
+test("every pickle member is walked, not just the first", async () => {
+  const path = fixture(
+    "two.bin",
+    zipWith([
+      { name: "archive/data.pkl", data: ORDINARY_PICKLE },
+      { name: "archive/extra.pkl", data: DANGEROUS_PICKLE },
+    ])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "dangerous");
+  // data.pkl stays the headline member, whatever order the archive lists.
+  assert.equal(result.pickleEntry, "archive/data.pkl");
+  assert.deepEqual(result.pickleEntries, ["archive/data.pkl", "archive/extra.pkl"]);
+});
+
+test("pickle members past the cap are reported rather than dropped", async () => {
+  const members = Array.from({ length: 10 }, (_, i) => ({
+    name: `part${i}.pkl`,
+    data: ORDINARY_PICKLE,
+  }));
+  const path = fixture("many.bin", zipWith(members));
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.pickleEntries?.length, 8);
+  assert.match(result.incomplete ?? "", /2 further pickle members went unread/);
+});
+
+test("TorchScript code is reported, not answered as nothing to unpickle", async () => {
+  // torch.load does not run code/*.py, but torch.jit.load compiles it, and
+  // "nothing here unpickles" read as a clean bill of health over an archive
+  // whose whole payload is executable Python.
+  const path = fixture(
+    "scripted.pt",
+    zipWith([
+      { name: "scripted/constants.pkl", data: ORDINARY_PICKLE },
+      { name: "scripted/code/__torch__.py", data: Buffer.from("import os\nos.system('x')\n") },
+    ])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "suspicious");
+  assert.deepEqual(result.codeEntries, ["scripted/code/__torch__.py"]);
+  assert.ok(
+    result.findings.some(
+      (f) => f.target === "scripted/code/__torch__.py" && /torch\.jit\.load/.test(f.reason)
+    )
+  );
 });
 
 // --- what it refuses ------------------------------------------------------
