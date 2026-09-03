@@ -127,3 +127,36 @@ test("the README does not send a reader to a comfyui_ tool that was removed", ()
       "<!-- tool-references:allow-removed --> block"
   );
 });
+
+test("no eval suite asks for a comfyui_ tool that was removed", () => {
+  // The two guards above cover src/ and README.md. `evals/` fell between
+  // them, and both suites drifted: evals/README.md named five removed tools
+  // and evals/live-instance.xml named four more. An eval that calls a tool
+  // which no longer exists does not fail loudly - it scores the model down
+  // for a question nothing could have answered, so the suite reports a
+  // regression that is really a stale question.
+  //
+  // No allow-removed escape here, unlike the README. That marker is an HTML
+  // comment, and these headers are already XML comments - nesting them is
+  // not well-formed. A suite has no migration table to document either;
+  // if it names a tool, it means to call it.
+  const registered = registeredToolNames();
+  const dir = fileURLToPath(new URL("../../evals", import.meta.url));
+  const offenders: string[] = [];
+
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (!/\.(xml|md)$/.test(entry.name)) continue;
+    const text = readFileSync(join(dir, entry.name), "utf-8");
+    for (const match of new Set(text.match(/(?<!\/)\bcomfyui_[a-z_]+/g) ?? [])) {
+      if (!registered.has(match)) offenders.push(`${entry.name}: ${match}`);
+    }
+  }
+
+  assert.deepEqual(
+    offenders.sort(),
+    [],
+    "an eval suite names comfyui_ tools that no longer exist - repoint the " +
+      "question at a registered tool, or at the official Comfy MCP's equivalent"
+  );
+});
