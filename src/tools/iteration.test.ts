@@ -9,7 +9,7 @@ import {
   DISTILL_LORA_PATTERNS,
   type PlanIterationInput,
 } from "./iteration.js";
-import { MODEL_PATTERNS } from "./examples/recommend.js";
+import { MODEL_PATTERNS } from "./library/recommend.js";
 
 /** Defaults the zod schema would have supplied. */
 function input(over: Partial<PlanIterationInput> & { model: string }): PlanIterationInput {
