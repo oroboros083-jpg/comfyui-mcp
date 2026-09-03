@@ -60,7 +60,7 @@ import {
   saveCustomTemplate,
   deleteTemplateSchema,
   deleteCustomTemplate,
-} from "../../tools/examples/index.js";
+} from "../../tools/library/index.js";
 import {
   getPromptingGuide,
   GUIDE_SECTIONS,

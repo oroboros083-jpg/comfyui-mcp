@@ -500,7 +500,7 @@ agent "no dedicated prompting guide yet" for half the table.
 Everything else follows: `capabilities/` detects it, both status tools advise
 on it, `get_prompting_guide` resolves it (by id, alias or raw filename), and
 `recommend_workflow` reports it. Add a `MODEL_PATTERNS` row in
-`tools/examples/recommend.ts` if it needs specific steps/CFG/resolution, and a
+`tools/library/recommend.ts` if it needs specific steps/CFG/resolution, and a
 builder function in `workflows/builder.ts` only if it needs a graph shape that
 does not exist yet.
 

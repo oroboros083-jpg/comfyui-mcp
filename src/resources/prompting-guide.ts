@@ -1,10 +1,10 @@
 /**
  * Prompting guides for AI image, video and audio generation models.
  *
- * The guides themselves live in `prompting/`, split by model family the same
- * way `tools/examples/` is split by category - there are two dozen of them and
- * they were becoming one unnavigable file. This module stays as the public
- * entry point so every existing import keeps resolving.
+ * The guides themselves live in `prompting/`, split by model family - there
+ * are two dozen of them and they were becoming one unnavigable file. This
+ * module stays as the public entry point so every existing import keeps
+ * resolving.
  */
 
 export {

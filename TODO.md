@@ -7,17 +7,6 @@ if it stays undone, not about how hard it is.
 
 ## P2 — worth doing, no one is blocked
 
-- [ ] **`src/tools/examples/` no longer holds any examples.** Dropping the
-      bundled catalogue left the directory with `recommend.ts`,
-      `templates.ts` and `workflow-fetch.ts` - workflow recommendation,
-      the template system, and the PNG metadata parser. Nothing in it is an
-      example. `server/tools/library.ts` already registers these as the
-      "library" tools, so `src/tools/library/` is the name that matches.
-
-      Mechanical rename plus imports in six files. Not done in the same
-      change as the deletion, to keep that diff reviewable.
-
-
 - [ ] **Expand the model scanner's scope.** Today `comfyui_scan_model` walks
       pickle opcodes only. Wanted: known cheaply-checkable exploits for the
       other major model formats, and scanning by default rather than on

@@ -19,7 +19,7 @@
 
 import { z } from "zod";
 import { ComfyUIClient } from "../client/comfyui.js";
-import { MODEL_PATTERNS, ModelPattern } from "./examples/recommend.js";
+import { MODEL_PATTERNS, ModelPattern } from "./library/recommend.js";
 import { responseFormatField } from "../utils/response.js";
 
 /**
