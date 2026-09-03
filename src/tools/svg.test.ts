@@ -157,6 +157,58 @@ test("a DOCTYPE is removed, internal subset and all", () => {
   assert.match(result, /<svg>/);
 });
 
+test("a script tag reconstructed by its own removal is still stripped", () => {
+  // Copilot Autofix raised this one (CodeQL js/incomplete-multi-character-
+  // sanitization) and it is real: removing the two inner elements splices
+  // `<scr` + `ipt>` into a fresh `<script>`, so a single pass HANDS BACK the
+  // construct it was deleting.
+  const result = sanitizeSvg(
+    "<scr<script>a</script>ipt>alert(1)</scr<script>b</script>ipt>"
+  );
+
+  assert.equal(/<script\b/i.test(result), false, result);
+});
+
+test("a foreignObject reconstructed the same way is stripped too", () => {
+  // The autofix fixed <script> and left this line on the old single pass,
+  // though it is the identical pattern. <foreignObject> is how HTML gets
+  // into an SVG, so it is not the cheaper half of the pair.
+  const result = sanitizeSvg(
+    "<foreign<foreignObject>a</foreignObject>Object><iframe/>" +
+      "</foreign<foreignObject>b</foreignObject>Object>"
+  );
+
+  assert.equal(/<foreignObject\b/i.test(result), false, result);
+});
+
+test("a DOCTYPE reconstructed the same way is stripped too", () => {
+  // The one that matters most, and the one the autofix did not touch: a
+  // single pass over this leaves a live DOCTYPE with its XXE entity intact,
+  // which is precisely what removing the DOCTYPE is for.
+  const result = sanitizeSvg(
+    '<!DOC<!DOCTYPE a>TYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><svg/>'
+  );
+
+  assert.equal(/<!DOCTYPE/i.test(result), false, result);
+  assert.equal(/ENTITY/.test(result), false, result);
+});
+
+test("a closing tag carrying attributes does not smuggle a script through", () => {
+  // `</script foo="bar">` is a valid close to an HTML-tolerant parser, and
+  // the old `</script\s*>` did not match it - so the whole element survived.
+  const result = sanitizeSvg('<script>alert(1)</script foo="bar">');
+
+  assert.equal(/<script\b/i.test(result), false, result);
+});
+
+test("an element merely starting with the same letters is left alone", () => {
+  // The \b guards are what keep <scriptfoo> from being treated as <script>;
+  // without them the lazy match would run to the next real closing tag and
+  // swallow whatever sat between.
+  const kept = "<scriptfoo>keep me</scriptfoo>";
+  assert.equal(sanitizeSvg(kept), kept);
+});
+
 test("self-contained references are left alone", () => {
   // Fragments and data: URIs are the legitimate embedding cases; blanking
   // them would break every <use> in a real document.
