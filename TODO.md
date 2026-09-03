@@ -69,6 +69,49 @@ prebuilt-per-ABI problem. It would **not** unlock Bun, which has no
 Unranked and unstarted: `node:sqlite` is still flagged experimental, and the
 migration touches every persistence path in the server.
 
+## P2 — from the tool-surface audit
+
+Both of these were found by auditing the 38 registered tools against the
+conventions in CLAUDE.md. The audit's own findings were applied; these two are
+what it could not close, because each turns on a decision rather than on
+effort.
+
+- [ ] **`comfyui_save_user_snippet` has no lost-update protection.**
+      `db.saveTemplate` UPDATEs in place when the `id` already exists, so a
+      second save replaces the workflow, name, description and settings of the
+      first with nothing kept. This is now annotated `destructiveHint: true`
+      and said plainly in the description, the `id` parameter and the README -
+      so it no longer claims to be safe - but the gap itself is open.
+
+      The question is whether snippets deserve the treatment
+      `comfyui_write_workflow` gets. That machinery is real: a base recorded
+      per `(path, agent_id)`, `expected_version`, and a refusal on `changed`.
+      Against it: a snippet has one writer, no browser tab holding an unsaved
+      copy, and no third-party writer - which is most of why the workflow-file
+      version check exists at all. The cheap middle is to refuse an existing
+      `id` unless `overwrite: true` is passed, which costs one field and
+      catches the accident without the bookkeeping. See "Writing a Workflow
+      File Safely" in CLAUDE.md before picking.
+
+- [ ] **`openWorldHint` is used inconsistently because no rule was ever
+      stated.** Of the tools gated behind a live ComfyUI, all declare it
+      `true` except `comfyui_render_svg` and `comfyui_get_user_preferences`,
+      which declare `false` - and `render_svg` uploads a PNG into ComfyUI's
+      input folder, so it is doing what its neighbours do.
+
+      Not fixed here, because flipping those two assumes the majority reading
+      is the right one and it may not be. The MCP spec's example contrasts web
+      search (open) with a memory tool (closed), and a ComfyUI on localhost is
+      arguably a closed, known domain - under which reading it is the ~20
+      tools saying `true` that are wrong, not the two saying `false`. The
+      tools that unambiguously leave this machine are `comfyui_download_font`
+      (Google Fonts) and `comfyui_extract_workflow` given a URL.
+
+      Decide the rule first - the plain one is "true iff the call can reach
+      beyond this machine" - write it next to `ToolAnnotations` in
+      `server/register.ts`, then sweep. A guard test can hold the line
+      afterwards; `tool-conventions.test.ts` is where it would go.
+
 ## P2 — model scanner scope
 
 - [ ] **Expand the model scanner's scope.** Today `comfyui_scan_model` walks

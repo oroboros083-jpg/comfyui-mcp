@@ -6,13 +6,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { defineTool, noArgs } from "../register.js";
+import { defineTool } from "../register.js";
 import { ensureConnected } from "../connection.js";
 import {
   dataResult,
   errorResult,
   formattedResult,
   envelopeFor,
+  paginate,
   paginationFields,
   responseFormatField,
 } from "../../utils/response.js";
@@ -23,7 +24,6 @@ import { renderSvgSchema, renderSvg } from "../../tools/svg.js";
 import {
   downloadFontSchema,
   downloadFont,
-  listFontsSchema,
   listFonts,
   RECOMMENDED_MAP_FONTS,
 } from "../../tools/fonts.js";
@@ -190,9 +190,15 @@ export function registerWorkspaceTools(server: McpServer): void {
   defineTool(server, {
     name: "list_topics",
     description:
-      "List every topic that has notes, with a count for each. Cheap way to see what has been recorded " +
-      "before searching.",
-    schema: noArgs,
+      "List the topics that have notes, with a count for each. Cheap way to see what has been recorded " +
+      "before searching. Paginated - topics grow with every new one comfyui_save_note invents.\n\n" +
+      "Returns: { total, count, offset, topics: [{ topic, count }], has_more, next_offset }",
+    schema: z
+      .object({
+        ...paginationFields,
+        response_format: responseFormatField,
+      })
+      .strict(),
     requiresConnection: false,
     annotations: {
       title: "List Note Topics",
@@ -200,11 +206,28 @@ export function registerWorkspaceTools(server: McpServer): void {
       idempotentHint: true,
       openWorldHint: false,
     },
-    handler: () => {
+    handler: (input) => {
       // Each row carries its note count, which is what the description has
       // always promised and what makes this worth calling before get_notes.
-      const topics = db.getTopics();
-      return dataResult({ count: topics.length, topics });
+      // Paged in memory rather than in SQL: this is a GROUP BY over notes, so
+      // the full list is already materialised and `total` stays the real
+      // count rather than the page size.
+      const { items: topics, ...envelope } = paginate(
+        db.getTopics(),
+        input.limit,
+        input.offset
+      );
+      const data = { ...envelope, topics };
+
+      return formattedResult(input.response_format, data, () =>
+        renderListing({
+          title: "Note Topics",
+          rows: topics.map((t) => `- **${t.topic}** - ${t.count} note(s)`),
+          page: envelope,
+          empty: "No notes saved yet. Use comfyui_save_note to record something.",
+          next: "Call comfyui_get_notes with a topic for the notes under it.",
+        })
+      );
     },
   });
 
@@ -394,9 +417,18 @@ export function registerWorkspaceTools(server: McpServer): void {
   defineTool(server, {
     name: "list_fonts",
     description:
-      "List fonts already downloaded and available to comfyui_render_svg. Use comfyui_download_font to " +
-      "add more.",
-    schema: listFontsSchema,
+      "List fonts already downloaded and available to comfyui_render_svg. Paginated - the font " +
+      "directory grows with every comfyui_download_font call, which is also how to add more.\n\n" +
+      "The suggested fantasy/map faces are carried only on the FIRST page, and only while nothing " +
+      "has been downloaded yet: once there are fonts to list, they are what the caller asked for.\n\n" +
+      "Returns: { total, count, offset, fonts: [{ name, filename, path, format, size }], fontsDir, " +
+      "has_more, next_offset, recommended? }",
+    schema: z
+      .object({
+        ...paginationFields,
+        response_format: responseFormatField,
+      })
+      .strict(),
     requiresConnection: false,
     annotations: {
       title: "List Downloaded Fonts",
@@ -404,9 +436,34 @@ export function registerWorkspaceTools(server: McpServer): void {
       idempotentHint: true,
       openWorldHint: false,
     },
-    handler: async () => {
-      const result = await listFonts();
-      return dataResult({ ...result, recommended: RECOMMENDED_MAP_FONTS });
+    handler: async (input) => {
+      const { fonts: all, fontsDir } = await listFonts();
+      const { items: fonts, ...envelope } = paginate(all, input.limit, input.offset);
+
+      // The recommendations are a fixed catalogue, so repeating them on every
+      // page of every call is pure token cost. They earn their place only
+      // when there is nothing else to answer with.
+      const suggest = all.length === 0;
+      const data = {
+        ...envelope,
+        fonts,
+        fontsDir,
+        ...(suggest ? { recommended: RECOMMENDED_MAP_FONTS } : {}),
+      };
+
+      return formattedResult(input.response_format, data, () =>
+        renderListing({
+          title: "Downloaded Fonts",
+          rows: fonts.map(
+            (f) => `- **${f.name}** (\`${f.filename}\`, ${f.format}, ${f.size} bytes)`
+          ),
+          page: envelope,
+          empty:
+            "No fonts downloaded yet. comfyui_download_font takes a Google Fonts family or a direct " +
+            `URL; for fantasy/map work try: ${RECOMMENDED_MAP_FONTS.map((f) => f.family).join(", ")}.`,
+          next: 'Use a font in comfyui_render_svg with fonts: [{ name: "<name>" }].',
+        })
+      );
     },
   });
 }
