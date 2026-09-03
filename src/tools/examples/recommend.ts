@@ -488,7 +488,7 @@ export interface WorkflowRecommendation {
   iteration: string;
   /** Matching templates from builtin and saved templates */
   matchingTemplates?: Array<{
-    source: "builtin" | "example" | "custom";
+    source: "builtin" | "custom";
     id: string;
     name: string;
     description: string;
@@ -692,7 +692,14 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
   output += `${rec.iteration}\n`;
 
   if (rec.alternativeWorkflows && rec.alternativeWorkflows.length > 0) {
+    // These names were entries in the bundled example catalogue, which is
+    // gone. They survive because each is still a real Comfy gallery template,
+    // so the name remains a usable search term - but a bare bullet list reads
+    // exactly like the Matching Templates section below it, and a caller who
+    // reads it that way spends a comfyui_get_user_snippet call on an id that
+    // resolves to nothing. Say where they have to be fetched from.
     output += `\n## Alternative Workflows\n`;
+    output += `Not on this machine - search the official Comfy MCP's gallery by name:\n`;
     for (const alt of rec.alternativeWorkflows) {
       output += `- ${alt}\n`;
     }
@@ -713,7 +720,17 @@ export function formatWorkflowRecommendation(rec: WorkflowRecommendation): strin
   // A starter graph comes from comfyui_get_user_snippet for a built-in or
   // saved template, or from the official Comfy MCP's gallery. This server no
   // longer bundles its own example workflows.
-  output += `1. Build the graph from a template above, or search the Comfy gallery
+  //
+  // Gated on the same array as the Matching Templates block above, because
+  // "a template above" otherwise points at a section that was never
+  // rendered. Most of MODEL_PATTERNS lands in the else branch:
+  // BUILTIN_TEMPLATES has six entries and not one of them is a wan, cosmos,
+  // chroma, lumina, hidream, ltxvideo, mochi, omnigen or aceaudio graph.
+  output +=
+    rec.matchingTemplates && rec.matchingTemplates.length > 0
+      ? `1. Build the graph from a template above, or search the Comfy gallery
+`
+      : `1. No template here matches. Search the official Comfy MCP's gallery for a starting graph
 `;
   // Points back at the Prompting section rather than naming a guide after
   // modelType. That was a four-value union when this line was written and

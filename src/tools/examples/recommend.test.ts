@@ -127,3 +127,66 @@ test("single-encoder architectures still get UNET sampler defaults", async () =>
   assert.equal(rec.recommendedSettings.sampler, "euler");
   assert.equal(rec.recommendedSettings.scheduler, "simple");
 });
+
+test("next steps do not point at a template section that was not rendered", () => {
+  // Step 1 used to read "Build the graph from a template above" whatever
+  // happened, while the Matching Templates block above it was gated on
+  // `matchingTemplates`. BUILTIN_TEMPLATES has six entries and none of them
+  // is a wan, cosmos, chroma, lumina, hidream, ltxvideo, mochi, omnigen or
+  // aceaudio graph, so most of MODEL_PATTERNS rendered a pointer to nothing.
+  const base = {
+    architecture: "wan",
+    modelType: "wan",
+    isCheckpoint: false,
+    workflowType: "unet_clip",
+    recommendedSettings: { steps: 20, cfg: 7, width: 1024, height: 1024 },
+    promptingGuide: "guide text",
+    notes: "notes",
+    iteration: "iteration",
+  } as unknown as WorkflowRecommendation;
+
+  const without = formatWorkflowRecommendation(base);
+  assert.ok(
+    !without.includes("## Matching Templates"),
+    "precondition: no template section is rendered for an empty match list"
+  );
+  assert.ok(
+    !without.includes("template above"),
+    `step 1 points at an absent section:\n${without}`
+  );
+  assert.match(without, /Search the official Comfy MCP's gallery/);
+
+  const withMatch = formatWorkflowRecommendation({
+    ...base,
+    matchingTemplates: [
+      { source: "builtin", id: "standard-txt2img", name: "Standard", description: "d" },
+    ],
+  });
+  assert.ok(withMatch.includes("## Matching Templates"));
+  assert.ok(
+    withMatch.includes("template above"),
+    "with a match rendered, step 1 should still refer to it"
+  );
+});
+
+test("alternative workflows say they are not resolvable on this machine", () => {
+  // These names came from the deleted example catalogue. They render beside
+  // Matching Templates, whose entries DO resolve through
+  // comfyui_get_user_snippet - so without a qualifier a caller spends a call
+  // on an id that does not exist.
+  const rec = {
+    architecture: "flux",
+    modelType: "flux",
+    isCheckpoint: false,
+    workflowType: "flux",
+    recommendedSettings: { steps: 20, cfg: 1, width: 1024, height: 1024 },
+    promptingGuide: "guide text",
+    notes: "notes",
+    iteration: "iteration",
+    alternativeWorkflows: ["Flux Kontext"],
+  } as unknown as WorkflowRecommendation;
+
+  const output = formatWorkflowRecommendation(rec);
+  const section = output.slice(output.indexOf("## Alternative Workflows"));
+  assert.match(section.split("\n").slice(0, 2).join("\n"), /gallery/);
+});
