@@ -1593,7 +1593,6 @@ an MCP server is judged on.
 | Suite | Needs ComfyUI? |
 |---|---|
 | `evals/library.xml` | No — answers come from data compiled into the server. Safe for CI. |
-| `evals/live-instance.xml` | Yes — answers depend on which models are installed. |
 
 See [`evals/README.md`](evals/README.md).
 

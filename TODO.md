@@ -7,31 +7,6 @@ if it stays undone, not about how hard it is.
 
 ## P2 — worth doing, no one is blocked
 
-- [ ] **`evals/live-instance.xml` exercises four tools that no longer exist.**
-      Its header says the suite covers `comfyui_list_models`,
-      `comfyui_get_capabilities`, `comfyui_get_node_info` and
-      `comfyui_list_nodes`; all four were dropped in favour of the official
-      Comfy MCP's `search_models` and `nodes`. Confirmed 2026-09-02 by
-      grepping every `comfyui_` name under `evals/` against the names
-      `registeredToolNames()` builds in `src/server/tool-references.test.ts`.
-
-      The header is the small half. All ten questions ask for an exact model
-      filename ("give the exact filename of the diffusion model for the LOW
-      noise pass"), and no tool this server still registers returns one:
-      `comfyui_get_status` is the nearest, and `getCapabilitySummary`
-      (`src/capabilities/index.ts:226`) emits architecture display names and
-      feature flags, never filenames. So the suite as written now measures the
-      OFFICIAL server, not this one.
-
-      Needs a decision, which is why it is only an entry: rewrite the ten
-      questions against what this server does answer with a live ComfyUI
-      (prompting guides keyed off detected architecture, tag search against
-      ComfyUI-Autocomplete-Plus, the queue's `client_id` scoping), or delete
-      the suite and say in `evals/README.md` that the live surface is the
-      official server's. Do not merely fix the header - that leaves ten
-      questions pointed at another server's tools while claiming to test this
-      one.
-
 - [ ] **`src/tools/examples/` no longer holds any examples.** Dropping the
       bundled catalogue left the directory with `recommend.ts`,
       `templates.ts` and `workflow-fetch.ts` - workflow recommendation,

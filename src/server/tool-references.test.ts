@@ -136,10 +136,13 @@ test("no eval suite asks for a comfyui_ tool that was removed", () => {
   // for a question nothing could have answered, so the suite reports a
   // regression that is really a stale question.
   //
-  // No allow-removed escape here, unlike the README. That marker is an HTML
-  // comment, and these headers are already XML comments - nesting them is
-  // not well-formed. A suite has no migration table to document either;
-  // if it names a tool, it means to call it.
+  // The allow-removed escape applies to the .md files only, and the asymmetry
+  // is the point. Prose here has the same job the README's migration table
+  // has - evals/README.md explains why the live suite was deleted, which
+  // means naming the four tools it was built on. A suite has no such job: an
+  // .xml file that names a tool means to call it, so it gets no escape. The
+  // marker is an HTML comment and a suite header is already an XML comment,
+  // so nesting one inside would not be well-formed anyway.
   const registered = registeredToolNames();
   const dir = fileURLToPath(new URL("../../evals", import.meta.url));
   const offenders: string[] = [];
@@ -147,7 +150,8 @@ test("no eval suite asks for a comfyui_ tool that was removed", () => {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
     if (!/\.(xml|md)$/.test(entry.name)) continue;
-    const text = readFileSync(join(dir, entry.name), "utf-8");
+    const raw = readFileSync(join(dir, entry.name), "utf-8");
+    const text = entry.name.endsWith(".md") ? withoutAllowedBlocks(raw) : raw;
     for (const match of new Set(text.match(/(?<!\/)\bcomfyui_[a-z_]+/g) ?? [])) {
       if (!registered.has(match)) offenders.push(`${entry.name}: ${match}`);
     }
