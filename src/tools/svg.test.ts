@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import sharp from "sharp";
 
-import { renderSvg, renderSvgSchema } from "./svg.js";
+import { renderSvg, renderSvgSchema, sanitizeSvg } from "./svg.js";
 
 /** Fill in the schema defaults the tool would apply. */
 function input(overrides: Record<string, unknown>) {
@@ -121,4 +121,48 @@ test("render dimensions are bounded, so a bad argument cannot exhaust memory", (
     true,
     "an ordinary size still parses"
   );
+});
+
+// --- sanitising -----------------------------------------------------------
+//
+// Nothing below is a live hole on the linked librsvg, which refuses external
+// resources outright - see sanitizeSvg's own comment for the measurement.
+// These pin the sanitiser's own claims, so a future libvips that does load
+// them does not find the check already walked past.
+
+test("an external href is blanked, quoted either way", () => {
+  assert.match(sanitizeSvg('<image href="file:///etc/passwd"/>'), /href=""/);
+  assert.match(sanitizeSvg("<image xlink:href='http://example.com/x.png'/>"), /href=""/);
+});
+
+test("an unquoted href is blanked too", () => {
+  // The pattern required quotes, so this was left exactly as written.
+  assert.match(sanitizeSvg("<image href=file:///etc/passwd />"), /href=""/);
+});
+
+test("a character-encoded scheme does not walk past the check", () => {
+  // "&#102;ile:" is file: to any conforming parser, and was not file: to a
+  // regex reading the raw attribute text.
+  assert.match(sanitizeSvg('<image href="&#102;ile:///etc/passwd"/>'), /href=""/);
+  assert.match(sanitizeSvg('<image href="&#x68;ttp://example.com/x.png"/>'), /href=""/);
+});
+
+test("a DOCTYPE is removed, internal subset and all", () => {
+  const result = sanitizeSvg(
+    '<!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/hostname">]><svg><text>&xxe;</text></svg>'
+  );
+
+  assert.equal(/<!DOCTYPE/i.test(result), false);
+  assert.equal(/ENTITY/.test(result), false);
+  assert.match(result, /<svg>/);
+});
+
+test("self-contained references are left alone", () => {
+  // Fragments and data: URIs are the legitimate embedding cases; blanking
+  // them would break every <use> in a real document.
+  const fragment = '<use href="#icon"/>';
+  assert.equal(sanitizeSvg(fragment), fragment);
+
+  const data = '<image href="data:image/png;base64,iVBORw0KGgo="/>';
+  assert.equal(sanitizeSvg(data), data);
 });

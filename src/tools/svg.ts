@@ -44,6 +44,25 @@ export interface RenderSvgResult {
 // data: URI.
 const EXTERNAL_HREF_PATTERN = /^\s*(?:https?|file|ftp):/i;
 
+/** A DOCTYPE, internal subset and all - where an XXE entity would be declared. */
+const DOCTYPE_PATTERN = /<!DOCTYPE[^>[]*(?:\[[\s\S]*?\])?[^>]*>/gi;
+
+/**
+ * Resolve XML character references before the scheme is tested.
+ *
+ * `href="&#102;ile:///etc/passwd"` is `file:` to any conforming parser and
+ * was not `file:` to EXTERNAL_HREF_PATTERN, because the check ran over the
+ * raw attribute text. Decoding first closes the gap without teaching the
+ * regex about encodings.
+ */
+function decodeCharRefs(value: string): string {
+  return value.replace(/&#(x?)([0-9a-f]+);?/gi, (match, hex: string, digits: string) => {
+    const code = Number.parseInt(digits, hex ? 16 : 10);
+    if (!Number.isFinite(code) || code < 1 || code > 0x10ffff) return match;
+    return String.fromCodePoint(code);
+  });
+}
+
 /**
  * Strip constructs that let SVG markup reach outside the document it came
  * in: <image>/<use>/<script>/<foreignObject> href targets pointing at a
@@ -53,18 +72,41 @@ const EXTERNAL_HREF_PATTERN = /^\s*(?:https?|file|ftp):/i;
  * uploaded to ComfyUI and can flow back to the caller. This is deliberately
  * conservative: fragment references (#id) and data: URIs are left alone
  * since they're self-contained and cover the legitimate embedding cases.
+ *
+ * WHAT THIS IS WORTH, MEASURED. Against the stack actually linked here -
+ * sharp 0.35.4, libvips 8.18.6, librsvg 2.62.91 - none of these reach
+ * anything even unsanitised. Rendering an <image> whose href is a local PNG
+ * yields a blank canvas via `file://`, via a bare path, and via
+ * `&#102;ile://`; an `http://` href likewise; and a DOCTYPE declaring an
+ * external entity fails the XML parse with "Entity not defined" rather than
+ * resolving it. A data: URI of the same PNG renders, so the probe was
+ * capable of seeing a load had one happened. librsvg refuses external
+ * resources outright when it has no base URI, which is the case for every
+ * buffer sharp hands it.
+ *
+ * So this is defence in depth against a future libvips linked differently,
+ * not a live hole being plugged - which is why it stays a regex rather than
+ * becoming an XML parser. What it does not attempt: namespace-prefixed
+ * aliases of xlink, entity references (&e;) that a resolving parser would
+ * expand, or CSS url() in a style attribute.
  */
-function sanitizeSvg(svg: string): string {
+export function sanitizeSvg(svg: string): string {
   let sanitized = svg;
 
+  // Before anything else: no internal subset means no entity to expand,
+  // whatever the parser downstream is willing to resolve.
+  sanitized = sanitized.replace(DOCTYPE_PATTERN, "");
   sanitized = sanitized.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
   sanitized = sanitized.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
 
+  // The unquoted alternative matters: XML requires quotes, but the renderer
+  // is fed by an HTML-tolerant parser and the pattern that required them
+  // simply did not see href=file:///etc/passwd.
   sanitized = sanitized.replace(
-    /((?:xlink:)?href\s*=\s*)("([^"]*)"|'([^']*)')/gi,
-    (match, prefix, _quoted, dq, sq) => {
-      const value = dq ?? sq ?? "";
-      if (EXTERNAL_HREF_PATTERN.test(value)) {
+    /((?:xlink:)?href\s*=\s*)("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+    (match, prefix: string, _quoted: string, dq?: string, sq?: string, bare?: string) => {
+      const value = dq ?? sq ?? bare ?? "";
+      if (EXTERNAL_HREF_PATTERN.test(decodeCharRefs(value))) {
         return `${prefix}""`;
       }
       return match;
