@@ -114,7 +114,10 @@ export function envelopeFor(total: number, count: number, offset: number): PageE
 
 /** Compact JSON. Indentation is pure token cost for a machine reader. */
 export function jsonText(value: unknown): string {
-  return JSON.stringify(value, (_k, v) => (v === undefined ? undefined : v));
+  // No replacer: this carried `(_k, v) => (v === undefined ? undefined : v)`,
+  // which is what JSON.stringify already does for undefined - object keys
+  // dropped, array holes written as null - so it only cost a call per value.
+  return JSON.stringify(value);
 }
 
 /**

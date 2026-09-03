@@ -184,3 +184,42 @@ test("ComfyUI's own validation errors are still preserved on submit", async () =
     }
   );
 });
+
+test("a dropped connection during a restart is the reboot taking effect", async () => {
+  const client = new ComfyUIClient("http://127.0.0.1:8188");
+
+  await withFetch(
+    async () => {
+      // ComfyUI-Manager's handler exits the process without finishing the
+      // response, so the socket dies. That is what success looks like here.
+      throw new TypeError("fetch failed");
+    },
+    async () => {
+      assert.deepEqual(await client.requestRestart(), { endpoint: "/api/manager/reboot" });
+    }
+  );
+});
+
+test("a restart that times out is reported as a timeout, not as a restart", async () => {
+  // Every thrown error used to return { endpoint }, so an AbortError from the
+  // 15s timeout - a ComfyUI holding the socket open and never answering - read
+  // as a reboot in progress and sent the caller off to watch for a shutdown
+  // that was never coming.
+  const client = new ComfyUIClient("http://127.0.0.1:8188");
+
+  await withFetch(
+    async () => {
+      const aborted = new Error("This operation was aborted");
+      aborted.name = "AbortError";
+      throw aborted;
+    },
+    async () => {
+      await assert.rejects(client.requestRestart(), (err: unknown) => {
+        assert.ok(err instanceof ToolError, `got ${String(err)}`);
+        assert.match(err.message, /did not answer within 15s/);
+        assert.match(err.hint ?? "", /comfyui_reconnect/);
+        return true;
+      });
+    }
+  );
+});

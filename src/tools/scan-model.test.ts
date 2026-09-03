@@ -137,6 +137,15 @@ const ORDINARY_PICKLE = Buffer.concat([
   STOP,
 ]);
 
+/** The other half: a pickle that names posix.system and calls it. */
+const DANGEROUS_PICKLE = Buffer.concat([
+  PROTO(2),
+  global_("posix", "system"),
+  EMPTY_TUPLE,
+  REDUCE,
+  STOP,
+]);
+
 // --- the opcode walker ----------------------------------------------------
 
 test("a plain GLOBAL is read as an import", () => {
@@ -297,6 +306,66 @@ test("a dangerous module name left as a bare constant is still reported", async 
 
 // --- containers -----------------------------------------------------------
 
+test("a dangling builtins/eval pair is reported, module names alone are not", async () => {
+  // The backstop checked only whole-module signatures, which excluded every
+  // entry carrying `names` - so builtins.eval, the commonest primitive there
+  // is, went unseen exactly when the pairing had been broken to hide it.
+  const paired = fixture(
+    "paired.pt",
+    Buffer.concat([
+      PROTO(4),
+      shortUnicode("builtins"),
+      MEMOIZE,
+      shortUnicode("eval"),
+      MEMOIZE,
+      EMPTY_DICT,
+      STOP,
+    ])
+  );
+
+  const result = await scanModel({ path: paired, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "dangerous");
+  assert.equal(result.findings[0]!.target, "builtins.eval");
+  assert.match(result.findings[0]!.reason, /both appear as string constants/);
+});
+
+test("half of a pair is not a finding, because 'eval' is a plausible config value", async () => {
+  // A false positive here is worse than a miss: a scanner that flags ordinary
+  // checkpoints teaches its reader to skip the findings. {"mode": "eval"} is
+  // an ordinary thing for a training config to carry.
+  const path = fixture(
+    "config.pt",
+    Buffer.concat([
+      PROTO(4),
+      shortUnicode("mode"),
+      shortUnicode("eval"),
+      shortUnicode("exec"),
+      EMPTY_DICT,
+      STOP,
+    ])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "safe");
+  assert.deepEqual(result.findings, []);
+});
+
+test("a resolved import is not reported twice by the constant backstop", async () => {
+  const path = fixture(
+    "resolved.pt",
+    Buffer.concat([PROTO(4), stackGlobal("builtins", "eval"), EMPTY_TUPLE, REDUCE, STOP])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "dangerous");
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0]!.target, "builtins.eval");
+  assert.match(result.findings[0]!.reason, /evaluates code/);
+});
+
 test("safetensors is reported safe by format, with nothing scanned", async () => {
   const header = Buffer.from(JSON.stringify({ __metadata__: { format: "pt" } }), "utf-8");
   const length = Buffer.alloc(8);
@@ -404,13 +473,86 @@ test("a deflated data.pkl is inflated before scanning", async () => {
   assert.equal(result.verdict, "dangerous");
 });
 
-test("a ZIP with no data.pkl has nothing to unpickle", async () => {
+test("a ZIP with no pickle at all has nothing to unpickle", async () => {
   const path = fixture("weights.bin", zipWith([{ name: "config.json", data: Buffer.from("{}") }]));
 
   const result = await scanModel({ path, response_format: ResponseFormat.JSON });
 
   assert.equal(result.verdict, "safe");
-  assert.match(result.summary, /no data\.pkl/);
+  assert.match(result.summary, /no pickle in it/);
+});
+
+test("a pickle member not named data.pkl is still walked", async () => {
+  // The member lookup was `data.pkl` or `*/data.pkl` exactly, and anything
+  // else answered "no data.pkl, so nothing here unpickles" - while .pkl is
+  // itself an extension this tool opens, so `evil.pkl` inside a ZIP was a
+  // clean verdict over a live payload.
+  const path = fixture(
+    "trojan.bin",
+    zipWith([
+      { name: "config.json", data: Buffer.from("{}") },
+      { name: "evil.pkl", data: DANGEROUS_PICKLE },
+    ])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "dangerous");
+  assert.equal(result.pickleEntry, "evil.pkl");
+  assert.ok(result.findings.some((f) => f.target === "posix.system"));
+});
+
+test("every pickle member is walked, not just the first", async () => {
+  const path = fixture(
+    "two.bin",
+    zipWith([
+      { name: "archive/data.pkl", data: ORDINARY_PICKLE },
+      { name: "archive/extra.pkl", data: DANGEROUS_PICKLE },
+    ])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "dangerous");
+  // data.pkl stays the headline member, whatever order the archive lists.
+  assert.equal(result.pickleEntry, "archive/data.pkl");
+  assert.deepEqual(result.pickleEntries, ["archive/data.pkl", "archive/extra.pkl"]);
+});
+
+test("pickle members past the cap are reported rather than dropped", async () => {
+  const members = Array.from({ length: 10 }, (_, i) => ({
+    name: `part${i}.pkl`,
+    data: ORDINARY_PICKLE,
+  }));
+  const path = fixture("many.bin", zipWith(members));
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.pickleEntries?.length, 8);
+  assert.match(result.incomplete ?? "", /2 further pickle members went unread/);
+});
+
+test("TorchScript code is reported, not answered as nothing to unpickle", async () => {
+  // torch.load does not run code/*.py, but torch.jit.load compiles it, and
+  // "nothing here unpickles" read as a clean bill of health over an archive
+  // whose whole payload is executable Python.
+  const path = fixture(
+    "scripted.pt",
+    zipWith([
+      { name: "scripted/constants.pkl", data: ORDINARY_PICKLE },
+      { name: "scripted/code/__torch__.py", data: Buffer.from("import os\nos.system('x')\n") },
+    ])
+  );
+
+  const result = await scanModel({ path, response_format: ResponseFormat.JSON });
+
+  assert.equal(result.verdict, "suspicious");
+  assert.deepEqual(result.codeEntries, ["scripted/code/__torch__.py"]);
+  assert.ok(
+    result.findings.some(
+      (f) => f.target === "scripted/code/__torch__.py" && /torch\.jit\.load/.test(f.reason)
+    )
+  );
 });
 
 // --- what it refuses ------------------------------------------------------

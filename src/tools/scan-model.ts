@@ -68,6 +68,33 @@ const HEAD_BYTES = 4096;
 const MAX_SAFETENSORS_HEADER_BYTES = 16 * 1024 * 1024;
 /** Entries reported per archive; a checkpoint has one per tensor. */
 const MAX_ENTRIES_REPORTED = 20;
+/**
+ * Pickle members walked in one archive.
+ *
+ * torch.save writes exactly one, but the format does not require that and a
+ * scanner that reads only the first is trivially evaded. Past this the file
+ * is not a checkpoint, and the ones not read are reported rather than
+ * quietly dropped.
+ */
+const MAX_PICKLE_MEMBERS = 8;
+
+/**
+ * Members that unpickle when something loads this archive.
+ *
+ * `data.pkl` is what torch.save writes; TorchScript writes `constants.pkl`
+ * beside compiled code, and nothing stops a hand-built archive naming its
+ * pickle anything at all. `.pkl` is an accepted extension for this tool, so
+ * a ZIP holding `evil.pkl` used to scan clean on the grounds that it had no
+ * `data.pkl`.
+ */
+const PICKLE_MEMBER = /\.(?:pkl|pickle)$/i;
+
+/**
+ * TorchScript's compiled Python. `torch.load` does not run it, but
+ * `torch.jit.load` compiles it, so an archive carrying it is not the inert
+ * bag of tensors that "nothing here unpickles" implied.
+ */
+const CODE_MEMBER = /(?:^|\/)code\/.*\.py$/i;
 /** Ordinary imports listed before the rest are counted instead. */
 const MAX_BENIGN_LISTED = 40;
 
@@ -115,6 +142,10 @@ export interface ScanModelResult {
   incomplete?: string;
   /** For a torch ZIP: which member carried the pickle, and what else is inside. */
   pickleEntry?: string;
+  /** Every pickle member walked, when the archive holds more than one. */
+  pickleEntries?: string[];
+  /** TorchScript source members. Not unpickled, but not inert either. */
+  codeEntries?: string[];
   entryCount?: number;
   /** Present when a .safetensors of the same name sits beside a pickle. */
   saferAlternative?: string;
@@ -199,28 +230,58 @@ function findingsFor(scan: PickleScan): {
   }
 
   // The backstop for a stream that deliberately breaks STACK_GLOBAL's pairing:
-  // the module name is still in the file as a string constant.
+  // the names are still in the file as string constants.
   const alreadyFlagged = new Set(findings.map((f) => f.target.split(".")[0]));
-  for (const module of danglingDangerousConstants(scan.constants)) {
-    if (alreadyFlagged.has(module)) continue;
-    findings.push({
-      severity: "dangerous",
-      target: module,
-      reason:
-        `the name '${module}' appears as a string constant without a resolvable import. ` +
-        "A pickle that assembles its imports on the stack to hide them is doing so on purpose",
-    });
+  for (const dangling of danglingDangerousConstants(scan.constants)) {
+    if (alreadyFlagged.has(dangling.target.split(".")[0])) continue;
+    findings.push({ severity: "dangerous", target: dangling.target, reason: dangling.reason });
   }
 
-  findings.sort((a, b) =>
-    a.severity === b.severity ? 0 : a.severity === "dangerous" ? -1 : 1
-  );
+  findings.sort(bySeverity);
 
   return {
     findings,
     ordinary: ordinary.slice(0, MAX_BENIGN_LISTED),
     ordinaryCount: ordinary.length,
   };
+}
+
+/** Dangerous first; the caller reads top down and may stop early. */
+function bySeverity(a: ScanFinding, b: ScanFinding): number {
+  return a.severity === b.severity ? 0 : a.severity === "dangerous" ? -1 : 1;
+}
+
+/**
+ * Fold several walked members into one scan.
+ *
+ * The verdict is about the archive, not about a member, so imports and
+ * constants pool - including for the dangling-constant backstop, which is
+ * why constants are merged rather than scanned per member. Truncation is
+ * sticky: one member that stopped early means the answer covers less than
+ * the file, whatever the others did.
+ */
+function mergeScans(scans: PickleScan[], unread: string[]): PickleScan {
+  const merged: PickleScan = {
+    imports: scans.flatMap((s) => s.imports),
+    constants: [...new Set(scans.flatMap((s) => s.constants))],
+    calls: scans.reduce((sum, s) => sum + s.calls, 0),
+    truncated: false,
+  };
+
+  const stopped = scans.find((s) => s.truncated);
+  if (stopped) {
+    merged.truncated = true;
+    merged.stoppedBecause = stopped.stoppedBecause;
+  }
+  if (unread.length) {
+    merged.truncated = true;
+    merged.stoppedBecause =
+      `${unread.length} further pickle member${unread.length === 1 ? "" : "s"} ` +
+      `went unread past the cap of ${MAX_PICKLE_MEMBERS} (${unread.join(", ")})` +
+      (merged.stoppedBecause ? `; ${merged.stoppedBecause}` : "");
+  }
+
+  return merged;
 }
 
 function verdictFor(findings: ScanFinding[]): ScanVerdict {
@@ -255,8 +316,8 @@ function summaryFor(
   }
   if (result.findings.length) {
     return (
-      `${name} names imports that are unusual in a tensor file but not proof of anything - ` +
-      `read them before loading.${alternative}`
+      `${name} names imports or members that are unusual in a tensor file but not proof of ` +
+      `anything - read them before loading.${alternative}`
     );
   }
 
@@ -330,56 +391,89 @@ export async function scanModel(input: ScanModelInput): Promise<ScanModelResult>
         );
       }
 
-      // torch.save names it "<prefix>/data.pkl"; a plain zipfile may not
-      // nest it at all.
-      const pickleEntry = entries.find(
-        (e) => e.name === "data.pkl" || e.name.endsWith("/data.pkl")
-      );
-      if (!pickleEntry) {
+      // torch.save writes one "<prefix>/data.pkl", but nothing about the
+      // format requires that: TorchScript writes constants.pkl beside
+      // compiled code, and a hand-built archive can name its pickle whatever
+      // it likes. Every pickle member is walked, data.pkl first so it stays
+      // the one reported as `pickleEntry`.
+      const isPrimary = (name: string) => name === "data.pkl" || name.endsWith("/data.pkl");
+      const pickleMembers = entries
+        .filter((e) => PICKLE_MEMBER.test(e.name))
+        .sort((a, b) => Number(isPrimary(b.name)) - Number(isPrimary(a.name)));
+
+      const codeMembers = entries.filter((e) => CODE_MEMBER.test(e.name));
+      const codeEntries = codeMembers.slice(0, MAX_ENTRIES_REPORTED).map((e) => e.name);
+      const codeFindings: ScanFinding[] = codeEntries.map((name) => ({
+        severity: "suspicious" as const,
+        target: name,
+        reason:
+          "TorchScript source. torch.load does not run it, but torch.jit.load compiles it, " +
+          "so this archive carries code whatever its pickles say",
+      }));
+
+      if (!pickleMembers.length) {
         const base = {
           path,
           format: "torch-zip" as const,
-          verdict: "safe" as const,
-          findings: [],
+          verdict: verdictFor(codeFindings),
+          findings: codeFindings,
           ordinaryImports: [],
           ordinaryImportCount: 0,
           entryCount: entries.length,
+          ...(codeEntries.length ? { codeEntries } : {}),
         };
+        const members = entries
+          .slice(0, MAX_ENTRIES_REPORTED)
+          .map((e) => e.name)
+          .join(", ");
         return {
           ...base,
           saferAlternative,
-          summary:
-            `${basename(path)} is a ZIP of ${entries.length} members with no data.pkl, so nothing ` +
-            `here unpickles. Members: ${entries
-              .slice(0, MAX_ENTRIES_REPORTED)
-              .map((e) => e.name)
-              .join(", ")}.`,
+          summary: codeFindings.length
+            ? `${basename(path)} is a ZIP of ${entries.length} members with nothing to unpickle, ` +
+              `but it carries ${codeMembers.length} TorchScript source member${
+                codeMembers.length === 1 ? "" : "s"
+              } that torch.jit.load would compile. Members: ${members}.`
+            : `${basename(path)} is a ZIP of ${entries.length} members with no pickle in it, so ` +
+              `nothing here unpickles. Members: ${members}.`,
         };
       }
 
-      let pickleBytes: Buffer;
-      try {
-        pickleBytes = await readZipEntry(handle, pickleEntry, MAX_PICKLE_BYTES);
-      } catch (error) {
-        throw new ModelFileError(
-          `Could not read ${pickleEntry.name}: ${
-            error instanceof ZipReadError ? error.message : String(error)
-          }`,
-          "Scanning cannot say anything about this file. Treat it as unscanned rather than clean."
-        );
+      const walked = pickleMembers.slice(0, MAX_PICKLE_MEMBERS);
+      const scans: PickleScan[] = [];
+      for (const member of walked) {
+        let pickleBytes: Buffer;
+        try {
+          pickleBytes = await readZipEntry(handle, member, MAX_PICKLE_BYTES);
+        } catch (error) {
+          throw new ModelFileError(
+            `Could not read ${member.name}: ${
+              error instanceof ZipReadError ? error.message : String(error)
+            }`,
+            "Scanning cannot say anything about this file. Treat it as unscanned rather than clean."
+          );
+        }
+        scans.push(scanPickle(pickleBytes));
       }
 
-      const scan = scanPickle(pickleBytes);
+      const scan = mergeScans(
+        scans,
+        pickleMembers.slice(MAX_PICKLE_MEMBERS).map((e) => e.name)
+      );
       const { findings, ordinary, ordinaryCount } = findingsFor(scan);
+      const all = [...findings, ...codeFindings].sort(bySeverity);
+      const names = walked.map((e) => e.name);
       const base = {
         path,
         format: "torch-zip" as const,
-        verdict: verdictFor(findings),
-        findings,
+        verdict: verdictFor(all),
+        findings: all,
         ordinaryImports: ordinary,
         ordinaryImportCount: ordinaryCount,
         incomplete: scan.truncated ? scan.stoppedBecause : undefined,
-        pickleEntry: pickleEntry.name,
+        pickleEntry: names[0],
+        ...(names.length > 1 ? { pickleEntries: names } : {}),
+        ...(codeEntries.length ? { codeEntries } : {}),
         entryCount: entries.length,
         saferAlternative,
       };

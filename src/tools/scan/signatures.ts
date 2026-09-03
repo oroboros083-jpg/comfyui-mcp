@@ -202,18 +202,67 @@ export function classifyImport(
   return null;
 }
 
+/** One dangerous name found in the constants with no import to explain it. */
+export interface DanglingConstant {
+  /** "subprocess", or "builtins.eval" where a module and member were paired. */
+  target: string;
+  reason: string;
+}
+
+const DANGLING_REASON =
+  "A pickle that assembles its imports on the stack to hide them is doing so on purpose";
+
 /**
- * Dangerous module names appearing as bare string constants.
+ * Dangerous names appearing as bare string constants.
  *
  * The backstop for a stream that has broken STACK_GLOBAL's pairing on purpose:
- * whatever order the pushes are in, the module name still has to be in the
- * file as a string. Only whole-module signatures are checked, and only against
- * exact constants, because a substring test against tensor names would fire
- * constantly.
+ * whatever order the pushes are in, the names still have to be in the file as
+ * strings. Matching is against exact constants only - a substring test over
+ * tensor names would fire constantly.
+ *
+ * Two rules, and the second exists because the first excluded every signature
+ * carrying `names`, which is where `builtins.eval` lives - the commonest
+ * primitive of the lot, and the one this backstop most needs to see:
+ *
+ *  - a whole-module signature (`subprocess`, `socket`) fires on the module
+ *    name alone. There is no safe member, so naming it at all is the finding.
+ *  - a signature with names fires only when the module AND one of its
+ *    dangerous members are both present as constants.
+ *
+ * The pairing is what keeps the second rule quiet. On its own, "eval" is a
+ * plausible string in a checkpoint's training config - `{"mode": "eval"}` -
+ * and a false positive here is worse than a miss, because a scanner that
+ * flags ordinary files teaches its reader to skip the findings. "builtins"
+ * and "eval" as two separate constants in one file with no resolvable import
+ * between them is not something an honest checkpoint writes.
  */
-export function danglingDangerousConstants(constants: string[]): string[] {
-  const dangerous = new Set(
-    DANGEROUS.filter((s) => s.names === undefined).map((s) => s.module)
-  );
-  return constants.filter((c) => dangerous.has(c));
+export function danglingDangerousConstants(constants: string[]): DanglingConstant[] {
+  const present = new Set(constants);
+  const found: DanglingConstant[] = [];
+
+  for (const signature of DANGEROUS) {
+    if (!present.has(signature.module)) continue;
+
+    if (signature.names === undefined) {
+      found.push({
+        target: signature.module,
+        reason:
+          `the name '${signature.module}' appears as a string constant without a resolvable ` +
+          `import. ${DANGLING_REASON}`,
+      });
+      continue;
+    }
+
+    for (const name of signature.names) {
+      if (!present.has(name)) continue;
+      found.push({
+        target: `${signature.module}.${name}`,
+        reason:
+          `'${signature.module}' and '${name}' both appear as string constants with no ` +
+          `resolvable import pairing them. ${DANGLING_REASON}`,
+      });
+    }
+  }
+
+  return found;
 }

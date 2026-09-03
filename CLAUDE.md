@@ -447,6 +447,18 @@ So `signatures.ts` is also matched against the raw string constants
 (`danglingDangerousConstants`), which an attacker cannot avoid: `subprocess`
 has to appear in the file as text either way. Do not drop either half.
 
+That second pass fires on a whole-module signature by itself, but a signature
+carrying `names` needs the module AND one of its members present as exact
+constants - `builtins` plus `eval`, not `eval` alone. Keep the pairing: on its
+own `eval` is a plausible string in a training config, and a scanner that
+flags ordinary checkpoints teaches its reader to skip the findings.
+
+**A torch ZIP is scanned by member, not by `data.pkl`.** Every `*.pkl` and
+`*.pickle` in the archive is walked and their imports and constants pooled
+before findings are derived, so a name split across two members still meets
+the backstop. `code/*.py` is reported as its own finding: `torch.load` does
+not run it, `torch.jit.load` does.
+
 **`EXPECTED` does not override `DANGEROUS`.** `classifyImport` checks dangerous
 first on purpose - `torch` is ordinary and `torch.load` is a second unpickle
 hidden inside the first. Reordering those two loops is a silent hole.
