@@ -11,6 +11,8 @@ have the exact command that showed the behaviour.
 
 ## P1 — do next
 
+- [ ] update readme to current state
+
 - [ ] **`isSafetensors` never parses the JSON header, so a pickle can be
       waved through as "safe".** REPRODUCED. `isSafetensors` in
       `src/tools/scan-model.ts` checks only that the first 8 bytes are a
