@@ -104,8 +104,15 @@ export function registerTaskTools(server: McpServer, ctx: () => ServerContext): 
   defineTool(server, {
     name: "cancel_job",
     description:
-      "Cancel a QUEUED ComfyUI job by prompt ID. Only works for jobs that have not started. To stop a " +
-      "job that is actively generating, use comfyui_interrupt instead.",
+      "Cancel QUEUED ComfyUI jobs. Only works for jobs that have not started. To stop a job that is " +
+      "actively generating, use comfyui_interrupt instead.\n\n" +
+      "'promptId' cancels that one job. OMITTING IT IS A BULK CANCEL, not a no-op: 'scope' then " +
+      "decides how wide. The default scope 'mine' cancels every pending job this agent submitted and " +
+      "leaves everyone else's alone; scope: 'all' clears the whole queue including work submitted by " +
+      "other agents and by anyone using the ComfyUI web UI, so ask the user before passing it.\n\n" +
+      "Returns: { success, cancelled, left_alone?, message } - 'cancelled' is the prompt id for a " +
+      "single cancel, or the number of jobs removed for a bulk one, and 'left_alone' counts the " +
+      "foreign jobs a 'mine' cancel deliberately kept.",
     schema: cancelJobSchema,
     requiresConnection: true,
     annotations: {

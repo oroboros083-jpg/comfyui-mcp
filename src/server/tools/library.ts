@@ -175,7 +175,9 @@ export function registerLibraryTools(
         const response = await safeFetch(source);
         if (!response.ok) {
           return errorResult(
-            `Failed to fetch image: ${response.status} ${response.statusText}`
+            `Failed to fetch image: ${response.status} ${response.statusText}`,
+            "Check the URL is reachable and serves the PNG directly. A file " +
+              "already on this machine can be passed as a local path instead."
           );
         }
         const body = await readCappedBody(response, MAX_LOCAL_IMAGE_BYTES);
@@ -197,10 +199,17 @@ export function registerLibraryTools(
           );
         }
         const stats = await stat(source);
-        if (!stats.isFile()) return errorResult(`Not a file: ${source}`);
+        if (!stats.isFile()) {
+          return errorResult(
+            `Not a file: ${source}`,
+            "'source' takes one PNG, not a directory. Name the file itself."
+          );
+        }
         if (stats.size > MAX_LOCAL_IMAGE_BYTES) {
           return errorResult(
-            `File too large (${stats.size} bytes, max ${MAX_LOCAL_IMAGE_BYTES}).`
+            `File too large (${stats.size} bytes, max ${MAX_LOCAL_IMAGE_BYTES}).`,
+            "Only the PNG's metadata is needed, so a downscaled re-save of the " +
+              "same image carries the same workflow."
           );
         }
         const buffer = await readFile(source);
@@ -342,15 +351,25 @@ export function registerLibraryTools(
       "Save a workflow to this user's own snippet library - stored on this machine and searchable " +
       "later with comfyui_search_user_snippets. Name it for its purpose " +
       "('portrait_lighting_studio', 'product_photo_white_bg'), not its ordering.\n\n" +
+      "SAVING OVER AN EXISTING 'id' REPLACES IT outright - workflow, name, description and settings " +
+      "- with no version check and nothing kept. Unlike comfyui_write_workflow there is no " +
+      "lost-update protection here, so call comfyui_search_user_snippets first when you are not " +
+      "certain the id is free.\n\n" +
       "This is a personal library. Nothing here is published, and it is unrelated to the official " +
-      "Comfy template gallery.",
+      "Comfy template gallery.\n\n" +
+      "Returns: { template: { id, name, description, modelType, taskType, category, tags, createdAt, " +
+      "updatedAt }, usage }. A 'createdAt' older than this call is the tell that an existing snippet " +
+      "was replaced rather than a new one created.",
     schema: saveTemplateSchema,
     requiresConnection: false,
     annotations: {
       title: "Save Workflow to User Snippets",
       readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
+      // An existing `id` is UPDATEd in place, so this can destroy a snippet
+      // the user still wants - and re-saving the same arguments lands on the
+      // same row. Both hints used to claim the opposite of each.
+      destructiveHint: true,
+      idempotentHint: true,
       openWorldHint: false,
     },
     handler: (input) => dataResult(saveCustomTemplate(input)),
