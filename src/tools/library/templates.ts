@@ -413,7 +413,11 @@ function applyParametersToWorkflow(
 export const saveTemplateSchema = z.object({
   id: z
     .string()
-    .describe("Unique template ID (e.g., 'my_flux_style', 'upscale_4x')"),
+    .describe(
+      "Template ID (e.g., 'my_flux_style', 'upscale_4x'). An id that already " +
+        "exists is OVERWRITTEN in place, so pass a fresh one unless replacing " +
+        "that snippet is the intent."
+    ),
   name: z
     .string()
     .describe("Human-readable template name"),

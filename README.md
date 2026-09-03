@@ -688,9 +688,14 @@ Get the flux_schnell_txt2img template with prompt "a sunset over mountains"
 Save a workflow as a reusable custom template, stored persistently in the local
 database. Name it for its purpose, not its ordering.
 
+Saving over an existing `id` **replaces it outright** — workflow, name,
+description and settings — with no version check and nothing kept. Unlike
+[`comfyui_write_workflow`](#comfyui_write_workflow) there is no lost-update
+protection here, so search first when you are not certain the id is free.
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `id` | `string` | Unique template ID (e.g., `my_flux_style`, `upscale_4x`) |
+| `id` | `string` | Template ID (e.g., `my_flux_style`, `upscale_4x`). An existing id is **overwritten in place** |
 | `name` | `string` | Descriptive template name |
 | `description` | `string` | What this template does |
 | `workflow` | `object` | The workflow JSON (API format) |
@@ -1338,7 +1343,12 @@ Delete a note by its numeric ID, as returned by `comfyui_get_notes`.
 | `id` | `number` | The note ID to delete |
 
 #### `comfyui_list_topics`
-List every topic that has notes, with a count for each. Takes no parameters.
+List the topics that have notes, with a count for each. Paginated — topics grow
+with every new one `comfyui_save_note` invents.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
 
 ```
 What topics have I saved notes about?
@@ -1414,7 +1424,16 @@ Download a font from Google Fonts or a direct URL for use in SVG rendering.
 Popular fantasy/map fonts available on Google Fonts: Cinzel, Pirata One, MedievalSharp, UnifrakturMaguntia, Almendra.
 
 #### `comfyui_list_fonts`
-List all downloaded fonts available for use in SVG rendering. Takes no parameters.
+List downloaded fonts available for use in SVG rendering. Paginated — the font
+directory grows with every `comfyui_download_font` call.
+
+The suggested fantasy/map faces are carried only on the first page, and only
+while nothing has been downloaded yet: once there are fonts to list, they are
+what the caller asked for.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
 
 ```
 What fonts do I have available for SVG rendering?

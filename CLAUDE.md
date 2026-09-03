@@ -197,6 +197,14 @@ SDK validates every response against it and fails the whole call on a
 mismatch, including on branches you did not think about (empty results, the
 final page, error paths).
 
+Two of the rules above are enforced across the whole surface by
+`server/tool-conventions.test.ts`, which registers every module and inspects
+the registrations: schemas must be `.strict()`, and `limit`, `offset` and
+`response_format` must appear together. It is the companion to
+`tool-references.test.ts` - that one guards against naming a tool which does
+not exist, this one against a tool that exists and is shaped wrongly. Neither
+the compiler nor any other test can see either fault.
+
 ### Coexisting With the Official Comfy MCP
 
 `Comfy-Org/comfy-mcp` is expected to be mounted alongside this server. There is
