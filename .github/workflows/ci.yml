@@ -1,8 +1,8 @@
 name: CI
 
-# Separate from publish.yml on purpose: that one builds and pushes a Docker
-# image, which is slow and only meaningful on main. This is the fast check
-# that should gate every change, so it runs on pull requests too.
+# The only workflow in this repo. It was once the fast half of a pair, split
+# from a publish.yml that built and pushed a Docker image; that workflow went
+# with Docker support, so this is now the whole of CI and gates every change.
 on:
   push:
     branches: [main]

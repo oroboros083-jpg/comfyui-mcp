@@ -8,13 +8,66 @@ if it stays undone, not about how hard it is.
 The whole-codebase review of 2026-09-02 is closed and nothing from it is
 left. Its 15 findings were applied on 2026-09-03, and the eleven entries it
 documented here rather than fixing - six P1, five P2 - were applied the same
-day. They are in git history, not below. What remains are the three older
-items, each parked on a question rather than on effort.
+day. They are in git history, not below. What remains are four older items,
+each parked on a question rather than on effort.
+
+A question that has been answered gets a "Decided" section rather than a
+deletion, so it is not re-opened from scratch a year later by someone who
+does not know it was already priced.
 
 ## P1 — do next
 
-- [ ] update readme to current state
-- [ ] consider bun cutover
+Nothing. The two entries that were here are done: the README was brought back
+to the current tool surface, and the bun question was scoped and answered
+below.
+
+## Decided — bun cutover: no
+
+Measured on this repo (Bun 1.3.11, Node 24.20.0, 105 TS files, 436 tests), so
+that a later revisit argues with numbers rather than with impressions.
+
+**Bun cannot run this server.** `better-sqlite3@13.0.3` crashes it:
+
+    panic(main thread): NAPI FATAL ERROR: Error::New napi_get_last_error_info
+
+Reproduced with npm-installed and with bun-installed dependencies, so it is
+not a stale-ABI artifact. `sharp@0.35.4` is fine. 13 of 36 test files panic —
+exactly the ones that transitively import `src/db/index.ts`.
+
+**Where the time actually goes.** `npm test` is 6.1s end to end:
+
+| Step | Node | Bun |
+|---|---|---|
+| `npm ci` / `bun install`, warm cache | 2.5s | 0.42s |
+| `tsc` (typecheck + emit) | 4.0s | — does not typecheck |
+| `tsc --noEmit` (typecheck alone) | 3.96s | 3.96s, unavoidable |
+| transpile | (inside tsc) | `bun build` 0.07s |
+| run the suite | 2.1s from `dist/` | 0.41s on TS, for the 344 tests it can run |
+
+Bun's `node:test` support is not the problem: those 344 pass with no build
+step at all. The problem is that **tsc is 4s of the 6.1s and Bun cannot remove
+it**, because it transpiles without checking types. The ceiling on the whole
+exercise is about 1.6s per cycle.
+
+What that 1.6s costs: a native-module crash to work around (a second SQLite
+driver behind an adapter, or a Bun-only runtime), and — for the runtime
+cutover — a breaking change to every user's MCP client config, all of which
+say `command: node`. Not a trade worth making on a suite that finishes in six
+seconds.
+
+**Revisit if** better-sqlite3 stops crashing (`bun -e 'require("better-sqlite3")'`
+is the whole test), or if the suite grows enough that tsc is worth attacking —
+in which case the answer is incremental tsc, not Bun.
+
+**One finding worth keeping, which is not about Bun.** The blocker is a single
+dependency imported in a single file: `src/db/index.ts` holds the only
+`better-sqlite3` import in `src/`. Node 24 — already the `engines` floor —
+ships `node:sqlite`, verified working unflagged on v24.20.0. Dropping
+better-sqlite3 for it would remove the last node-gyp dependency and the
+prebuilt-per-ABI problem. It would **not** unlock Bun, which has no
+`node:sqlite` (only `bun:sqlite`), so it stands or falls on its own merits.
+Unranked and unstarted: `node:sqlite` is still flagged experimental, and the
+migration touches every persistence path in the server.
 
 ## P2 — model scanner scope
 
