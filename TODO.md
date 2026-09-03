@@ -8,6 +8,110 @@ if it stays undone, not about how hard it is.
 The entries below came out of a whole-codebase review on 2026-09-02. The 15 findings
 reported from that review were applied on 2026-09-03; these are the ones that were
 documented alongside them but deliberately left, each with the question to settle first.
+Everything under P1 came out of a whole-codebase review on 2026-09-02. Each
+entry says whether it was reproduced or only read; the ones marked reproduced
+have the exact command that showed the behaviour.
+
+## P1 — do next
+
+- [ ] update readme to current state
+
+- [ ] **`isSafetensors` never parses the JSON header, so a pickle can be
+      waved through as "safe".** REPRODUCED. `isSafetensors` in
+      `src/tools/scan-model.ts` checks only that the first 8 bytes are a
+      plausible little-endian length and that byte 8 is `{`. Its own docstring
+      says otherwise - "Checking that the JSON parses is what separates it
+      from a file that merely starts with eight plausible bytes" - and there
+      is no `JSON.parse` anywhere in the file (`grep -n "JSON.parse"
+      src/tools/scan-model.ts` returns only that comment).
+
+      `scanModel` tests safetensors FIRST, so a match returns
+      `verdict: "safe"` with zero findings and the pickle walker never runs.
+      Built a 46-byte `fake.ckpt` = 8-byte length + `{ not json at all >>> `
+      + `c posix\nsystem\n R.` and scanned it: `format: safetensors`,
+      `verdict: safe`, `findings: 0`, summary "no code path to execute".
+      That is the one file this tool exists to catch.
+
+      Fix is to parse the header slice and require an object; on a parse
+      failure fall through to the ZIP/pickle branches rather than returning.
+      Note `HEAD_BYTES` is 4096, so a header longer than that needs a second
+      read before it can be parsed. See "Changing the Model Scanner" in
+      CLAUDE.md.
+
+- [ ] **An unreadable existing workflow is written over as if it were a new
+      file.** REPRODUCED. In `write_workflow`
+      (`src/server/tools/generation.ts`), `readWorkflowFile` returns `null`
+      for ANY non-ok HTTP status - a 500, a 503, a 401 from ComfyUI's
+      userdata API are all indistinguishable from 404 - and the surrounding
+      `try/catch` also sets `existing = null` when the body fails to parse.
+      `exists: false` then reaches `decideWrite`, which answers
+      `{allowed: true, reason: "new_file"}`: `node -e "console.log(
+      require('./dist/tools/workflow-version.js').decideWrite({exists:false,
+      base:'abc',theirs:null}))"`.
+
+      So a transient ComfyUI hiccup during step 2 turns the whole three-way
+      check off and the human's file is overwritten silently. The inline
+      comment on that catch claims the opposite - "treated as absent below,
+      which routes to the unbased refusal rather than to a silent overwrite"
+      - so the intent is already recorded, just not implemented.
+
+      Wants three states, not two: found / absent / could-not-tell, with
+      could-not-tell refusing like `no_base` does. `readWorkflowFile` has to
+      distinguish 404 from every other failure for that to be possible.
+
+- [ ] **`diffWorkflows` reports "no changes" when a node's type is swapped.**
+      REPRODUCED. `src/tools/workflow-files.ts` skips the whole comparison
+      with `if (c.type !== g.type) continue;`. A node id present on both
+      sides with a different type is therefore in neither `onlyInTheirs` nor
+      `onlyInYours`, and its widget and link changes are never examined:
+
+          diffWorkflows({nodes:[{id:1,type:'KSampler',widgets_values:[42,'x']}]},
+                        {nodes:[{id:1,type:'KSamplerAdvanced',widgets_values:[999,'y']}]})
+          -> { any: false, summary: 'no changes' }
+
+      The refusal itself is safe - it goes on the content hash - but the diff
+      is what the reader uses to decide whether to force past it, and here it
+      actively argues there is nothing to lose. Report a type change as its
+      own diff kind.
+
+- [ ] **`comfyui_interrupt`'s foreign-job gate does not fire when the running
+      job has no `client_id`.** Read, not reproduced (needs a live instance
+      with a job submitted outside this server). `interrupt` in
+      `src/tools/queue.ts` maps `running === undefined || owner === undefined`
+      to `"unknown"`, and only `"foreign"` is gated on `confirm_foreign`.
+      Those are two different situations: nothing running (harmless) and
+      someone else's render submitted by a client that sent no id (a bare
+      `curl` against `/prompt`, or any tool that omits it). The second is
+      exactly what the gate exists for and it goes straight through.
+
+      Split them: no running job stays ungated, a running job with an
+      unattributable owner should gate like a foreign one.
+
+- [ ] **`comfyui_render_svg` takes unbounded `width`/`height`.** REPRODUCED.
+      `renderSvgSchema` in `src/tools/svg.ts` declares
+      `z.number().optional().default(768)` with no `.int()`, `.min()` or
+      `.max()`. `renderSvgSchema.parse({svg:'<svg/>', width:100000,
+      height:100000})` is accepted, as is `{width:-5, height:0.5}`. Those go
+      to `sharp(...).resize(w, h)`, so 100000x100000 asks for 10^10 pixels
+      and takes the MCP server process with it; the negative and fractional
+      cases throw from inside sharp and surface as "check the SVG markup is
+      well-formed", which is not the problem.
+
+      Every other numeric argument in this codebase is bounded (see
+      `paginationFields`, `imageQualitySchema`). Bound these the same way.
+
+- [ ] **Resource error hints name URIs that do not exist.**
+      `src/handlers/resources.ts` tells the caller to "Read `comfyui://guides`
+      for the list" and ends with "Resource URIs are comfyui://capabilities,
+      comfyui://models/<type> and comfyui://guides/<architecture>". Neither
+      `comfyui://guides` nor `comfyui://guides/<architecture>` is routed -
+      the only guides route is `comfyui://guides/prompting/<modelType>`, so
+      both hints land on "Resource not found".
+
+      This is the failure `server/tool-references.test.ts` was written to
+      stop, one layer over: that guard only checks `comfyui_` tool names, and
+      resource URIs are just as much strings the compiler cannot see. Worth
+      extending the guard to `comfyui://` literals in the same pass.
 
 ## P2 — worth doing, no one is blocked
 
