@@ -21,6 +21,7 @@
 
 import { z } from "zod";
 import { open, stat } from "fs/promises";
+import type { FileHandle } from "fs/promises";
 import { existsSync } from "fs";
 import { basename, extname, resolve } from "path";
 
@@ -58,6 +59,13 @@ const MODEL_EXTENSIONS = new Set([
 const MAX_PICKLE_BYTES = 32 * 1024 * 1024;
 /** Bytes needed to tell the formats apart. */
 const HEAD_BYTES = 4096;
+/**
+ * Cap on a safetensors header before it is parsed. Real headers run to a few
+ * MB even on large models; past this the length is more likely crafted than
+ * real, and refusing routes the file to the pickle walk rather than trusting
+ * it.
+ */
+const MAX_SAFETENSORS_HEADER_BYTES = 16 * 1024 * 1024;
 /** Entries reported per archive; a checkpoint has one per tensor. */
 const MAX_ENTRIES_REPORTED = 20;
 /** Ordinary imports listed before the rest are counted instead. */
@@ -128,14 +136,39 @@ function saferAlternativeFor(path: string): string | undefined {
  *
  * The format opens with a little-endian u64 header length followed by that
  * many bytes of JSON. Checking that the JSON parses is what separates it from
- * a file that merely starts with eight plausible bytes.
+ * a file that merely starts with eight plausible bytes - and it has to be an
+ * actual parse, not a look at the first byte. A pickle prefixed with a
+ * plausible length and a '{' answered this yes, and because scanModel tests
+ * safetensors first and returns early, the walk never ran: a 46-byte file
+ * naming posix.system + REDUCE reported "safe, nothing to scan".
+ *
+ * Reads past `head` when it must, because HEAD_BYTES is 4096 and a real header
+ * is routinely larger. A file that fails any of these checks falls through to
+ * the ZIP and pickle branches, which is the safe direction: the cost of being
+ * wrong here is a scan that did not happen.
  */
-function isSafetensors(head: Buffer, fileSize: number): boolean {
-  if (head.length < 8) return false;
+async function isSafetensors(
+  handle: FileHandle,
+  head: Buffer,
+  fileSize: number
+): Promise<boolean> {
+  if (head.length < 9) return false;
   const headerLength = Number(head.readBigUInt64LE(0));
   if (headerLength <= 0 || headerLength + 8 > fileSize) return false;
+  // Cheap reject before spending a read: the header is a JSON object.
   if (head[8] !== 0x7b) return false; // '{'
-  return true;
+  if (headerLength > MAX_SAFETENSORS_HEADER_BYTES) return false;
+
+  const header = Buffer.alloc(headerLength);
+  const { bytesRead } = await handle.read(header, 0, headerLength, 8);
+  if (bytesRead !== headerLength) return false;
+
+  try {
+    const parsed = JSON.parse(header.toString("utf-8"));
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
 }
 
 function isGguf(head: Buffer): boolean {
@@ -261,7 +294,7 @@ export async function scanModel(input: ScanModelInput): Promise<ScanModelResult>
 
     const saferAlternative = saferAlternativeFor(path);
 
-    if (isSafetensors(head, size)) {
+    if (await isSafetensors(handle, head, size)) {
       const base = {
         path,
         format: "safetensors" as const,

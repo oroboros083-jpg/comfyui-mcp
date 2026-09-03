@@ -201,6 +201,8 @@ export function registerWorkspaceTools(server: McpServer): void {
       openWorldHint: false,
     },
     handler: () => {
+      // Each row carries its note count, which is what the description has
+      // always promised and what makes this worth calling before get_notes.
       const topics = db.getTopics();
       return dataResult({ count: topics.length, topics });
     },

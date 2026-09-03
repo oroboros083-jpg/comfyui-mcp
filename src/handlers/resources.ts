@@ -165,7 +165,7 @@ export async function readResource(
     }
     throw new ToolError(
       `Unknown prompting guide: ${modelType}`,
-      "Read comfyui://guides for the list, or call comfyui_get_prompting_guide, which also accepts a model filename."
+      "Read comfyui://guides/prompting/all for every guide in one document, or call comfyui_get_prompting_guide, which also accepts a model filename."
     );
   }
 
@@ -246,6 +246,6 @@ export async function readResource(
 
   throw new ToolError(
     `Resource not found: ${uri}`,
-    "Resource URIs are comfyui://capabilities, comfyui://models/<type> and comfyui://guides/<architecture>."
+    "Resource URIs are comfyui://capabilities, comfyui://models/<type>, and comfyui://guides/prompting/<architecture> or comfyui://guides/prompting/all."
   );
 }

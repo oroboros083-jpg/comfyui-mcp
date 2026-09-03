@@ -373,8 +373,18 @@ export class ComfyUIClient {
     return response.json() as Promise<Record<string, HistoryEntry>>;
   }
 
-  async cancelQueue(promptId?: string): Promise<void> {
-    const body = promptId ? { delete: [promptId] } : { clear: true };
+  /**
+   * Remove queued prompts, or clear the queue outright when given nothing.
+   *
+   * Takes a LIST as well as a single id because ComfyUI's `delete` has always
+   * been an array and the bulk cancel was sending one POST per job - fifty
+   * round trips to cancel fifty jobs, where the endpoint would take them all
+   * at once.
+   */
+  async cancelQueue(promptId?: string | string[]): Promise<void> {
+    const ids =
+      promptId === undefined ? undefined : Array.isArray(promptId) ? promptId : [promptId];
+    const body = ids ? { delete: ids } : { clear: true };
     await this.request("/queue", "cancel queued jobs", {
       method: "POST",
       body: JSON.stringify(body),

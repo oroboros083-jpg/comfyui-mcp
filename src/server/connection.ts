@@ -39,6 +39,18 @@ import {
 // Bound once from main(); every function below reads through it.
 let ctx: ServerContext;
 
+/**
+ * Bumped whenever the connection is replaced or dropped.
+ *
+ * The same device as ComfyUIClient.objectInfoEpoch, for the same race: work
+ * started against one instance must not write its result onto the next one.
+ * analyzeUserOutputs is the case that needs it - it runs unawaited for seconds
+ * to minutes, and a reconnect landing meanwhile replaces ctx.capabilities, so
+ * a null check alone does not notice that the object it is about to write to
+ * describes a different ComfyUI than the walk it is reporting on.
+ */
+let connectionEpoch = 0;
+
 export function bindContext(context: ServerContext): void {
   ctx = context;
 }
@@ -56,6 +68,9 @@ export interface ConnectionRefresh {
  * Initialize connection to ComfyUI
  */
 export async function initializeComfyUI(): Promise<boolean> {
+  // Any connection-derived work already in flight belongs to the instance we
+  // are about to replace, so invalidate it before anything new starts.
+  connectionEpoch++;
   debug("Starting ComfyUI initialization...", undefined, "init");
   debug(`Config loaded, url from config: ${ctx.config.comfyui.url}`, undefined, "init");
 
@@ -114,9 +129,16 @@ export async function initializeComfyUI(): Promise<boolean> {
   if (ctx.comfyuiPath) {
     const outputDir = join(ctx.comfyuiPath, "output");
     debug(`Analyzing user outputs in: ${outputDir}`, undefined, "init");
+    const epoch = connectionEpoch;
     void analyzeUserOutputs(outputDir)
       .then((userPrefs) => {
-        if (ctx.capabilities) {
+        // Dropped rather than merged when a reconnect has landed meanwhile:
+        // these preferences describe the output directory of the instance that
+        // was current when the walk started, and writing them onto the new
+        // instance's capabilities would report one ComfyUI's history as
+        // another's. The null check alone never saw this - the object is not
+        // null after a reconnect, it is simply a different one.
+        if (epoch === connectionEpoch && ctx.capabilities) {
           ctx.capabilities.userPreferences = userPrefs;
         }
         debug(`User preferences:\n${getUserPreferencesSummary(userPrefs)}`, undefined, "init");
@@ -178,6 +200,9 @@ export function connectionHandles(): ConnectionHandles {
  * list or capability set from before the outage as though it were current.
  */
 export function clearConnectionState(): void {
+  // Same reason as in initializeComfyUI: a walk still running describes an
+  // instance we are dropping, so its result must not land.
+  connectionEpoch++;
   ctx.ws?.disconnect();
   ctx.client = null;
   ctx.ws = null;

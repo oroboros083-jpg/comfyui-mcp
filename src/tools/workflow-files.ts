@@ -213,6 +213,13 @@ export interface WorkflowDiff {
     theirs: unknown;
   }>;
   linkChanges: Array<{ id: unknown; type?: string; subgraph?: string }>;
+  /**
+   * One node id, two different node types. Its own category because it is
+   * neither an added nor a removed node - the id is on both sides - and the
+   * widget comparison below cannot speak about it, since widget slot 3 of a
+   * KSampler and slot 3 of a KSamplerAdvanced are not the same field.
+   */
+  typeChanges: Array<{ id: unknown; subgraph?: string; yours?: string; theirs?: string }>;
   summary: string;
 }
 
@@ -286,6 +293,7 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
   const onlyInYours: WorkflowDiff["onlyInYours"] = [];
   const widgetChanges: WorkflowDiff["widgetChanges"] = [];
   const linkChanges: WorkflowDiff["linkChanges"] = [];
+  const typeChanges: WorkflowDiff["typeChanges"] = [];
 
   // Deliberately not "added"/"removed": a node in theirs and not yours is
   // usually one they ADDED, but a node in yours and not theirs is just as
@@ -303,7 +311,16 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
     if (!other) continue;
     const c = placed.node;
     const g = other.node;
-    if (c.type !== g.type) continue;
+    // A retyped node used to be dropped here entirely: the id is in both maps
+    // so neither "only in" list caught it, and the `continue` skipped the
+    // widget and link comparison too - so swapping KSampler for
+    // KSamplerAdvanced with every value different reported "no changes" to
+    // the reader deciding whether to force past a refusal. Record it, then
+    // still skip: the widget slots are not comparable across two node types.
+    if (c.type !== g.type) {
+      typeChanges.push({ id: c.id, ...place(placed), yours: g.type, theirs: c.type });
+      continue;
+    }
     const id = c.id;
     const cv = c.widgets_values ?? [];
     const gv = g.widgets_values ?? [];
@@ -350,9 +367,17 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
     );
   for (const l of linkChanges)
     lines.push(`  REWIRED      ${where(l)}${l.type} (id ${l.id})`);
+  for (const t of typeChanges)
+    lines.push(
+      `  RETYPED      ${where(t)}(id ${t.id}): yours ${t.yours} | theirs ${t.theirs}`
+    );
 
   const any =
-    onlyInTheirs.length + onlyInYours.length + widgetChanges.length + linkChanges.length >
+    onlyInTheirs.length +
+      onlyInYours.length +
+      widgetChanges.length +
+      linkChanges.length +
+      typeChanges.length >
     0;
   const legend =
     "THEIRS = the file on disk now (the human's). YOURS = what you are about " +
@@ -363,6 +388,7 @@ export function diffWorkflows(current: unknown, candidate: unknown): WorkflowDif
     onlyInYours,
     widgetChanges,
     linkChanges,
+    typeChanges,
     summary: any ? legend + lines.join("\n") : "no changes",
   };
 }
@@ -483,6 +509,26 @@ export async function reloadWorkflow(
   return postBridge(target, "/tabs/reload", { path, save_first: saveFirst });
 }
 
+/**
+ * The file exists (or might) but could not be read.
+ *
+ * The third state a safe write needs. `null` used to mean both "absent" and
+ * "unreadable", and absent is the one state that lets a write through without
+ * a base - so a 500 or a 503 from ComfyUI during a write turned the whole
+ * lost-update check off and the human's workflow was overwritten. Refusing on
+ * "could not tell" is the only answer that cannot destroy anything.
+ */
+export class WorkflowUnreadableError extends ToolError {
+  constructor(message: string) {
+    super(
+      message,
+      "This is not the same as the file being missing, so the write was refused rather than " +
+        "treated as creating a new file. Call comfyui_get_status to check ComfyUI is healthy and " +
+        "try again; pass force: true only to overwrite a file you could not read."
+    );
+  }
+}
+
 export async function readWorkflowFile(
   target: ComfyUITarget,
   path: string,
@@ -495,12 +541,32 @@ export async function readWorkflowFile(
     const res = await fetch(url, {
       headers: targetHeaders(target, { "Cache-Control": "no-cache" }),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as unknown;
+    // Only a 404 is evidence of absence. Every other failure - 500, 503, a 401
+    // from an instance with a key configured - says nothing about whether the
+    // file is there, and answering `null` to those is what let a write proceed
+    // as if it were creating the file.
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new WorkflowUnreadableError(
+        `ComfyUI could not serve "${path}": ${res.status} ${res.statusText}.`
+      );
+    }
+    try {
+      return (await res.json()) as unknown;
+    } catch {
+      throw new WorkflowUnreadableError(
+        `"${path}" came back from ComfyUI as something that is not JSON.`
+      );
+    }
   }
   const real = await resolveGrantedPath(path, grantedDirs);
   if (!existsSync(real)) return null;
-  return JSON.parse(await readFile(real, "utf-8")) as unknown;
+  const raw = await readFile(real, "utf-8");
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    throw new WorkflowUnreadableError(`"${path}" is on disk but does not parse as JSON.`);
+  }
 }
 
 export async function writeWorkflowFile(

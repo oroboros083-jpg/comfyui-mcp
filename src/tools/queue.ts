@@ -206,7 +206,9 @@ export async function cancelJob(
   }));
   const mine = pending.filter((j) => j.mine);
 
-  for (const job of mine) await client.cancelQueue(job.promptId);
+  // One request, not one per job: /queue's `delete` takes a list. Guarded on
+  // length so an agent that owns nothing pending does not POST `{delete: []}`.
+  if (mine.length) await client.cancelQueue(mine.map((j) => j.promptId));
 
   const foreign = pending.length - mine.length;
   return {
@@ -241,7 +243,13 @@ export type InterruptInput = z.infer<typeof interruptSchema>;
 
 export interface InterruptResult {
   success: true;
-  interrupted: "mine" | "foreign" | "unknown";
+  /**
+   * Who owned the job this stopped. "unattributed" is a real running job whose
+   * submitter sent no client_id - distinct from "unknown", which is an idle
+   * queue with nothing to own. Collapsing the two is what let someone else's
+   * render be discarded ungated, so they stay separate.
+   */
+  interrupted: "mine" | "foreign" | "unattributed" | "unknown";
   message: string;
 }
 
@@ -263,17 +271,26 @@ export async function interrupt(
   const running = queue.queue_running[0];
   const owner = running?.[3]?.client_id;
   const me = client.getClientId();
+  // Three distinct situations, not two. An idle queue has nothing to own and
+  // is safe to interrupt; a running job with no client_id is still somebody's
+  // render - a bare curl against /prompt sends none - and it was going through
+  // ungated because it shared the "unknown" label with the idle case.
   const ownership: InterruptResult["interrupted"] =
-    running === undefined || owner === undefined
+    running === undefined
       ? "unknown"
-      : owner === me
-        ? "mine"
-        : "foreign";
+      : owner === undefined
+        ? "unattributed"
+        : owner === me
+          ? "mine"
+          : "foreign";
 
-  if (ownership === "foreign" && !input.confirm_foreign) {
+  if ((ownership === "foreign" || ownership === "unattributed") && !input.confirm_foreign) {
     throw new ToolError(
-      `The job currently running (${running?.[1]}) was submitted by ${owner}, not by this agent. ` +
-        "Interrupting it would discard their render.",
+      ownership === "foreign"
+        ? `The job currently running (${running?.[1]}) was submitted by ${owner}, not by this agent. ` +
+          "Interrupting it would discard their render."
+        : `The job currently running (${running?.[1]}) carries no client_id, so it was not submitted ` +
+          "by this agent and this server cannot say whose it is. Interrupting it would discard their render.",
       "Ask the user before interrupting someone else's job, then call again with " +
         "confirm_foreign: true. comfyui_get_queue shows who owns what."
     );

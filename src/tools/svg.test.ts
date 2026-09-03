@@ -95,3 +95,30 @@ test("a root stroke-width is not mistaken for the root's width", async () => {
   assert.equal(result.success, true, result.error);
   assert.deepEqual(await size(result.buffer!), { width: 400, height: 400 });
 });
+
+test("render dimensions are bounded, so a bad argument cannot exhaust memory", () => {
+  // These reach sharp's resize directly. Unbounded, 100000x100000 asks for
+  // 10^10 pixels and takes the process with it; a negative or fractional
+  // value threw from inside sharp and surfaced through the handler's
+  // "check the SVG markup" hint, which named the wrong problem.
+  const svg = "<svg/>";
+  for (const bad of [100000, -5, 0.5, 0]) {
+    assert.equal(
+      renderSvgSchema.safeParse({ svg, width: bad, height: 768 }).success,
+      false,
+      `width ${bad} must be rejected`
+    );
+    assert.equal(
+      renderSvgSchema.safeParse({ svg, width: 768, height: bad }).success,
+      false,
+      `height ${bad} must be rejected`
+    );
+  }
+
+  assert.equal(renderSvgSchema.safeParse({ svg }).success, true, "the default still parses");
+  assert.equal(
+    renderSvgSchema.safeParse({ svg, width: 1024, height: 512 }).success,
+    true,
+    "an ordinary size still parses"
+  );
+});

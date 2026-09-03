@@ -224,9 +224,20 @@ export async function collectOutputImages(
       const savedFilename = basename(outputPath);
       const absolutePath = outputPath;
 
+      // Measured on the CONVERTED bytes, which are the ones that actually
+      // travel. Weighing the raw download withheld a 4MB PNG that becomes a
+      // 200KB jpeg from a 1MB threshold it clears comfortably, and the inverse
+      // for png output that grows. The file write above already forced the
+      // conversion and process() memoises, so this costs nothing extra.
+      // Decoded length, not the base64 string's: sizeThreshold is a byte count,
+      // and comparing against the encoded form tightens it by a third.
+      const inlineBytes =
+        input.outputMode === "auto"
+          ? Buffer.byteLength((await process()).data, "base64")
+          : 0;
       const includeBase64 =
         input.outputMode === "base64" ||
-        (input.outputMode === "auto" && imageBuffer.length <= sizeThreshold);
+        (input.outputMode === "auto" && inlineBytes <= sizeThreshold);
 
       if (includeBase64) {
         const { data, mimeType } = await process();

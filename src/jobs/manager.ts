@@ -88,6 +88,7 @@ export class JobManager {
       result: updates.result,
       error: updates.error,
       name: updates.name,
+      progressStats: updates.progressStats,
     });
 
     return row ? rowToJob(row) : undefined;

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 
+import { ToolError } from "../utils/errors.js";
+
 /**
  * Get the database file path.
  * Uses ~/.comfyui-mcp/data.db by default, or COMFYUI_MCP_DB_PATH env var.
@@ -547,16 +549,49 @@ export function listNotesPage(
   return { notes: rows.map(rowToNote), total };
 }
 
+/**
+ * Turn a user's search terms into an FTS5 MATCH expression that cannot throw.
+ *
+ * The raw query used to go straight into MATCH, so a bare `"`, a `*`, a
+ * leading `-` or the word NEAR raised `fts5: syntax error` - which reached the
+ * agent as an untranslated SQLite message with no hint, the one failure here
+ * that named no next step.
+ *
+ * Each term is quoted individually rather than the whole string at once: FTS5
+ * reads `"foo bar"` as a phrase requiring adjacency, where the behaviour this
+ * has always had is an implicit AND of independent terms. Quoting per token
+ * keeps that and makes every character inside a token literal.
+ */
+export function toFtsQuery(query: string): string {
+  const tokens = query.match(/[\p{L}\p{N}_]+/gu) ?? [];
+  return tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" ");
+}
+
+/** Raised when a search reduces to no searchable term at all. */
+export class EmptySearchQueryError extends ToolError {
+  constructor(query: string) {
+    super(
+      `'${query}' has no searchable words in it - full-text search needs letters or digits.`,
+      "Search for a word from the note's topic or body, or call comfyui_get_notes to page through them and comfyui_list_topics to see what topics exist."
+    );
+  }
+}
+
 /** Page full-text search results in SQL, for the same reason. */
 export function searchNotesPage(query: string, limit: number, offset: number): NotePage {
   const database = getDatabase();
+
+  // One converted string for both statements: if the count and the page ran
+  // different expressions, `total` would not describe the rows returned.
+  const match = toFtsQuery(query);
+  if (!match) throw new EmptySearchQueryError(query);
 
   const total = (
     database
       .prepare(
         "SELECT COUNT(*) AS n FROM notes JOIN notes_fts ON notes.id = notes_fts.rowid WHERE notes_fts MATCH ?"
       )
-      .get(query) as { n: number }
+      .get(match) as { n: number }
   ).n;
 
   const rows = database
@@ -567,7 +602,7 @@ export function searchNotesPage(query: string, limit: number, offset: number): N
        ORDER BY rank
        LIMIT ? OFFSET ?`
     )
-    .all(query, limit, offset) as NoteRow[];
+    .all(match, limit, offset) as NoteRow[];
 
   return { notes: rows.map(rowToNote), total };
 }
@@ -580,11 +615,25 @@ export function deleteNote(id: number): boolean {
   return result.changes > 0;
 }
 
-export function getTopics(): string[] {
+/** A topic and how many notes sit under it. */
+export interface TopicCount {
+  topic: string;
+  count: number;
+}
+
+/**
+ * Every topic that has notes, with its note count.
+ *
+ * The count is the point: comfyui_list_topics is described as carrying one and
+ * is what an agent calls to decide which topic is worth fetching. Returning
+ * bare names left it ranking them by nothing.
+ */
+export function getTopics(): TopicCount[] {
   const database = getDatabase();
-  const stmt = database.prepare("SELECT DISTINCT topic FROM notes ORDER BY topic");
-  const rows = stmt.all() as Array<{ topic: string }>;
-  return rows.map(r => r.topic);
+  const stmt = database.prepare(
+    "SELECT topic, COUNT(*) AS count FROM notes GROUP BY topic ORDER BY topic"
+  );
+  return stmt.all() as TopicCount[];
 }
 
 // ============================================================================

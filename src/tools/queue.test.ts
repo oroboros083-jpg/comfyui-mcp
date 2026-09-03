@@ -24,14 +24,14 @@ function stubClient(over: {
   queue?: QueueStatus;
   history?: Record<string, HistoryEntry>;
   clientId?: string;
-  onCancel?: (promptId?: string) => void;
+  onCancel?: (promptId?: string | string[]) => void;
   onInterrupt?: () => void;
 }): ComfyUIClient {
   return {
     getQueue: async () => over.queue ?? { queue_running: [], queue_pending: [] },
     getHistory: async () => over.history ?? {},
     getClientId: () => over.clientId ?? "me",
-    cancelQueue: async (promptId?: string) => over.onCancel?.(promptId),
+    cancelQueue: async (promptId?: string | string[]) => over.onCancel?.(promptId),
     interrupt: async () => over.onInterrupt?.(),
   } as unknown as ComfyUIClient;
 }
@@ -348,7 +348,7 @@ test("a job submitted without a client_id is not claimed as ours", async () => {
 });
 
 test("a bulk cancel leaves other clients' jobs alone by default", async () => {
-  const cancelled: (string | undefined)[] = [];
+  const cancelled: (string | string[] | undefined)[] = [];
   const client = stubClient({
     clientId: "agent-a",
     onCancel: (id) => cancelled.push(id),
@@ -364,13 +364,34 @@ test("a bulk cancel leaves other clients' jobs alone by default", async () => {
 
   const result = await cancelJob(client, { scope: "mine" });
 
-  assert.deepEqual(cancelled, ["pend-0", "pend-2"], "only our own ids");
+  // One request carrying both of our ids, not one request per id: /queue's
+  // `delete` takes a list, and a per-id sweep was fifty round trips to cancel
+  // fifty jobs. The scoping this test exists for is unchanged - agent-b's
+  // pend-1 is still absent.
+  assert.deepEqual(cancelled, [["pend-0", "pend-2"]], "only our own ids, in one call");
   assert.equal(result.cancelled, 2);
   assert.equal(result.left_alone, 1);
 });
 
+test("a bulk cancel with nothing of ours sends no delete at all", async () => {
+  // `{delete: []}` is a request that asks ComfyUI to do nothing; the guard on
+  // length is what keeps it off the wire.
+  const cancelled: (string | string[] | undefined)[] = [];
+  const client = stubClient({
+    clientId: "agent-a",
+    onCancel: (id) => cancelled.push(id),
+    queue: { queue_running: [], queue_pending: [ownedTuple(0, "pend", "agent-b")] },
+  });
+
+  const result = await cancelJob(client, { scope: "mine" });
+
+  assert.deepEqual(cancelled, [], "no request issued");
+  assert.equal(result.cancelled, 0);
+  assert.equal(result.left_alone, 1);
+});
+
 test("scope 'all' clears the whole queue in one call", async () => {
-  const cancelled: (string | undefined)[] = [];
+  const cancelled: (string | string[] | undefined)[] = [];
   const client = stubClient({
     clientId: "agent-a",
     onCancel: (id) => cancelled.push(id),
@@ -384,7 +405,7 @@ test("scope 'all' clears the whole queue in one call", async () => {
 });
 
 test("cancelling one job by id does not consult ownership", async () => {
-  const cancelled: (string | undefined)[] = [];
+  const cancelled: (string | string[] | undefined)[] = [];
   const client = stubClient({
     clientId: "agent-a",
     onCancel: (id) => cancelled.push(id),
@@ -437,4 +458,35 @@ test("interrupt does not gate an idle queue", async () => {
   const client = stubClient({ clientId: "agent-a", onInterrupt: () => {} });
   const result = await interrupt(client);
   assert.equal(result.interrupted, "unknown");
+});
+
+test("interrupt gates a running job that carries no client_id", async () => {
+  // "nothing running" and "running, but we cannot say whose" were the same
+  // "unknown" state, and only "foreign" was gated - so a render submitted by a
+  // bare curl against /prompt, which sends no client_id, was discarded without
+  // anyone being asked. ComfyUI has one global /interrupt, so this gate is the
+  // only place the scoping can live.
+  let interrupted = false;
+  const client = stubClient({
+    clientId: "agent-a",
+    onInterrupt: () => (interrupted = true),
+    // ownedTuple with no clientId emits a null extra_data, i.e. no submitter.
+    queue: { queue_running: [ownedTuple(0, "run")], queue_pending: [] },
+  });
+
+  await assert.rejects(() => interrupt(client), /no client_id/);
+  assert.equal(interrupted, false, "someone else's render survived");
+});
+
+test("interrupt proceeds on an unattributed job once confirmed", async () => {
+  let interrupted = false;
+  const client = stubClient({
+    clientId: "agent-a",
+    onInterrupt: () => (interrupted = true),
+    queue: { queue_running: [ownedTuple(0, "run")], queue_pending: [] },
+  });
+
+  const result = await interrupt(client, { confirm_foreign: true });
+  assert.equal(interrupted, true);
+  assert.equal(result.interrupted, "unattributed");
 });

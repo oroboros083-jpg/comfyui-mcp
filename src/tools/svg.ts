@@ -3,11 +3,26 @@ import sharp from "sharp";
 import { generateFontFaceCSS } from "./fonts.js";
 import { ToolError } from "../utils/errors.js";
 
+/**
+ * Ceiling on a rendered edge. 8192x8192 is ~67M pixels - generous for any
+ * real input image, and comfortably inside sharp's own default input-pixel
+ * limit, so a bad argument is refused by the schema with a message naming the
+ * range rather than by an out-of-memory somewhere under libvips.
+ */
+const MAX_RENDER_DIMENSION = 8192;
+
 export const renderSvgSchema = z.object({
   svg: z.string().describe("SVG content to render (full SVG markup including <svg> tags)"),
   filename: z.string().optional().describe("Output filename (without extension). Defaults to 'svg_render_<timestamp>'"),
-  width: z.number().optional().default(768).describe("Output width in pixels (default: 768)"),
-  height: z.number().optional().default(768).describe("Output height in pixels (default: 768)"),
+  // Bounded because these go straight to sharp's resize: an unbounded pair
+  // asks for width*height pixels of canvas, so 100000x100000 is 10^10 pixels
+  // and takes the server process down. A fractional or negative value threw
+  // from inside sharp and surfaced through the handler's "check the SVG
+  // markup" hint, which named the wrong problem entirely.
+  width: z.number().int().min(1).max(MAX_RENDER_DIMENSION).optional().default(768)
+    .describe(`Output width in pixels (1-${MAX_RENDER_DIMENSION}, default: 768)`),
+  height: z.number().int().min(1).max(MAX_RENDER_DIMENSION).optional().default(768)
+    .describe(`Output height in pixels (1-${MAX_RENDER_DIMENSION}, default: 768)`),
   background: z.string().optional().describe("Background color (default: transparent). Use hex like '#ffffff' or 'transparent'"),
   fonts: z.array(z.object({
     name: z.string().describe("Font name (must be downloaded first with comfyui_download_font)"),

@@ -114,6 +114,72 @@ test("search pages in SQL too", () => {
   assert.notEqual(second.notes[0].id, page.notes[0].id);
 });
 
+test("FTS syntax characters are searched for literally, not as operators", () => {
+  // These used to reach MATCH raw, so SQLite raised `fts5: syntax error` and
+  // the agent got an untranslated database message with no next step.
+  db.saveNote("punctuation", "quoted and starred and hyphenated text", []);
+
+  // Each of these carries at least one real word, so it is a search that must
+  // simply run - the operators around it are searched for as text.
+  for (const query of ['say "hello"', "a -b", "NEAR", "x AND", "foo*", "quoted*", "-hyphenated"]) {
+    assert.doesNotThrow(
+      () => db.searchNotesPage(query, 10, 0),
+      `'${query}' must not raise a syntax error`
+    );
+  }
+
+  // Punctuation alone is a different case: there is nothing to search for, and
+  // that is reported as an actionable error rather than a database one.
+  for (const query of ['"', "*", "-", "((" ]) {
+    assert.throws(
+      () => db.searchNotesPage(query, 10, 0),
+      (err: unknown) => err instanceof db.EmptySearchQueryError,
+      `'${query}' should be refused with guidance, not an FTS syntax error`
+    );
+  }
+});
+
+test("multi-word search stays an AND of terms, not a phrase", () => {
+  // Quoting the whole query would make this an adjacency search, which would
+  // silently narrow every existing multi-word search.
+  db.saveNote("andsemantics", "alpha something in between omega", []);
+
+  assert.equal(db.searchNotesPage("alpha omega", 10, 0).total, 1, "non-adjacent terms still match");
+});
+
+test("a search with no searchable word is refused with guidance", () => {
+  assert.throws(
+    () => db.searchNotesPage("!!! ???", 10, 0),
+    (err: unknown) => err instanceof db.EmptySearchQueryError
+  );
+});
+
+test("toFtsQuery escapes an embedded quote rather than closing the term", () => {
+  assert.equal(db.toFtsQuery('say "hi" now'), '"say" "hi" "now"');
+  assert.equal(db.toFtsQuery("plain"), '"plain"');
+  assert.equal(db.toFtsQuery("---"), "");
+});
+
+test("topics carry their note counts", () => {
+  // comfyui_list_topics is described as reporting a count per topic, and an
+  // agent uses it to decide which topic is worth fetching.
+  db.saveNote("counted", "one", []);
+  db.saveNote("counted", "two", []);
+  db.saveNote("counted-once", "only", []);
+
+  const topics = db.getTopics();
+  const counted = topics.find((t) => t.topic === "counted");
+  const once = topics.find((t) => t.topic === "counted-once");
+
+  assert.equal(counted?.count, 2);
+  assert.equal(once?.count, 1);
+  assert.deepEqual(
+    [...topics].map((t) => t.topic).sort(),
+    topics.map((t) => t.topic),
+    "ordered by topic"
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Workflow base state - the `base` of write_workflow's three-way check
 // ---------------------------------------------------------------------------

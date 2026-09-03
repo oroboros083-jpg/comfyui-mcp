@@ -5,6 +5,9 @@ Open work only. Finished items live in git history, not here.
 Ranked P1 (do next) to P3 (parked). The rank is about what it costs someone
 if it stays undone, not about how hard it is.
 
+The entries below came out of a whole-codebase review on 2026-09-02. The 15 findings
+reported from that review were applied on 2026-09-03; these are the ones that were
+documented alongside them but deliberately left, each with the question to settle first.
 Everything under P1 came out of a whole-codebase review on 2026-09-02. Each
 entry says whether it was reproduced or only read; the ones marked reproduced
 have the exact command that showed the behaviour.
@@ -112,80 +115,6 @@ have the exact command that showed the behaviour.
 
 ## P2 — worth doing, no one is blocked
 
-- [ ] **`outputMode: "auto"` weighs the wrong bytes.** `collectOutputImages`
-      in `src/tools/outputs.ts` decides inlining with
-      `imageBuffer.length <= sizeThreshold`, where `imageBuffer` is the RAW
-      download, but what actually travels inline is `processed.data` - the
-      converted image, jpeg/85 by default. A 4MB PNG that becomes a 200KB
-      jpeg is withheld from a 1MB threshold it comfortably clears. Measure
-      the thing being sent; `process()` is already memoised, so the
-      conversion is not paid twice.
-
-- [ ] **`comfyui_list_topics` promises counts it does not return.** Its
-      description says "List every topic that has notes, with a count for
-      each", but the handler returns `db.getTopics()`, which is
-      `SELECT DISTINCT topic ... ORDER BY topic` mapped to bare names. Either
-      add the `COUNT(*)` or stop advertising it. (It is also unpaginated,
-      against the "never return an unbounded collection" rule in CLAUDE.md,
-      though topics are few enough that the count is the real defect.)
-
-- [ ] **`extract_workflow` caps local files at 50MB and remote ones not at
-      all.** `src/server/tools/library.ts` stats and refuses a local `.png`
-      over `MAX_LOCAL_IMAGE_BYTES`, then on the URL branch does
-      `await safeFetch(source)` followed by `arrayBuffer()` with no size
-      check and no content-type check. The tool description states the local
-      limit as if it were the tool's limit. Apply the same ceiling to the
-      response, streaming or via `content-length`.
-
-- [ ] **FTS5 syntax errors reach the caller raw.** `searchNotesPage` in
-      `src/db/index.ts` passes the user's `query` straight into
-      `notes_fts MATCH ?`. A query containing a bare `"`, `*`, `-` or `NEAR`
-      makes SQLite throw, and `defineTool` reports it as
-      `comfyui_search_notes failed: <sqlite message>` with no hint - the one
-      case in the codebase where a failure names no remedy. Either quote the
-      query as a phrase or catch and rethrow a `ToolError` naming the
-      syntax. Read, not reproduced.
-
-- [ ] **`getTagIndex` has no in-flight deduplication.** `src/tools/tags.ts`
-      checks `INDEX_CACHE` and, on a miss, fetches and parses up to 120k tag
-      rows plus 400k co-occurrence pairs. Two concurrent callers both miss
-      and both do all of it. `ComfyUIClient.getObjectInfo` already solves
-      exactly this with `objectInfoInFlight` + `objectInfoEpoch`; reuse that
-      shape rather than inventing a second one.
-
-- [ ] **`relatedTags` rebuilds a 120k-entry Map on every call.**
-      `const byName = new Map(index.tags.map(t => [t.tag, t]))` at the top of
-      `relatedTags` in `src/tools/tags.ts` is per-call and derivable once.
-      `searchTags` has the smaller version of the same problem: it calls
-      `normalise(record.tag)` across the whole table per query. Both belong
-      on `TagIndex`, built where the index is.
-
-- [ ] **`cancel_job` with `scope: "mine"` sends one HTTP POST per job.**
-      `src/tools/queue.ts` does `for (const job of mine) await
-      client.cancelQueue(job.promptId)`. ComfyUI's `/queue` takes
-      `{delete: [...]}` as a list and `cancelQueue` already builds that
-      array - it just only ever puts one id in it. Widen it to accept
-      several and the bulk cancel becomes one request.
-
-- [ ] **A late `analyzeUserOutputs` can write stale preferences onto a fresh
-      connection.** `initializeComfyUI` in `src/server/connection.ts` fires
-      the analysis unawaited and its `.then` assigns
-      `ctx.capabilities.userPreferences` at whatever time it resolves. A
-      reconnect in between replaces `ctx.capabilities`, and the old
-      instance's preferences land on the new one; the `if (ctx.capabilities)`
-      guard only catches the null case. `ComfyUIClient.objectInfoEpoch` is
-      the pattern that already exists here for exactly this race. Two rapid
-      reconnects also start two full output-tree walks with no dedup.
-
-- [ ] **`JobManager.updateJob` silently drops `progressStats`.** Its
-      signature is `Partial<Omit<Job, ...>>`, which includes
-      `progressStats`, but the body forwards only status, statusMessage,
-      result, error and name to `db.updateJob` - which does support the
-      field. No caller passes it today (progress goes through
-      `updateProgress` -> `db.updateJobProgress`), so this is latent: the
-      first caller that does will lose the write with no error. Either
-      forward it or take it out of the type.
-
 - [ ] **`sanitizeSvg` is a regex over XML, and entity encoding walks past
       it.** `src/tools/svg.ts` blanks `href` values matching
       `^\s*(?:https?|file|ftp):`, but the check runs before XML entity
@@ -239,7 +168,7 @@ have the exact command that showed the behaviour.
       `(_k, v) => (v === undefined ? undefined : v)` to `JSON.stringify`,
       which is what stringify already does for undefined. Drop the argument.
 
-## P2 — model scanner scope (pre-existing)
+## P2 — model scanner scope
 
 - [ ] **Expand the model scanner's scope.** Today `comfyui_scan_model` walks
       pickle opcodes only. Wanted: known cheaply-checkable exploits for the
