@@ -65,53 +65,54 @@
   - [Tools Reference](#tools-reference)
     - [Shared Parameters](#shared-parameters)
     - [Setup \& Status Tools](#setup--status-tools)
-      - [`comfyui_get_status`](#comfyui_get_status)
-      - [`comfyui_reconnect`](#comfyui_reconnect)
+      - [`comfyui_get_status`](#comfyuigetstatus)
+      - [`comfyui_reconnect`](#comfyuireconnect)
     - [Template \& Workflow Library Tools](#template--workflow-library-tools)
-      - [`comfyui_search_user_snippets`](#comfyui_search_user_snippets)
-      - [`comfyui_get_user_snippet`](#comfyui_get_user_snippet)
-      - [`comfyui_save_user_snippet`](#comfyui_save_user_snippet)
-      - [`comfyui_delete_user_snippet`](#comfyui_delete_user_snippet)
-      - [`comfyui_extract_workflow`](#comfyui_extract_workflow)
-      - [`comfyui_recommend_workflow`](#comfyui_recommend_workflow)
-      - [`comfyui_plan_iteration`](#comfyui_plan_iteration)
-      - [`comfyui_get_prompting_guide`](#comfyui_get_prompting_guide)
-      - [`comfyui_search_tags`](#comfyui_search_tags)
-      - [`comfyui_related_tags`](#comfyui_related_tags)
+      - [`comfyui_search_user_snippets`](#comfyuisearchusersnippets)
+      - [`comfyui_get_user_snippet`](#comfyuigetusersnippet)
+      - [`comfyui_save_user_snippet`](#comfyuisaveusersnippet)
+      - [`comfyui_delete_user_snippet`](#comfyuideleteusersnippet)
+      - [`comfyui_extract_workflow`](#comfyuiextractworkflow)
+      - [`comfyui_recommend_workflow`](#comfyuirecommendworkflow)
+      - [`comfyui_plan_iteration`](#comfyuiplaniteration)
+      - [`comfyui_get_prompting_guide`](#comfyuigetpromptingguide)
+      - [`comfyui_search_tags`](#comfyuisearchtags)
+      - [`comfyui_related_tags`](#comfyuirelatedtags)
+      - [Where the tag data comes from](#where-the-tag-data-comes-from)
     - [Generation Tools](#generation-tools)
-      - [`comfyui_run_workflow`](#comfyui_run_workflow)
-      - [`comfyui_get_image`](#comfyui_get_image)
-      - [`comfyui_upload_image`](#comfyui_upload_image)
-      - [`comfyui_describe_image`](#comfyui_describe_image)
+      - [`comfyui_run_workflow`](#comfyuirunworkflow)
+      - [`comfyui_get_image`](#comfyuigetimage)
+      - [`comfyui_upload_image`](#comfyuiuploadimage)
+      - [`comfyui_describe_image`](#comfyuidescribeimage)
     - [Workflow File Tools](#workflow-file-tools)
-      - [`comfyui_list_open_workflows`](#comfyui_list_open_workflows)
-      - [`comfyui_read_workflow`](#comfyui_read_workflow)
-      - [`comfyui_write_workflow`](#comfyui_write_workflow)
-    - [Workflow Composition Tools](#workflow-composition-tools-1)
-      - [`comfyui_build_node`](#comfyui_build_node)
+      - [`comfyui_list_open_workflows`](#comfyuilistopenworkflows)
+      - [`comfyui_read_workflow`](#comfyuireadworkflow)
+      - [`comfyui_write_workflow`](#comfyuiwriteworkflow)
+    - [Workflow Composition Tools](#workflow-composition-tools)
+      - [`comfyui_build_node`](#comfyuibuildnode)
     - [Model File Tools](#model-file-tools)
-      - [`comfyui_scan_model`](#comfyui_scan_model)
+      - [`comfyui_scan_model`](#comfyuiscanmodel)
     - [Task \& Queue Management](#task--queue-management)
-      - [`comfyui_get_task`](#comfyui_get_task)
-      - [`comfyui_get_task_result`](#comfyui_get_task_result)
-      - [`comfyui_list_tasks`](#comfyui_list_tasks)
-      - [`comfyui_cancel_task`](#comfyui_cancel_task)
-      - [`comfyui_get_queue`](#comfyui_get_queue)
-      - [`comfyui_cancel_job`](#comfyui_cancel_job)
-      - [`comfyui_interrupt`](#comfyui_interrupt)
-      - [`comfyui_get_history`](#comfyui_get_history)
+      - [`comfyui_get_task`](#comfyuigettask)
+      - [`comfyui_get_task_result`](#comfyuigettaskresult)
+      - [`comfyui_list_tasks`](#comfyuilisttasks)
+      - [`comfyui_cancel_task`](#comfyuicanceltask)
+      - [`comfyui_get_queue`](#comfyuigetqueue)
+      - [`comfyui_cancel_job`](#comfyuicanceljob)
+      - [`comfyui_interrupt`](#comfyuiinterrupt)
+      - [`comfyui_get_history`](#comfyuigethistory)
     - [Agent Memory Tools](#agent-memory-tools)
-      - [`comfyui_save_note`](#comfyui_save_note)
-      - [`comfyui_get_notes`](#comfyui_get_notes)
-      - [`comfyui_search_notes`](#comfyui_search_notes)
-      - [`comfyui_delete_note`](#comfyui_delete_note)
-      - [`comfyui_list_topics`](#comfyui_list_topics)
+      - [`comfyui_save_note`](#comfyuisavenote)
+      - [`comfyui_get_notes`](#comfyuigetnotes)
+      - [`comfyui_search_notes`](#comfyuisearchnotes)
+      - [`comfyui_delete_note`](#comfyuideletenote)
+      - [`comfyui_list_topics`](#comfyuilisttopics)
     - [User Preferences Tools](#user-preferences-tools)
-      - [`comfyui_get_user_preferences`](#comfyui_get_user_preferences)
+      - [`comfyui_get_user_preferences`](#comfyuigetuserpreferences)
     - [SVG \& Font Tools](#svg--font-tools)
-      - [`comfyui_render_svg`](#comfyui_render_svg)
-      - [`comfyui_download_font`](#comfyui_download_font)
-      - [`comfyui_list_fonts`](#comfyui_list_fonts)
+      - [`comfyui_render_svg`](#comfyuirendersvg)
+      - [`comfyui_download_font`](#comfyuidownloadfont)
+      - [`comfyui_list_fonts`](#comfyuilistfonts)
   - [Resources and Prompts](#resources-and-prompts)
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
@@ -121,6 +122,8 @@
     - [Capability Detection](#capability-detection)
     - [Workflow Execution](#workflow-execution)
     - [Image Output](#image-output)
+  - [Sharing One ComfyUI](#sharing-one-comfyui)
+  - [Where Starting Points Come From](#where-starting-points-come-from)
   - [Security Notes](#security-notes)
   - [Example Conversations](#example-conversations)
     - [First-Time Setup](#first-time-setup)
@@ -143,7 +146,7 @@
   - [Acknowledgments](#acknowledgments)
 
 
-[![Build and Publish](https://github.com/oroboros083-jpg/comfyui-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/oroboros083-jpg/comfyui-mcp/actions/workflows/publish.yml)
+[![CI](https://github.com/oroboros083-jpg/comfyui-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/oroboros083-jpg/comfyui-mcp/actions/workflows/ci.yml)
 
 An MCP (Model Context Protocol) server that enables AI assistants like Claude to interact with [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for generating images, audio, video, and more.
 
@@ -272,8 +275,15 @@ the opposite of what those models want.
 
 ### Template System
 Two sources of workflow templates:
-- **Built-in templates**: Standard txt2img for SD1.5, SDXL, Flux, Qwen and Anima
+- **Built-in templates**: six txt2img graphs built from the live `object_info`,
+  so they name models the instance actually has — `standard_txt2img`,
+  `sdxl_txt2img`, `anima_txt2img`, `qwen_txt2img`, `flux_txt2img` and
+  `flux_schnell_txt2img`
 - **Custom templates**: Save and reuse your successful workflows, stored in a local SQLite database
+
+There is no bundled catalogue of documentation examples, and its absence is a
+decision rather than a gap — see [Where starting points come
+from](#where-starting-points-come-from).
 
 ### Workflow Composition Tools
 Build custom workflows programmatically:
@@ -289,11 +299,21 @@ Writing a `.json` workflow with a plain file tool loses work, because the
 browser tab holding that workflow keeps a cached copy and — with
 `Comfy.Workflow.AutoSave` on — writes it back over yours minutes later.
 
-`comfyui_write_workflow` does `flush → read + diff → write → reload` instead:
-it asks any open tab to save first, diffs what was already there against what
-you are about to write, writes, then tells the tab to re-read from disk. If
-the human had unsaved edits, they show up in the returned diff rather than
-disappearing.
+`comfyui_write_workflow` does `flush → check → write → reload` instead: it asks
+any open tab to save first, checks the file has not changed since you read it,
+writes, then tells the tab to re-read from disk.
+
+The check needs three states, not two. A diff between disk and what you are
+about to write cannot gate anything — differing is the *point* of writing. So
+`comfyui_read_workflow` records a **base** version for the path, and a write is
+refused when disk no longer matches that base, or when an existing file was
+never read at all. `force: true` is the only way past either. Bases are kept
+per agent, so two agents driving one ComfyUI each ask only "did this change
+since *I* read it".
+
+The official Comfy MCP's `set_workflow_slot(stdout=false)` writes in place with
+no version check of any kind, so it cannot detect a concurrent edit — which is
+the argument for keeping these tools here.
 
 This needs the companion [ComfyUI-TabBridge](comfyui-tabbridge/) custom node,
 which ships in this repo. See [Optional:
@@ -670,13 +690,15 @@ database. Name it for its purpose, not its ordering.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `id` | `string` | Unique template ID (e.g., `my_flux_style`, `upscale_4x`) |
 | `name` | `string` | Descriptive template name |
 | `description` | `string` | What this template does |
-| `workflow` | `object` | The workflow JSON |
-| `modelType` | `string?` | Model type (sd15, sdxl, flux, etc.) |
-| `taskType` | `string?` | Task type (txt2img, img2img, etc.) |
-| `category` | `string?` | Category for organization |
+| `workflow` | `object` | The workflow JSON (API format) |
+| `modelType` | `"sd15" \| "sdxl" \| "sd3" \| "flux" \| "any"` | Architecture this template targets (default: `any`) |
+| `taskType` | `"txt2img" \| "img2img" \| "inpaint" \| "controlnet" \| "upscale" \| "video" \| "audio"` | Task type (default: `txt2img`) |
+| `category` | `string?` | Category for organization (default: `custom`) |
 | `tags` | `string[]?` | Tags for searching |
+| `defaultSettings` | `object?` | Default steps, cfg, width, height, etc. |
 
 ```
 Save this workflow as "portrait_lighting_studio"
@@ -953,20 +975,6 @@ Upload ~/photos/portrait.jpg and use it as the ControlNet reference
 Take the image that last run produced and feed it back in for an upscale pass
 ```
 
-### Workflow File Tools
-
-These read and write ComfyUI's saved `.json` workflow files while cooperating
-with the browser tabs that have them open. They need the
-[ComfyUI-TabBridge](#optional-comfyui-tabbridge) custom node; without it they
-report `available: false` with a hint naming the setup step, and
-`comfyui_write_workflow` still writes — it just can't flush or reload tabs.
-
-Paths are relative to ComfyUI's user directory (e.g.
-`workflows/Shared/pipeline.json`). Writes outside it require the directory to
-be listed in `workflowWriteDirs` in the config file, which is edited by hand:
-there is deliberately no tool for granting that, because a permission an agent
-can grant itself is not a permission.
-
 #### `comfyui_describe_image`
 Get an example of the **prompt** that would be paired with this image in
 training data. Not a description of the image — an AI assistant with vision
@@ -1027,6 +1035,20 @@ row for a real detector rather than as a `task` parameter here.
 Describe ~/refs/pose.jpg as tags I can use with an Illustrious model
 ```
 
+### Workflow File Tools
+
+These read and write ComfyUI's saved `.json` workflow files while cooperating
+with the browser tabs that have them open. They need the
+[ComfyUI-TabBridge](#optional-comfyui-tabbridge) custom node; without it they
+report `available: false` with a hint naming the setup step, and
+`comfyui_write_workflow` still writes — it just can't flush or reload tabs.
+
+Paths are relative to ComfyUI's user directory (e.g.
+`workflows/Shared/pipeline.json`). Writes outside it require the directory to
+be listed in `workflowWriteDirs` in the config file, which is edited by hand:
+there is deliberately no tool for granting that, because a permission an agent
+can grant itself is not a permission.
+
 #### `comfyui_list_open_workflows`
 List the workflows currently open in the user's ComfyUI browser tabs, and which
 have **unsaved** changes. Takes no parameters. Call before rewriting a workflow
@@ -1037,13 +1059,24 @@ What workflows do I have open right now?
 ```
 
 #### `comfyui_read_workflow`
-Read a workflow file as JSON. Reads through ComfyUI so it always sees the
-current file rather than a cached copy. Returns `{ found: false, path }` when
-the file does not exist.
+Read a workflow file as JSON. **Flushes any open tab first**, so what comes
+back includes the human's unsaved edits rather than the last thing that
+happened to reach disk. Reads through ComfyUI, so never a cached copy.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `path` | `string` | Workflow path relative to the user directory, or an absolute path inside a granted directory |
+
+Returns `{ found, path, version, workflow, flushed }`, or `{ found: false, path }`
+when the file does not exist.
+
+`version` identifies exactly this content, and reading records it as your
+**base** for that path. That is what lets
+[`comfyui_write_workflow`](#comfyui_write_workflow) tell your own changes apart
+from someone else's, so read a workflow once before editing it and that write
+and its follow-ups are protected. The flush is unconditional and comes first
+for the same reason: a base taken before the human's tab was saved would later
+call their edit "no change".
 
 #### `comfyui_write_workflow`
 Write a workflow file **safely**: flushes any open tab so unsaved human edits
@@ -1055,13 +1088,26 @@ workflow JSON with a generic file tool.
 |-----------|------|-------------|
 | `path` | `string` | Workflow path relative to the user directory, or an absolute path inside a granted directory |
 | `workflow` | `object` | The full workflow JSON (UI format, with nodes and links) |
-| `skip_flush` | `boolean?` | Skip asking open tabs to save first. Leave this alone. |
-| `skip_reload` | `boolean?` | Skip telling open tabs to re-read afterwards. Leave this alone. |
+| `expected_version` | `string?` | The `version` your [`comfyui_read_workflow`](#comfyui_read_workflow) returned. Usually unnecessary — the version from your last read of this path is remembered and used automatically. Pass it when the read happened in another process. |
+| `force` | `boolean?` | Write past a refusal, destroying whatever the other writer did. Only after reading the reported conflict. |
 
-Returns `{ written, path, flushed, reloaded, human_edits_detected }`, plus
-`their_changes` and `action_required` when the diff is non-empty. A non-empty
-diff means the human had edited that workflow — read it and fold their intent
-into what you generate, rather than regenerating it away.
+Flush and reload are automatic and cannot be turned off. `skip_flush`,
+`skip_reload` and `save_first` are gone; each only disabled a safety.
+
+**It refuses rather than overwriting** in two cases, and both name what to do:
+
+- the file **changed** since your read — a human or another agent got there
+  first. The refusal carries the diff and, where this server wrote it last,
+  who that was.
+- the file **exists but has never been read** in this session, so there is no
+  known state to compare against.
+
+Creating a new file needs no read. `force: true` is the only way past either
+refusal.
+
+Returns `{ written, path, version, flushed, reloaded, write_reason, human_edits_detected }`.
+The returned `version` re-bases the path, so a follow-up write needs no fresh
+read.
 
 ```
 Rewrite workflows/Shared/pipeline.json with the updated graph
@@ -1103,6 +1149,7 @@ either is unchecked.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `path` | `string` | Absolute path to the file. Only `.ckpt .pt .pth .bin .pkl .pickle .safetensors .sft .gguf` are opened |
+| + [shared parameters](#shared-parameters) | | `response_format` |
 
 Returns:
 - `verdict`: `dangerous`, `suspicious` or `safe`
@@ -1134,7 +1181,7 @@ the actual generation speed.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `taskId` | `string` | The task ID returned by `comfyui_run_workflow` |
+| `task` | `string` | The task ID from `comfyui_run_workflow`, **or the name that run was given** |
 
 #### `comfyui_get_task_result`
 Get the result of a completed generation task, returning its images. If the
@@ -1142,7 +1189,14 @@ task is still running, it says so rather than blocking.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `taskId` | `string` | The task ID |
+| `task` | `string` | The task ID, **or the name that run was given** |
+
+Both tools take a name in place of an id. Every run through
+[`comfyui_run_workflow`](#comfyui_run_workflow) gets one — `run-<date>-<6 hex>`
+when you name nothing — so an agent that kept "the logo draft" rather than a
+uuid is not stuck. Ids are tried first, so a name that looks like an id still
+resolves. This replaced the separate `name_generation` and
+`get_generation_by_name` tools.
 
 #### `comfyui_list_tasks`
 List generation tasks tracked by this server, newest first, with a count by
@@ -1173,8 +1227,14 @@ this server. Paginated, running jobs first.
 |-----------|------|-------------|
 | + [shared parameters](#shared-parameters) | | `limit`, `offset`, `response_format` |
 
-Returns `{ total, count, offset, running, pending, jobs: [{ position, promptId, state }], has_more, next_offset }`,
-where `running`/`pending` count the whole queue and `jobs` is this page of it.
+Returns `{ total, count, offset, running, pending, mine, foreign, jobs: [{ position, promptId, state, clientId, mine }], has_more, next_offset }`,
+where `running`/`pending`/`mine`/`foreign` count the whole queue and `jobs` is
+this page of it.
+
+`mine` is what makes this the only cross-server view of who owns what — see
+[Sharing One ComfyUI](#sharing-one-comfyui). The official Comfy MCP's
+`job(action="queue")` also reaches ComfyUI's real queue, but reports no
+`client_id`, so it cannot answer "whose job is this".
 
 ```
 What's in the generation queue?
@@ -1187,16 +1247,30 @@ started — to stop a job that is actively generating, use
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `promptId` | `string?` | Prompt ID of the queued job. Omit to clear the entire queue. |
+| `promptId` | `string?` | Prompt ID of the queued job. Omit to cancel in bulk, which `scope` then controls. |
+| `scope` | `"mine" \| "all"` | Which jobs a bulk cancel removes (default: `mine`) — see [Sharing One ComfyUI](#sharing-one-comfyui). Ignored when `promptId` is given. |
+
+A bulk cancel defaults to **this agent's own** queued jobs. `scope: "all"`
+clears the whole queue including work submitted by other agents and by anyone
+in the ComfyUI web UI, and reports how many foreign jobs the default would have
+left alone.
 
 ```
 Cancel the current job
 ```
 
 #### `comfyui_interrupt`
-Interrupt the job ComfyUI is currently running, discarding its output. Takes no
-parameters. For jobs queued but not yet started, use
-[`comfyui_cancel_job`](#comfyui_cancel_job).
+Interrupt the job ComfyUI is currently running, discarding its output. For jobs
+queued but not yet started, use [`comfyui_cancel_job`](#comfyui_cancel_job).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `confirm_foreign` | `boolean?` | Interrupt even when the running job was submitted by someone else |
+
+ComfyUI has one global `/interrupt` with no notion of ownership, so the gate
+lives here: the tool **refuses** when the running job is not this agent's until
+`confirm_foreign` is passed. Their render is discarded and cannot be recovered,
+so pass it only once the user has actually agreed.
 
 ```
 Stop the current generation
@@ -1374,9 +1448,13 @@ too large to read whole.
 | Prompt | Arguments |
 |--------|-----------|
 | `generate-image` | `prompt`, `model_type`, `aspect_ratio` |
-| `setup-comfyui` | `platform`, `model_type` |
-| `run-example` | `example_name` |
 | `learn-prompting` | `model_type` |
+
+`setup-comfyui` and `run-example` are gone. Both walked an agent through tools
+this server no longer has — installing ComfyUI and downloading models are the
+official Comfy MCP's job, and browsing documentation examples is covered by its
+template gallery. A prompt that drives an agent into tools that do not exist is
+worse than no prompt at all.
 
 ---
 
@@ -1389,7 +1467,10 @@ too large to read whole.
 | `COMFYUI_URL` | ComfyUI URL. Takes priority over the config file and skips port scanning. |
 | `COMFYUI_API_KEY` | API key sent to ComfyUI, for instances that require authentication. Overrides the config file. |
 | `COMFYUI_MCP_DB_PATH` | Path to the notes/templates SQLite file (default: `~/.comfyui-mcp/data.db`) |
-| `OUTPUT_DIR` | Where generated images are written (default: `./outputs`) |
+| `COMFYUI_MCP_AGENT_ID` | Who this instance is when several agents share one ComfyUI (default: `host/pid`) — see [Sharing One ComfyUI](#sharing-one-comfyui) |
+
+Where generated images are written is `outputDir` in the config file below; it
+has no environment variable.
 
 ### Config File
 
@@ -1407,12 +1488,13 @@ Location:
   "outputDir": "./outputs",
   "workflowsDir": "./workflows",
   "outputSizeThreshold": 1048576,
-  "workflowWriteDirs": []
+  "workflowWriteDirs": [],
+  "agentId": "gpu-box/48211"
 }
 ```
 
 Environment variables override the file. The default URL uses `127.0.0.1`
-rather than `localhost` because Node 18's `fetch` resolves `localhost` to IPv6
+rather than `localhost` because Node's `fetch` resolves `localhost` to IPv6
 first, which ComfyUI usually isn't listening on.
 
 `workflowWriteDirs` lists extra directories
@@ -1493,6 +1575,61 @@ Filenames are readable and collision-free — the write picks the first free nam
 atomically, so two runs landing in the same second can't overwrite each other.
 
 ---
+
+## Sharing One ComfyUI
+
+One ComfyUI is often driven by more than one thing at once: this server,
+another instance of it, the official Comfy MCP, and a human in a browser tab.
+ComfyUI already answers "whose job is this" — `/prompt` takes a `client_id` and
+`/queue` echoes it back — so this server sends one and reads it back.
+
+That identity is `agentId`: `COMFYUI_MCP_AGENT_ID` if you set it, otherwise
+`host/pid`. It is stable across reconnects, because a fresh id per connection
+would silently disown every job the previous one submitted.
+
+It is what the destructive queue tools scope to:
+
+- [`comfyui_cancel_job`](#comfyui_cancel_job) without a `promptId` cancels only
+  this agent's queued jobs. `scope: "all"` is the explicit opt-in.
+- [`comfyui_interrupt`](#comfyui_interrupt) refuses when the running job is
+  someone else's, until `confirm_foreign` is passed.
+- [`comfyui_get_queue`](#comfyui_get_queue) reports `mine`/`foreign` per job
+  and over the whole queue.
+- Workflow write bases are keyed by `(path, agent)`, so each agent asks only
+  "did this change since *I* read it".
+
+**The default is not stable across process restarts, and the pid is why.**
+Restart the server and its own still-queued jobs read back as `mine: false`, so
+a default `comfyui_cancel_job` leaves them alone and `comfyui_interrupt` gates
+on them. That direction is the safe one — dropping the pid would let two
+servers side by side on one machine share an identity and each read the other's
+render as its own. If you want identity to survive a restart, set
+`COMFYUI_MCP_AGENT_ID`.
+
+---
+
+## Where Starting Points Come From
+
+This server bundles no catalogue of example workflows. It used to carry 77
+hand-transcribed entries from the legacy ComfyUI examples site; they were
+removed, and adding one back would be a reversal rather than a small change.
+The argument was not that the graphs had rotted — 137 of their 138 URLs still
+resolved. It is that a second, hand-updated copy of a maintained gallery is a
+liability.
+
+Starter graphs come from three places instead:
+
+- **Built-in templates** — the six graphs above, constructed from the live
+  `object_info`, so they name models you actually have.
+- **Your own saved snippets** —
+  [`comfyui_save_user_snippet`](#comfyui_save_user_snippet) and friends. A
+  workflow that already worked here beats a documentation example.
+- **The official Comfy template gallery** — the official Comfy MCP's
+  `search_templates` / `fetch_template`, which tracks ComfyUI's own releases.
+
+So [`comfyui_recommend_workflow`](#comfyui_recommend_workflow) answers "which
+shape, what settings, which prompting guide" and deliberately does **not**
+return a graph.
 
 ## Security Notes
 
