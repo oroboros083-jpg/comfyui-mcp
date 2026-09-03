@@ -246,6 +246,43 @@ test("the builtin source names what is missing and how to get it", () => {
   assert.match(result.note!, /ComfyUI-Autocomplete-Plus/);
 });
 
+test("a builtin tag carries its Danbooru category, not its vocabulary group", () => {
+  // Every builtin tag used to be filed as "general" with the group stuffed
+  // into aliases, so a category filter could match nothing but "general" and
+  // searching a group word matched every tag in it as an alias hit.
+  const index = builtinIndex();
+
+  const meta = searchTags(index, search({ query: "highres" })).matches[0];
+  assert.equal(meta?.category, "meta");
+  assert.equal(meta?.group, "medium and meta");
+
+  const general = searchTags(index, search({ query: "cowboy_shot" })).matches[0];
+  assert.equal(general?.category, "general");
+  assert.equal(general?.group, "framing");
+  assert.deepEqual(general?.aliases, []);
+});
+
+test("a category filter selects from the builtin source", () => {
+  const index = builtinIndex();
+
+  const asMeta = searchTags(index, search({ query: "res", category: "meta" }));
+  assert.ok(asMeta.total > 0, "meta matched nothing at all before");
+  assert.ok(asMeta.matches.every((m) => m.category === "meta"));
+
+  const asGeneral = searchTags(index, search({ query: "highres", category: "general" }));
+  assert.equal(asGeneral.total, 0, "a meta tag is not also general");
+});
+
+test("a vocabulary group is not treated as an alias of its tags", () => {
+  const result = searchTags(builtinIndex(), search({ query: "framing" }));
+
+  assert.equal(
+    result.matches.some((m) => m.tag === "cowboy_shot"),
+    false,
+    "'framing' is what the tag controls, not another name for it"
+  );
+});
+
 test("related tags on the builtin source report the gap rather than empty", () => {
   // No co-occurrence data exists offline, and an empty list would read as
   // "these tags have no relatives" rather than "this needs the node".

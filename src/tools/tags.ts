@@ -55,6 +55,16 @@ export interface TagRecord {
   /** Danbooru post count. A proxy for how well a model knows the tag. */
   count: number;
   aliases: string[];
+  /**
+   * What the tag controls - "framing", "hair colour". Only the builtin
+   * vocabulary carries these; the CSVs have no such column.
+   *
+   * Separate from `category` because the two answer different questions, and
+   * folding one into the other is what this field replaced: the builtin index
+   * used to file the group under `aliases`, so `search_tags("framing")`
+   * matched every framing tag as though "framing" were another name for it.
+   */
+  group?: string;
 }
 
 /** Which body of tags answered a query. */
@@ -260,6 +270,23 @@ export function parseCooccurrenceCsv(
 // ---------------------------------------------------------------------------
 
 /**
+ * Danbooru's own category for a curated tag, where it is not `general`.
+ *
+ * The vocabulary is grouped by what a tag controls, and those groups are not
+ * Danbooru categories - "framing" and "hair colour" are not categories at
+ * all, and nearly every tag in the set is `general` on Danbooru whatever
+ * group it sits in. These three are the exceptions, and listing them is what
+ * lets `search_tags({category: "meta"})` return anything from the builtin
+ * source: it previously filed every tag as `general`, so the filter could
+ * never match.
+ */
+const BUILTIN_TAG_CATEGORIES: Record<string, TagCategory> = {
+  highres: "meta",
+  absurdres: "meta",
+  official_art: "meta",
+};
+
+/**
  * The curated vocabulary from the prompting guides, as an index.
  *
  * No post counts exist for these, so they are given a nominal count that
@@ -269,9 +296,15 @@ export function parseCooccurrenceCsv(
 export function builtinIndex(): TagIndex {
   const tags: TagRecord[] = [];
 
-  for (const [category, list] of Object.entries(DANBOORU_VOCABULARY.categories)) {
+  for (const [group, list] of Object.entries(DANBOORU_VOCABULARY.categories)) {
     for (const tag of list) {
-      tags.push({ tag, category: "general", count: 0, aliases: [category] });
+      tags.push({
+        tag,
+        category: BUILTIN_TAG_CATEGORIES[tag] ?? "general",
+        count: 0,
+        aliases: [],
+        group,
+      });
     }
   }
 
@@ -544,6 +577,7 @@ export function relatedTags(
       category,
       count: record?.count ?? 0,
       aliases: record?.aliases ?? [],
+      ...(record?.group ? { group: record.group } : {}),
       cooccurrence: sum,
       matchedInputs: inputs,
     });
@@ -574,7 +608,8 @@ export function relatedTags(
 function tagRow(record: TagRecord): string {
   const count = record.count > 0 ? ` — ${record.count.toLocaleString()} posts` : "";
   const aliases = record.aliases.length ? ` (aka ${record.aliases.join(", ")})` : "";
-  return `- \`${record.tag}\` [${record.category}]${count}${aliases}`;
+  const group = record.group ? `, ${record.group}` : "";
+  return `- \`${record.tag}\` [${record.category}${group}]${count}${aliases}`;
 }
 
 export function renderTagSearch(
