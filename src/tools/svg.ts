@@ -106,7 +106,7 @@ export function sanitizeSvg(svg: string): string {
   // Before anything else: no internal subset means no entity to expand,
   // whatever the parser downstream is willing to resolve.
   sanitized = sanitized.replace(DOCTYPE_PATTERN, "");
-  sanitized = replaceUntilStable(sanitized, /<script[\s\S]*?<\/script\s*>/gi, "");
+  sanitized = replaceUntilStable(sanitized, /<script\b[\s\S]*?<\/script\b[^>]*>/gi, "");
   sanitized = sanitized.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "");
 
   // The unquoted alternative matters: XML requires quotes, but the renderer
