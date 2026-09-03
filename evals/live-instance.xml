@@ -16,9 +16,20 @@
   role ("the low-noise pass", "the segmentation model") rather than by exact
   filename, so most survive a version bump of the same model.
 
-  These exercise the connected tools: comfyui_list_models with its type and
-  search filters, comfyui_get_capabilities, comfyui_get_node_info and
-  comfyui_list_nodes. All are read-only; none queue a generation.
+  STALE, AND NOT MERELY IN THE HEADER. These questions were written against
+  four tools this server no longer has - model listing, capability reporting
+  and the two node-introspection tools - all of which moved to the official
+  Comfy MCP (search_models, nodes). Every question below asks for an exact
+  model filename, and nothing this server still registers returns one:
+  comfyui_get_status is the nearest, and it reports architecture names and
+  feature flags, never filenames.
+
+  So a run of this suite now measures the OFFICIAL server, not this one. Do
+  not read a failure here as a regression in this repo. Whether to rewrite
+  the questions against what this server does answer with a live ComfyUI, or
+  to delete the suite outright, is recorded in TODO.md.
+
+  All are read-only; none queue a generation.
 -->
 <evaluation>
   <qa_pair>

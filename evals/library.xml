@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Evaluation questions for the bundled library: example workflows, prompting
-  guides and model download metadata.
+  Evaluation questions for the bundled prompting guides and tag vocabulary.
 
   Every answer here is derived from data compiled into the server, so it is
   stable across machines and does not depend on ComfyUI running or on which
