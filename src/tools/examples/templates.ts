@@ -77,7 +77,6 @@ export interface TemplateSearchRow {
   taskType?: string;
   category?: string;
   parameterCount?: number;
-  requiredModelCount?: number;
   useCount?: number;
 }
 
@@ -244,8 +243,7 @@ export function renderTemplateSearch(result: SearchTemplatesResult): string {
     title: filters.length ? `Templates - ${filters.join(", ")}` : "Templates",
     rows: result.results.map((r) => {
       const badges = [r.modelType, r.taskType, r.category].filter(Boolean).join("/");
-      const needs = r.requiredModelCount ? ` _(needs ${r.requiredModelCount} model(s))_` : "";
-      return `- \`${r.id}\` **${r.name}** _(${r.source}${badges ? `; ${badges}` : ""})_ - ${r.description}${needs}`;
+      return `- \`${r.id}\` **${r.name}** _(${r.source}${badges ? `; ${badges}` : ""})_ - ${r.description}`;
     }),
     page: result,
     empty:
