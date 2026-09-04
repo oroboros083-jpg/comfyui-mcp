@@ -7,7 +7,18 @@ if it stays undone, not about how hard it is.
 
 ## P1 — do next
 
-Nothing. 
+- [ ] still bloated imo. snippets, svg, text fonts add little value as an mcp tool imo, should be a node.
+- [ ] "user templates" can easily just be "user workflows duplicated later". 
+- [ ] Too many possible conflicting sources for model guidance.
+- [ ] perhaps need to fork official repo and add the better job+workflow handling there.
+- [ ] tags good.
+- [ ] workflow sharing good.
+- [ ] not sure I like "hidden shared memory" effect of notes. likely best place to keep memory is wfs themselves. 
+- [ ] Want single source of truth for model guidance + shared hub to find more resources.
+- [ ] Comfy Gallery great, still want link back to model card + example cfg, denoise etc.
+- [ ] Maybe "shared workflows" solution is just to keep the model's workflows out of the workflows folder and submit over cli/server? then user changes can't clobber but it desyncs. 
+- [ ] add the ability for the model to open new tab with a shared workflow.
+- [ ] too many ways to generate a node. too easy to give models conflicting guidance. 
 
 ## P2 — from the tool-surface audit
 
