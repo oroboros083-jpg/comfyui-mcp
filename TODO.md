@@ -132,20 +132,77 @@ effort.
 
 ## P3 — parked on an open question or on someone else's move
 
-- [ ] **Fetch from Civitai / civitai.red with metadata preservation.** Not
-      attempted: needs live network to design against, not merely to test.
-      Two open questions. First, what "metadata preservation" writes and
-      where - trigger words, base model, and version id belong somewhere
-      ComfyUI or a later session can find them, and nothing here has a place
-      for that yet. Second, whether a download tool belongs in a companion
-      server at all when `download_model` exists; the honest argument for it
-      is that comfy-cli's is Hugging Face-shaped and Civitai's version/file
-      model does not map onto it. `comfyui_scan_model` is the natural
-      finisher for whatever this becomes: fetch, then scan before anything
-      loads it.
+- [ ] **Fetch from Civitai / civitai.red with metadata preservation.** Still
+      parked, but the two open questions are now answered by reading the
+      source rather than guessed at. Read against comfy-cli `3fddc3e`,
+      comfy-mcp `ded5a32` and ComfyUI `0eb098b` on 2026-09-03.
 
-      `ModelReference.civitai` already holds a path rather than a URL, so the
-      renderer supplies the host - that half is done.
+      **Correction to what this entry used to say.** It claimed comfy-cli's
+      downloader "is Hugging Face-shaped and Civitai's version/file model
+      does not map onto it". That is backwards. The Civitai path is the rich
+      one and the Hugging Face path is the stub:
+
+      - *Civitai* (`comfy_cli/command/models/models.py`): calls
+        `/api/v1/models/{id}` or `/api/v1/model-versions/{id}`, maps
+        `model["type"]` through a five-entry `model_path_map`
+        (lora/hypernetwork/checkpoint/textualinversion/controlnet) and files
+        the download at `models/<type>/<baseModel>/` on its own.
+      - *Hugging Face*: no API call at all. The filename is the last URL
+        segment, and `model_id` is the last two - used only in a progress
+        `print`. With no `relative_path` it prompts for the folder AND the
+        base model; an agentic caller gets the empty default for both, so
+        `os.path.join("models", "", "")` lands the file in the bare `models/`
+        root. comfy-mcp only forwards `--relative-path` when truthy, so an
+        MCP caller who omits it gets exactly that.
+
+      So **always pass `relative_path` for a Hugging Face URL**, and for any
+      Civitai type outside those five (VAE, upscaler, motion module), where
+      the unmapped branch is an interactive prompt nobody is there to answer.
+
+      **Nothing on the download path preserves anything.**
+      `request_civitai_model_version_api` holds the whole API response -
+      `trainedWords`, `description`, `images[].meta` with steps, cfgScale,
+      sampler, seed and prompts - and returns four scalars:
+      `model_name, download_url, model_type, basemodel`. The rest is dropped
+      at the point of parse. `baseModel` survives only because it names a
+      directory. No sidecar is written on any path; the only writes in that
+      module are comfy-cli's own `download_state` job bookkeeping.
+
+      **Where it should go, answered: ComfyUI's own assets DB.** `app/assets/`
+      in ComfyUI base is a SQLite-backed asset store, and
+      `services/metadata_extract.py` already extracts, per file,
+      `base_model`, `trained_words` (trigger words - from kohya's
+      `ss_tag_frequency`, deduped and capped at 100, or a direct
+      `trained_words` field), `air` (the CivitAI identifier), `source_url`,
+      `repo_id`/`revision`/`resolve_url` for Hugging Face, and
+      `has_preview_images`. It persists them to `AssetReference.user_metadata`,
+      and `PATCH /api/assets/{id}` takes a `user_metadata` body - so there is
+      a real, writable destination and this server does not need to invent a
+      sidecar format.
+
+      Three caveats before building on it:
+
+      - It is gated behind `--enable-assets`, off by default (a separate
+        `--enable-asset-hashing` gates blake3). A tool depending on it must
+        degrade when the routes 404 rather than fail.
+      - It reads the **safetensors header**, not the download source. So it
+        works for a file whose author embedded the fields and is empty for
+        one who did not, whatever it was downloaded from. This is why the
+        gap is not closed by it: the Civitai API knows things the file does
+        not carry.
+      - **Steps, CFG, sampler and seed are absent from every layer.** They
+        exist only in Civitai's `images[].meta`, and nothing - comfy-cli,
+        comfy-mcp, or ComfyUI - reads or stores them. That half of
+        "metadata preservation" has no home yet, and inventing one is the
+        actual open decision.
+
+      ComfyUI also serves `__metadata__` for a single file on demand
+      (`/view_metadata/{folder}`, no persistence), which is the cheap read if
+      only one model's trigger words are wanted.
+
+      Unchanged: `comfyui_scan_model` is the natural finisher - fetch, then
+      scan before anything loads it - and `ModelReference.civitai` already
+      holds a path rather than a URL, so the renderer supplies the host.
 
 - [ ] **Context-efficient node management.** Parked by design: the node tools
       are gone in favour of the official Comfy MCP's `nodes`, so this is only
